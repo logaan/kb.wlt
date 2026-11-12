@@ -129,3 +129,37 @@ fn status_changes_have_distinct_pixels() {
         assert!(render(status).bytes() != idle.bytes());
     }
 }
+
+#[test]
+fn fault_state_replaces_live_keyboard_status() {
+    let fault = Status {
+        faulted: true,
+        ..Status::default()
+    };
+    let live = Status {
+        connected: true,
+        ..Status::default()
+    };
+    assert!(render(fault).bytes() != render(live).bytes());
+    assert_eq!(
+        render(fault).bytes(),
+        render(Status {
+            connected: true,
+            held: 0x1ff,
+            chord: 0x1ff,
+            last_usage: 4,
+            keyboard: Some(kb_display::KeyboardStatus {
+                active_keys: 42,
+                layer: 1
+            }),
+            ..fault
+        })
+        .bytes()
+    );
+    assert!(
+        kb_display::nice_view::render(fault).bytes() != kb_display::nice_view::render(live).bytes()
+    );
+    let mut row = [0; 480];
+    kb_display::st7789::render_row(&render(fault), fault, 0, &mut row);
+    assert_eq!(&row[..2], &0x7800u16.to_be_bytes());
+}

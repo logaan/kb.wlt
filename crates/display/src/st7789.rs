@@ -97,7 +97,13 @@ impl<B: PanelBus> St7789<B> {
 
 pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; PANEL_WIDTH * 2]) {
     for x in 0..PANEL_WIDTH {
-        let mut color: u16 = if status.connected { 0x0184 } else { 0x1082 };
+        let mut color: u16 = if status.faulted {
+            0x7800
+        } else if status.connected {
+            0x0184
+        } else {
+            0x1082
+        };
         if (28..=251).contains(&y) && (8..=231).contains(&x) {
             color = 0x0000;
         }
@@ -108,7 +114,7 @@ pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; PANEL_
                 color = 0xffff;
             }
         }
-        if let Some(keyboard) = status.keyboard {
+        if let Some(keyboard) = status.keyboard.filter(|_| !status.faulted) {
             if (132..148).contains(&y) && (16..224).contains(&x) {
                 color = if x < 16 + usize::from(keyboard.active_keys.min(42)) * 208 / 42 {
                     0x07e0
@@ -130,7 +136,7 @@ pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; PANEL_
             let dx = x as i32 - center_x;
             let dy = y as i32 - center_y;
             let distance = dx * dx + dy * dy;
-            if status.keyboard.is_none() && distance <= 100 {
+            if !status.faulted && status.keyboard.is_none() && distance <= 100 {
                 let active = if dot == 8 {
                     status.held & 0x100 != 0
                 } else {

@@ -66,6 +66,18 @@ impl DrawTarget for Frame {
 pub fn render(status: Status) -> Frame {
     let mut frame = Frame::default();
     let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    if status.faulted {
+        for (label, y) in [
+            ("WASM FAULT", 12),
+            ("Typing", 44),
+            ("stopped", 60),
+            ("Reflash", 92),
+            ("firmware", 108),
+        ] {
+            let _ = Text::new(label, Point::new(4, y), style).draw(&mut frame);
+        }
+        return frame;
+    }
     let transport = match status.transport {
         Transport::Usb => "USB",
         Transport::Bluetooth => "Bluetooth",

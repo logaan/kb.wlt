@@ -4,6 +4,8 @@
 
 ### Added
 
+- Build-time component heap probes, a shared firmware target catalog, and hardware checklists for all ten milestones, including a two-component LED example.
+
 - Prospector braille reference mode enumerates the active Wavelet module, renders six- and eight-dot cells with separate Space labels, and captures namespace, browsing, and lookup input without sending it to the host.
 
 - Toucan 2 Bluetooth firmware with a Wavelet keymap, held-key reports, momentary layers, nice!view output, and a two-half Prospector USB receiver.
@@ -17,6 +19,8 @@
 - Manual versioned releases with changelog notes, tagged source, UF2 firmware, source/example bundles, and checksums.
 
 ### Fixed
+
+- Prospector component failures stop typing, release pending HID state, preserve USB and radio tasks, and display a persistent firmware fault instead of halting the device.
 
 - Pairing records reject truncated, trailing, or unsupported payloads and fall back to the previous valid flash journal entry.
 

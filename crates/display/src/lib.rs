@@ -85,6 +85,7 @@ pub struct KeyboardStatus {
 pub struct Status {
     pub transport: Transport,
     pub connected: bool,
+    pub faulted: bool,
     pub held: u16,
     pub chord: u16,
     pub last_usage: u8,
@@ -95,6 +96,16 @@ pub struct Status {
 pub fn render(status: Status) -> Frame {
     let mut frame = Frame::default();
     let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    if status.faulted {
+        for (label, y) in [
+            ("WASM FAULT", 8),
+            ("Typing stopped", 19),
+            ("Reflash firmware", 30),
+        ] {
+            let _ = Text::new(label, Point::new(0, y), style).draw(&mut frame);
+        }
+        return frame;
+    }
     let title = match (status.transport, status.connected) {
         (Transport::Usb, true) => "kb.wlt USB",
         (Transport::Usb, false) => "USB waiting",

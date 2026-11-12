@@ -707,11 +707,15 @@ async fn receive_snapshots(
 }
 
 async fn process_keys() {
-    let mut component = BrailleComponent::new(include_bytes!(env!("KB_BRAILLE_WASM"))).unwrap();
+    let mut component = kb_core::transport::FaultLatch::new(BrailleComponent::new(include_bytes!(
+        env!("KB_BRAILLE_WASM")
+    )));
+    let mut fault_generation = None;
     let mut state = BrailleState::default();
     #[cfg(feature = "prospector-display")]
-    let catalog =
-        kb_core::reference::Catalog::try_from_fn(|cell| component.map_cell(cell)).unwrap();
+    let catalog = component
+        .call(|component| kb_core::reference::Catalog::try_from_fn(|cell| component.map_cell(cell)))
+        .ok();
     #[cfg(feature = "prospector-display")]
     let mut reference = kb_core::reference::State::new();
     #[cfg(feature = "prospector-display")]
@@ -781,6 +785,7 @@ async fn process_keys() {
         let session = crate::usb_hid::connection();
         if !session.ready() || generation != session.generation() || update.cancel_chord {
             STROKES.clear();
+            fault_generation = None;
             generation = session.generation();
             #[cfg(feature = "prospector-display")]
             {
@@ -788,14 +793,14 @@ async fn process_keys() {
             }
             state = BrailleState::default();
             armed = false;
-        } else if update.keys == 0 {
+        } else if update.keys == 0 && !component.is_faulted() {
             armed = true;
         }
         #[cfg(feature = "prospector-display")]
-        let forward = if armed {
+        let forward = if let Some(catalog) = catalog.as_ref().filter(|_| armed) {
             let transition = reference.step(update.keys, Instant::now().as_millis() as u32);
             reference = transition.state;
-            cursor = cursor.apply(transition.action, &catalog);
+            cursor = cursor.apply(transition.action, catalog);
             if transition.reset_braille {
                 state = BrailleState::default();
                 STROKES.clear();
@@ -807,15 +812,30 @@ async fn process_keys() {
         #[cfg(not(feature = "prospector-display"))]
         let forward = true;
         if armed && forward && update.keys != state.held {
-            let output = component.step(state, update.keys).unwrap();
-            state = output.state;
-            if output.usage != 0 {
-                let _ =
-                    STROKES.try_send((generation, KeyStroke::new(output.usage, output.modifiers)));
-                #[cfg(feature = "prospector-display")]
-                {
-                    display_status.last_usage = output.usage;
-                    display_status.last_modifiers = output.modifiers;
+            if let Ok(output) = component.call(|component| component.step(state, update.keys)) {
+                state = output.state;
+                if output.usage != 0 {
+                    let _ = STROKES
+                        .try_send((generation, KeyStroke::new(output.usage, output.modifiers)));
+                    #[cfg(feature = "prospector-display")]
+                    {
+                        display_status.last_usage = output.usage;
+                        display_status.last_modifiers = output.modifiers;
+                    }
+                }
+            }
+        }
+        if component.is_faulted() {
+            state = BrailleState::default();
+            armed = false;
+            #[cfg(feature = "prospector-display")]
+            {
+                reference = reference.cancel(update.keys).state;
+            }
+            if session.ready() && fault_generation != Some(generation) {
+                STROKES.clear();
+                if STROKES.try_send((generation, KeyStroke::new(0, 0))).is_ok() {
+                    fault_generation = Some(generation);
                 }
             }
         }
@@ -823,11 +843,13 @@ async fn process_keys() {
         {
             let connected =
                 session.ready() && (receiver.is_connected(0) || receiver.is_connected(1));
-            let changed = display_status.connected != connected
+            let changed = display_status.faulted != component.is_faulted()
+                || display_status.connected != connected
                 || display_status.held != state.held
                 || display_status.chord != state.chord
                 || update.pressed | update.released != 0;
             display_status.connected = connected;
+            display_status.faulted = component.is_faulted();
             display_status.held = state.held;
             display_status.chord = state.chord;
             if matches!(
@@ -835,8 +857,9 @@ async fn process_keys() {
                 kb_core::reference::Mode::Namespace
                     | kb_core::reference::Mode::Reference
                     | kb_core::reference::Mode::Find
-            ) {
-                let page = cursor.page(&catalog, reference.mode);
+            ) && let Some(catalog) = catalog.as_ref()
+            {
+                let page = cursor.page(catalog, reference.mode);
                 if reference_page != Some(page) {
                     reference_page = Some(page);
                     crate::prospector::show_reference(page);
