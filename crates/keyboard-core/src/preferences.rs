@@ -189,7 +189,7 @@ impl Settings {
     }
 }
 
-pub type Output = Bounded<KeyStroke, 64>;
+pub type Output = Bounded<KeyStroke, { MAX_TRIGGER * MAX_TEXT }>;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Pending {

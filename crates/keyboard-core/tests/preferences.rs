@@ -152,6 +152,43 @@ fn simultaneous_expiry_and_new_expansion_do_not_truncate() {
 }
 
 #[test]
+fn a_failed_long_prefix_preserves_four_maximum_expansions() {
+    let mut settings = Settings::default();
+    settings
+        .set_binding(0, &[1, 2, 3, 5], b"long match")
+        .unwrap();
+    for slot in 1..=4 {
+        settings
+            .set_binding(slot, &[slot as u16], &[b'a' + slot as u8 - 1; 24])
+            .unwrap();
+    }
+    let mut engine = Engine::default();
+    for cell in 1..=3 {
+        assert!(
+            engine
+                .accept(&settings, cell, normal(cell), cell as u32)
+                .is_empty()
+        );
+    }
+    let output = engine.accept(&settings, 4, normal(4), 4);
+    assert_eq!(output.len(), 96);
+    let expected = (b'a'..=b'd')
+        .flat_map(|byte| [KeyStroke::from_ascii(byte).unwrap(); 24])
+        .collect::<Vec<_>>();
+    assert_eq!(output.as_slice(), expected);
+
+    for cell in 1..=3 {
+        assert!(
+            engine
+                .accept(&settings, cell, normal(cell), 10 + cell as u32)
+                .is_empty()
+        );
+    }
+    let expired = engine.accept(&settings, 4, normal(4), 13 + PREFIX_TIMEOUT_MS);
+    assert_eq!(expired.as_slice(), expected);
+}
+
+#[test]
 fn cancellation_and_mode_changes_discard_prefixes() {
     let mut settings = Settings::default();
     settings.set_binding(0, &[1, 3], b"expansion").unwrap();
