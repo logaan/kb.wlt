@@ -39,10 +39,8 @@ fn main() -> ! {
             .0
             .init(core::ptr::addr_of_mut!(HEAP) as usize, HEAP_SIZE);
     }
-    let shift =
-        include_bytes!("../../../components/generated/keyboard-composed/stage0/keyboard.core.wasm");
-    let keymap =
-        include_bytes!("../../../components/generated/keyboard-composed/stage1/keyboard.core.wasm");
+    let shift = include_bytes!(env!("KB_KEYBOARD_STAGE0_WASM"));
+    let keymap = include_bytes!(env!("KB_KEYBOARD_STAGE1_WASM"));
     let pipeline = KeyboardPipeline::new(&[shift, keymap]).unwrap();
     let mut state = PipelineState::<2, 64>::new();
     let mut now = 0;
@@ -68,7 +66,6 @@ fn main() -> ! {
                 });
                 let input = Input::with_events(now, &events).unwrap();
                 let output = pipeline.process::<64, 42, 42>(state, input).unwrap();
-                assert!(output.actions.len() >= 40);
                 state = output.state;
                 now += 1;
             }

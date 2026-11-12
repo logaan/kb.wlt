@@ -1,5 +1,16 @@
 #![no_std]
 
+#[cfg(all(
+    feature = "keyboard-composed",
+    any(
+        feature = "composed",
+        feature = "nice-view",
+        feature = "prospector-display",
+        feature = "display"
+    )
+))]
+compile_error!("keyboard composition requires the no-display Toucan configuration");
+
 use embassy_nrf::config::{Config, HfclkSource, LfclkSource};
 use embedded_alloc::LlffHeap;
 
@@ -8,9 +19,11 @@ static HEAP: LlffHeap = LlffHeap::empty();
 
 pub fn init_heap() {
     unsafe {
-        #[cfg(feature = "composed")]
+        #[cfg(feature = "keyboard-composed")]
+        embedded_alloc::init!(HEAP, 196 * 1024);
+        #[cfg(all(feature = "composed", not(feature = "keyboard-composed")))]
         embedded_alloc::init!(HEAP, 208 * 1024);
-        #[cfg(not(feature = "composed"))]
+        #[cfg(not(any(feature = "composed", feature = "keyboard-composed")))]
         embedded_alloc::init!(HEAP, 160 * 1024);
     }
 }
@@ -27,7 +40,6 @@ pub mod display;
 
 #[cfg(feature = "ble")]
 pub mod ble_bonds;
-
 
 #[cfg(not(feature = "ble"))]
 mod critical_section;

@@ -24,11 +24,18 @@ use embassy_usb::class::hid::{
     Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, State,
 };
 use embassy_usb::{Builder, Config};
+#[cfg(not(feature = "keyboard-composed"))]
 use kb_component_runtime::KeyboardComponent;
+#[cfg(feature = "keyboard-composed")]
+use kb_component_runtime::KeyboardPipeline;
 use kb_core::Debouncer;
 use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
 use kb_core::matrix_link::{KEYS_MASK, PACKET_LEN, Receiver, Side, Snapshot};
-use kb_core::pipeline::{Bounded, Input, KeyEvent, KeyState};
+#[cfg(not(feature = "keyboard-composed"))]
+use kb_core::pipeline::Bounded;
+#[cfg(feature = "keyboard-composed")]
+use kb_core::pipeline::PipelineState;
+use kb_core::pipeline::{Input, KeyEvent, KeyState};
 use kb_core::report_state::ReportState;
 use kb_core::transport::{InputGate, SessionGate};
 use nrf_sdc::{self as sdc, mpsl};
@@ -805,8 +812,18 @@ async fn gatt_events<
 }
 
 async fn process_keys() {
+    #[cfg(not(feature = "keyboard-composed"))]
     let mut component = KeyboardComponent::new(include_bytes!(env!("KB_KEYBOARD_WASM"))).ok();
+    #[cfg(feature = "keyboard-composed")]
+    let mut component = KeyboardPipeline::new(&[
+        include_bytes!(env!("KB_KEYBOARD_STAGE0_WASM")),
+        include_bytes!(env!("KB_KEYBOARD_STAGE1_WASM")),
+    ])
+    .ok();
+    #[cfg(not(feature = "keyboard-composed"))]
     let mut state = Bounded::<u8, 64>::new(0);
+    #[cfg(feature = "keyboard-composed")]
+    let mut state = PipelineState::<2, 64>::new();
     let mut reports = ReportState::<42>::new();
     let mut receivers = [Receiver::new(); 2];
     let mut previous = 0;
@@ -853,7 +870,7 @@ async fn process_keys() {
         let ready = session.ready();
         let gate = input_gate.observe(session.generation(), ready, keys, invalidated);
         if gate.cancel {
-            state = Bounded::new(0);
+            state = Default::default();
             reports.clear();
             wake_at = None;
             previous = 0;
@@ -888,48 +905,52 @@ async fn process_keys() {
                 let component = component
                     .as_ref()
                     .ok_or(kb_component_runtime::Error::InvalidState)?;
-                let output = component.process::<64, 42, 42>(state.as_slice(), &input)?;
-                let wake = output.wake_at_ms;
-                let output = component.transform_output::<64, 42>(
-                    output.state.as_slice(),
-                    output.actions.as_slice(),
-                )?;
+                #[cfg(not(feature = "keyboard-composed"))]
+                let (next_state, wake, actions) = {
+                    let output = component.process::<64, 42, 42>(state.as_slice(), &input)?;
+                    let wake = output.wake_at_ms;
+                    let output = component.transform_output::<64, 42>(
+                        output.state.as_slice(),
+                        output.actions.as_slice(),
+                    )?;
+                    (output.state, wake, output.actions)
+                };
+                #[cfg(feature = "keyboard-composed")]
+                let (next_state, wake, actions) = {
+                    let output = component.process::<64, 42, 42>(state, input)?;
+                    (output.state, output.wake_at_ms, output.actions)
+                };
                 let mut next_reports = reports;
-                let mut pending = Bounded::<[u8; 8], 84>::new([0; 8]);
-                for action in output.actions.as_slice() {
-                    let update = next_reports
+                for action in actions.as_slice() {
+                    next_reports
                         .apply(*action)
                         .map_err(|_| kb_component_runtime::Error::InvalidReturn)?;
-                    pending
-                        .push(update.first)
-                        .map_err(|_| kb_component_runtime::Error::Capacity)?;
-                    if let Some(second) = update.second {
-                        pending
-                            .push(second)
-                            .map_err(|_| kb_component_runtime::Error::Capacity)?;
-                    }
                 }
-                Ok::<_, kb_component_runtime::Error>((output.state, wake, next_reports, pending))
+                Ok::<_, kb_component_runtime::Error>((next_state, wake, next_reports, actions))
             })();
             match result {
-                Ok((next_state, wake, next_reports, pending)) => {
+                Ok((next_state, wake, next_reports, actions)) => {
                     state = next_state;
                     wake_at = wake;
+                    let mut replay = reports;
                     reports = next_reports;
-                    for report in pending.as_slice() {
-                        REPORTS.send((session.generation(), *report)).await;
-                        #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
-                        {
-                            display_status.last_modifiers = report[0];
-                            if report[2] != 0 {
-                                display_status.last_usage = report[2];
+                    for action in actions.as_slice() {
+                        let update = replay.apply(*action).unwrap();
+                        for report in [Some(update.first), update.second].into_iter().flatten() {
+                            REPORTS.send((session.generation(), report)).await;
+                            #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
+                            {
+                                display_status.last_modifiers = report[0];
+                                if report[2] != 0 {
+                                    display_status.last_usage = report[2];
+                                }
                             }
                         }
                     }
                 }
                 Err(_) => {
                     component = None;
-                    state = Bounded::new(0);
+                    state = Default::default();
                     wake_at = None;
                     reports.clear();
                     REPORTS.clear();
