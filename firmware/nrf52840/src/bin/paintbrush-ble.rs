@@ -293,10 +293,17 @@ async fn main(spawner: Spawner) {
                         scan_data: &[],
                     },
                 )
-                .await
-                .unwrap();
-            let connection = advertiser.accept().await.unwrap();
-            connection.set_bondable(true).unwrap();
+                .await;
+            let Ok(advertiser) = advertiser else {
+                Timer::after_millis(100).await;
+                continue;
+            };
+            let Ok(connection) = advertiser.accept().await else {
+                continue;
+            };
+            if connection.set_bondable(true).is_err() {
+                continue;
+            }
             let connection = connection.with_attribute_server(&server).unwrap();
             connection.set(&server.hid.protocol_mode, &1).unwrap();
             connection.set(&server.hid.control_point, &1).unwrap();

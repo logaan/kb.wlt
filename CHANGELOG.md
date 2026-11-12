@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Split links reconnect after stalled GATT discovery or missing key heartbeats, and Bluetooth advertising failures retry without halting firmware.
+
 - Bluetooth HID suspend and protocol changes cancel pending chords, reconnect starts with released keys, and saved host pairings are restored together.
 
 - USB suspend, reset, and reconnect cancel in-progress chords and discard reports from earlier connection sessions.

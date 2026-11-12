@@ -35,7 +35,7 @@ bind_interrupts!(pub(crate) struct Irqs {
 });
 
 #[cfg(feature = "prospector-display")]
-bind_interrupts!(struct DisplayIrqs {
+bind_interrupts!(pub(crate) struct DisplayIrqs {
     SPIM3 => embassy_nrf::spim::InterruptHandler<peripherals::SPI3>;
 });
 
@@ -329,10 +329,17 @@ pub async fn satellite(spawner: Spawner) {
                         scan_data: &[],
                     },
                 )
-                .await
-                .unwrap();
-            let connection = advertisement.accept().await.unwrap();
-            connection.set_bondable(true).unwrap();
+                .await;
+            let Ok(advertisement) = advertisement else {
+                Timer::after_millis(100).await;
+                continue;
+            };
+            let Ok(connection) = advertisement.accept().await else {
+                continue;
+            };
+            if connection.set_bondable(true).is_err() {
+                continue;
+            }
             let connection = connection.with_attribute_server(&server).unwrap();
             let notify = async {
                 let mut sequence = 0u16;
@@ -617,28 +624,49 @@ async fn receive_snapshots(
     slot: usize,
     layout: Layout,
 ) {
-    let Ok(client) = GattClient::<_, DefaultPacketPool, 12>::new(stack, connection).await else {
+    let Ok(Ok(client)) = with_timeout(
+        Duration::from_secs(5),
+        GattClient::<_, DefaultPacketPool, 12>::new(stack, connection),
+    )
+    .await
+    else {
         return;
     };
     let receive = async {
-        let Ok(services) = client.services_by_uuid(&SERVICE_UUID).await else {
+        let Ok(Ok(services)) = with_timeout(
+            Duration::from_secs(5),
+            client.services_by_uuid(&SERVICE_UUID),
+        )
+        .await
+        else {
             return;
         };
         let Some(service) = services.first() else {
             return;
         };
-        let Ok(characteristic): Result<Characteristic<[u8; PACKET_LEN]>, _> =
-            client.characteristic_by_uuid(service, &SNAPSHOT_UUID).await
-        else {
+        let result: Result<Result<Characteristic<[u8; PACKET_LEN]>, _>, _> = with_timeout(
+            Duration::from_secs(5),
+            client.characteristic_by_uuid(service, &SNAPSHOT_UUID),
+        )
+        .await;
+        let Ok(Ok(characteristic)) = result else {
             return;
         };
-        let Ok(mut listener) = client.subscribe(&characteristic, false).await else {
+        let Ok(Ok(mut listener)) = with_timeout(
+            Duration::from_secs(5),
+            client.subscribe(&characteristic, false),
+        )
+        .await
+        else {
             return;
         };
         let notifications = async {
             let mut first = true;
             loop {
-                let notification = listener.next().await;
+                let Ok(notification) = with_timeout(Duration::from_secs(1), listener.next()).await
+                else {
+                    return;
+                };
                 let Ok(snapshot) = Snapshot::decode(notification.as_ref()) else {
                     continue;
                 };
