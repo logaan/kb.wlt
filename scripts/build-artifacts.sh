@@ -11,6 +11,7 @@ cargo build --locked -p xtask
 "$repo_dir/target/debug/xtask" probe led components/generated/led-dim/stage0/led.core.wasm components/generated/led-dim/stage1/led.core.wasm
 "$repo_dir/target/debug/xtask" probe braille components/generated/braille.core.wasm
 "$repo_dir/target/debug/xtask" probe keyboard components/generated/toucan-keymap/keyboard.core.wasm
+"$repo_dir/target/debug/xtask" probe-arm
 target_list=$(mktemp)
 trap 'rm -f "$target_list"' EXIT
 "$repo_dir/target/debug/xtask" targets > "$target_list"

@@ -43,11 +43,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           targets: thumbv7em-none-eabihf
-      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev qemu-system-arm
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           workspaces: |
             . -> target
             firmware/nrf52840 -> target
+            firmware/heap-probe -> target
             resetter -> target
       - run: bash scripts/build-artifacts.sh

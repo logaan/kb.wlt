@@ -11,6 +11,12 @@ pub struct Target {
 }
 
 impl Target {
+    pub fn keyboard_composed(self) -> bool {
+        self.features
+            .split(',')
+            .any(|feature| feature == "keyboard-composed")
+    }
+
     const fn new(
         name: &'static str,
         binary: &'static str,
@@ -179,6 +185,20 @@ pub const TARGETS: &[Target] = &[
         "toucan-prospector",
         "toucan-dongle",
         "toucan-dongle,usb,prospector-display",
+        Some(Contract::Keyboard),
+        XIAO,
+    ),
+    Target::new(
+        "toucan-ble-composed",
+        "toucan-ble",
+        "toucan,keyboard-composed",
+        Some(Contract::Keyboard),
+        XIAO,
+    ),
+    Target::new(
+        "toucan-dongle-composed",
+        "toucan-dongle",
+        "toucan-dongle,usb,keyboard-composed",
         Some(Contract::Keyboard),
         XIAO,
     ),

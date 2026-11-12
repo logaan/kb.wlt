@@ -11,4 +11,4 @@ cargo xtask build xiao-led
 cargo xtask build paintbrush-usb
 ```
 
-Building components requires the current Wavelet CLI on `PATH`; builds check component interfaces and sample runtime heap use before producing firmware. Wasmi interprets validated core modules extracted from the components, with explicit canonical ABI adapters. Tests use checked-in component artifacts. CI runs on pushes and pull requests to `master`; the manual Release workflow bumps the version and publishes tagged firmware bundles.
+Building components requires the current Wavelet CLI on `PATH`; builds check component interfaces, sample runtime heap use, and reserve native stack RAM before producing firmware. Wasmi interprets validated core modules extracted from the components, with explicit canonical ABI adapters. The optional two-component Toucan example also requires Binaryen and QEMU, and supports firmware without displays. Tests use checked-in component artifacts. CI runs on pushes and pull requests to `master`; the manual Release workflow bumps the version and publishes tagged firmware bundles.

@@ -10,7 +10,7 @@ if [[ ! -f "$image" || ! -d "$volume" || ! -f "$volume/INFO_UF2.TXT" ]]; then
   printf 'Expected an existing UF2 image and a mounted UF2 volume with INFO_UF2.TXT.\n' >&2
   exit 1
 fi
-if ! rg -qi 'nrf52840|nice.?nano|xiao' "$volume/INFO_UF2.TXT"; then
+if ! grep -Eqi 'nrf52840|nice.?nano|xiao' "$volume/INFO_UF2.TXT"; then
   printf 'The selected UF2 volume does not identify an nRF52840 board.\n' >&2
   exit 1
 fi

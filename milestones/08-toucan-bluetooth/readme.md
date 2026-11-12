@@ -29,3 +29,16 @@ Layer 1 is held by the rightmost right thumb. It provides digits on the top row,
 - [ ] Confirm the trackpad sends no mouse events in this milestone.
 
 USB supplies power and provides bootloader access for these images; the host keyboard connection is Bluetooth. Pairing records are stored in reserved flash. To recover stale pairings, use the `settings-reset-xiao` image on affected boards, wait for its LED indication, then restore normal firmware and forget/re-pair the host entry.
+
+## Two-component example
+
+The optional `toucan-ble-composed` target runs `shift.wlt` and `keymap.wlt` as separate components with isolated memories and explicit state. Input travels forward through the pipeline; output travels back through the middleware. This example adds Shift to outgoing keys. It requires `wasm-opt` from Binaryen and `qemu-system-arm` on PATH, in addition to Wavelet. `WASM_OPT` and `QEMU_SYSTEM_ARM` can specify absolute executable paths.
+
+- [ ] Run `./milestones/08-toucan-bluetooth/build-composed.sh`. Confirm the ARM heap probe passes before firmware is produced.
+- [ ] Flash both halves with `./milestones/08-toucan-bluetooth/flash-composed.sh /Volumes/LEFT_XIAO /Volumes/RIGHT_XIAO`.
+- [ ] Type letter keys with Caps Lock off and confirm uppercase output without holding Shift.
+- [ ] Release every key, then press a number-layer key and confirm its shifted symbol. Verify no modifier remains stuck after release or reconnect.
+- [ ] Change the middleware, rebuild, and verify its effect independently of the keymap.
+- [ ] Restore the ordinary milestone image after testing the example if desired.
+
+The two-component target uses a 196 KiB heap and leaves at least 16 KiB for the native stack in the linked image. Display features are rejected for this target. Actual stack high-water use and hardware behavior remain unmeasured. The separate `toucan-dongle-composed` target offers the same pipeline through USB with two satellites and no LCD.

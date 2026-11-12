@@ -4,6 +4,8 @@
 
 ### Added
 
+- Optional two-component Toucan firmware without displays, with optimized Wavelet middleware, a Cortex-M heap probe, and a native RAM reserve check before UF2 generation.
+
 - A separate atomic flash journal for keyboard preferences, asynchronous saves, and menu-safe Bluetooth link restart and pairing reset commands.
 
 - Build-time component heap probes, a shared firmware target catalog, and hardware checklists for all ten milestones, including a two-component LED example.

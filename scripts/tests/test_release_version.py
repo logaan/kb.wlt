@@ -40,7 +40,8 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertIn('[dependencies]\nversion = "9.9.9"', updated)
         self.assertIn('edition = "2024"', updated)
 
-    def make_manifests(self, root, versions=("0.1.0", "0.1.0", "0.1.0")):
+    def make_manifests(self, root, versions=None):
+        versions = versions or ("0.1.0",) * len(RELEASE.MANIFESTS)
         for (filename, section), version in zip(RELEASE.MANIFESTS, versions):
             manifest = root / filename
             manifest.parent.mkdir(parents=True, exist_ok=True)
@@ -60,7 +61,7 @@ class ReleaseVersionTests(unittest.TestCase):
     def test_mismatched_versions_fail_before_any_file_is_modified(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.make_manifests(root, ("0.1.0", "0.2.0", "0.1.0"))
+            self.make_manifests(root, ("0.1.0", "0.2.0", "0.1.0", "0.1.0"))
             before = {filename: (root / filename).read_text() for filename, _ in RELEASE.MANIFESTS}
             with self.assertRaises(ValueError):
                 RELEASE.update(root, "major")
