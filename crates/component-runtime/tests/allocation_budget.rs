@@ -47,9 +47,10 @@ fn embedded_components_fit_the_nrf_heap_budget() {
             "../../../components/generated/braille.core.wasm"
         ))
         .unwrap();
-        component
-            .step(BrailleState { held: 1, chord: 1 }, 0x140)
-            .unwrap();
+        for cell in 1..=511 {
+            let pressed = component.step(BrailleState::default(), cell).unwrap();
+            component.step(pressed.state, 0).unwrap();
+        }
     }
     let braille_peak = PEAK.load(Ordering::SeqCst) - baseline;
     eprintln!(
@@ -82,7 +83,24 @@ fn embedded_components_fit_the_nrf_heap_budget() {
             })
             .collect();
         let input = Input::<42>::with_events(0, &events).unwrap();
-        component.process::<64, 42, 42>(&[], &input).unwrap();
+        let output = component.process::<64, 42, 42>(&[], &input).unwrap();
+        let output = component
+            .transform_output::<64, 42>(output.state.as_slice(), output.actions.as_slice())
+            .unwrap();
+        let released: Vec<_> = events
+            .iter()
+            .map(|event| KeyEvent {
+                state: KeyState::Released,
+                ..*event
+            })
+            .collect();
+        let input = Input::<42>::with_events(1, &released).unwrap();
+        let output = component
+            .process::<64, 42, 42>(output.state.as_slice(), &input)
+            .unwrap();
+        component
+            .transform_output::<64, 42>(output.state.as_slice(), output.actions.as_slice())
+            .unwrap();
     }
     let keyboard_peak = PEAK.load(Ordering::SeqCst) - baseline;
     eprintln!("Toucan keymap peak allocations: {keyboard_peak} bytes");

@@ -42,3 +42,6 @@ pub mod usb_hid;
 
 #[cfg(feature = "nice-view")]
 pub mod nice_view;
+
+#[cfg(feature = "toucan")]
+pub mod toucan;

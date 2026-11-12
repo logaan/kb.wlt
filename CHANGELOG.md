@@ -4,6 +4,7 @@
 
 ### Added
 
+- Toucan 2 Bluetooth firmware with a Wavelet keymap, held-key reports, momentary layers, nice!view output, and a two-half Prospector USB receiver.
 - Independent USB reset controller for a third XIAO, with two open-drain reset channels, serial commands, and a wiring diagram.
 - ST7789 display rendering and Prospector display wiring support.
 - Bluetooth links for a single Paintbrush through Prospector, two Paintbrush halves, and a two-half Prospector receiver, with persistent peer pairing and stale-chord cancellation.

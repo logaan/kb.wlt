@@ -82,3 +82,15 @@ lto = "fat"
 opt-level = "s"
 debug = 2
 panic = "abort"
+
+[[bin]]
+name = "toucan-ble"
+required-features = ["toucan"]
+
+[[bin]]
+name = "toucan-satellite"
+required-features = ["toucan"]
+
+[[bin]]
+name = "toucan-dongle"
+required-features = ["toucan-dongle"]
