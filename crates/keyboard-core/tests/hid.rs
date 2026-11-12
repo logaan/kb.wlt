@@ -57,7 +57,79 @@ fn packing_preserves_modifiers_and_rejects_invalid_values() {
         let stroke = KeyStroke::new(4, modifier);
         assert_eq!(KeyStroke::from_packed(stroke.packed()), Some(stroke));
     }
-    for packed in [0, 1, 2, 3, 0x102, 0x10000, u32::MAX] {
+    for packed in [
+        0,
+        1,
+        2,
+        3,
+        0x102,
+        0x40000004,
+        0x80000000,
+        0x80000004,
+        u32::MAX,
+    ] {
         assert_eq!(KeyStroke::from_packed(packed), None);
     }
+}
+
+#[test]
+fn packed_commands_distinguish_sticky_from_tap_and_keep_held_internal() {
+    for stroke in [
+        KeyStroke::new(0, 2).sticky(),
+        KeyStroke::new(0, 0).with_consumer(0x029d).sticky(),
+        KeyStroke::new(0, 2),
+        KeyStroke::new(8, 0).with_consumer(0x029d),
+        KeyStroke::new(0, 0).with_consumer(0x029d),
+    ] {
+        assert_eq!(KeyStroke::from_packed(stroke.packed()), Some(stroke));
+        assert_eq!(stroke.consumer_report(), stroke.consumer.to_le_bytes());
+        assert!(!stroke.is_held());
+    }
+    assert_eq!(
+        KeyStroke::from_packed(KeyStroke::new(0, 2).held().packed()),
+        None
+    );
+}
+
+fn descriptor_reports(bytes: &[u8]) -> std::collections::BTreeMap<(u8, u8), u32> {
+    let mut reports = std::collections::BTreeMap::new();
+    let (mut index, mut id, mut size, mut count) = (0, 0, 0, 0);
+    while index < bytes.len() {
+        let prefix = bytes[index];
+        let len = match prefix & 3 {
+            3 => 4,
+            value => value as usize,
+        };
+        let mut value = 0;
+        for offset in 0..len {
+            value |= u32::from(bytes[index + offset + 1]) << (offset * 8);
+        }
+        match prefix & 0xfc {
+            0x74 => size = value,
+            0x94 => count = value,
+            0x84 => id = value as u8,
+            0x80 | 0x90 => *reports.entry((id, prefix & 0xfc)).or_default() += size * count,
+            _ => {}
+        }
+        index += len + 1;
+    }
+    reports
+}
+
+#[test]
+fn descriptors_preserve_boot_keyboard_and_identify_ble_reports() {
+    use kb_core::hid::{
+        BRAILLE_BLE_REPORT_DESCRIPTOR, CONSUMER_REPORT_DESCRIPTOR, KEYBOARD_REPORT_DESCRIPTOR,
+    };
+    let keyboard = descriptor_reports(&KEYBOARD_REPORT_DESCRIPTOR);
+    assert_eq!(keyboard.get(&(0, 0x80)), Some(&64));
+    assert_eq!(keyboard.get(&(0, 0x90)), Some(&8));
+    let consumer = descriptor_reports(&CONSUMER_REPORT_DESCRIPTOR);
+    assert_eq!(consumer.len(), 1);
+    assert_eq!(consumer.get(&(0, 0x80)), Some(&16));
+    let combined = descriptor_reports(&BRAILLE_BLE_REPORT_DESCRIPTOR);
+    assert_eq!(combined.len(), 3);
+    assert_eq!(combined.get(&(1, 0x80)), Some(&64));
+    assert_eq!(combined.get(&(1, 0x90)), Some(&8));
+    assert_eq!(combined.get(&(2, 0x80)), Some(&16));
 }

@@ -12,15 +12,89 @@ pub const LEFT_ALT: u8 = 0x04;
 pub const LEFT_GUI: u8 = 0x08;
 pub const RELEASE_REPORT: [u8; 8] = [0; 8];
 
+pub const CONSUMER_REPORT_DESCRIPTOR: [u8; 23] = [
+    0x05, 0x0c, 0x09, 0x01, 0xa1, 0x01, 0x15, 0x00, 0x26, 0xff, 0x3f, 0x19, 0x00, 0x2a, 0xff, 0x3f,
+    0x75, 0x10, 0x95, 0x01, 0x81, 0x00, 0xc0,
+];
+
+pub const BRAILLE_BLE_REPORT_DESCRIPTOR: [u8; 92] = {
+    let mut bytes = [0; 92];
+    let mut index = 0;
+    while index < 6 {
+        bytes[index] = KEYBOARD_REPORT_DESCRIPTOR[index];
+        index += 1;
+    }
+    bytes[6] = 0x85;
+    bytes[7] = 1;
+    while index < 65 {
+        bytes[index + 2] = KEYBOARD_REPORT_DESCRIPTOR[index];
+        index += 1;
+    }
+    index = 0;
+    while index < 6 {
+        bytes[67 + index] = CONSUMER_REPORT_DESCRIPTOR[index];
+        index += 1;
+    }
+    bytes[73] = 0x85;
+    bytes[74] = 2;
+    while index < 23 {
+        bytes[69 + index] = CONSUMER_REPORT_DESCRIPTOR[index];
+        index += 1;
+    }
+    bytes
+};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum StrokeKind {
+    #[default]
+    Tap,
+    Sticky,
+    Held,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct KeyStroke {
     pub usage: u8,
     pub modifiers: u8,
+    pub consumer: u16,
+    kind: StrokeKind,
 }
 
 impl KeyStroke {
     pub const fn new(usage: u8, modifiers: u8) -> Self {
-        Self { usage, modifiers }
+        Self {
+            usage,
+            modifiers,
+            consumer: 0,
+            kind: StrokeKind::Tap,
+        }
+    }
+
+    pub const fn with_consumer(mut self, consumer: u16) -> Self {
+        self.consumer = consumer;
+        self
+    }
+
+    pub const fn sticky(mut self) -> Self {
+        self.kind = StrokeKind::Sticky;
+        self
+    }
+
+    pub const fn held(mut self) -> Self {
+        self.kind = StrokeKind::Held;
+        self
+    }
+
+    pub const fn is_sticky(self) -> bool {
+        matches!(self.kind, StrokeKind::Sticky)
+    }
+
+    pub const fn is_held(self) -> bool {
+        matches!(self.kind, StrokeKind::Held)
+    }
+
+    pub const fn consumer_report(self) -> [u8; 2] {
+        self.consumer.to_le_bytes()
     }
 
     pub const fn report(self) -> [u8; 8] {
@@ -28,15 +102,31 @@ impl KeyStroke {
     }
 
     pub const fn packed(self) -> u32 {
-        self.usage as u32 | ((self.modifiers as u32) << 8)
+        self.usage as u32
+            | ((self.modifiers as u32) << 8)
+            | ((self.consumer as u32) << 16)
+            | match self.kind {
+                StrokeKind::Tap => 0,
+                StrokeKind::Sticky => 1 << 31,
+                StrokeKind::Held => 1 << 30,
+            }
     }
 
     pub const fn from_packed(packed: u32) -> Option<Self> {
-        if packed == 0 || packed > 0xffff || (packed & 0xff) < 4 {
-            None
-        } else {
-            Some(Self::new(packed as u8, (packed >> 8) as u8))
+        let usage = packed as u8;
+        let modifiers = (packed >> 8) as u8;
+        let consumer = ((packed >> 16) & 0x3fff) as u16;
+        let sticky = packed & (1 << 31) != 0;
+        if packed == 0
+            || packed & (1 << 30) != 0
+            || (usage > 0 && usage < 4)
+            || (sticky && (usage != 0 || (modifiers == 0 && consumer == 0)))
+            || (!sticky && usage == 0 && modifiers == 0 && consumer == 0)
+        {
+            return None;
         }
+        let stroke = Self::new(usage, modifiers).with_consumer(consumer);
+        Some(if sticky { stroke.sticky() } else { stroke })
     }
 
     pub const fn from_ascii(ascii: u8) -> Option<Self> {
