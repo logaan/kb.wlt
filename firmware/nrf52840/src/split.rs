@@ -709,6 +709,15 @@ async fn receive_snapshots(
 async fn process_keys() {
     let mut component = BrailleComponent::new(include_bytes!(env!("KB_BRAILLE_WASM"))).unwrap();
     let mut state = BrailleState::default();
+    #[cfg(feature = "prospector-display")]
+    let catalog =
+        kb_core::reference::Catalog::try_from_fn(|cell| component.map_cell(cell)).unwrap();
+    #[cfg(feature = "prospector-display")]
+    let mut reference = kb_core::reference::State::new();
+    #[cfg(feature = "prospector-display")]
+    let mut cursor = kb_core::reference::Cursor::default();
+    #[cfg(feature = "prospector-display")]
+    let mut reference_page = None;
     let mut receiver = Receiver::<2>::new(500);
     let mut sessions: [Option<Session>; 2] = [None; 2];
     let mut armed = false;
@@ -735,6 +744,7 @@ async fn process_keys() {
                         .unwrap();
                     receiver = next;
                     sessions[slot] = Some(session);
+                    update.cancel_chord |= opened.cancel_chord;
                     if opened.cancel_chord {
                         state = BrailleState::default();
                         armed = false;
@@ -743,10 +753,11 @@ async fn process_keys() {
                 }
                 LinkEvent::Snapshot(slot, snapshot) => {
                     if !receiver.is_connected(slot) {
-                        let (next, session, _) = receiver
+                        let (next, session, opened) = receiver
                             .connect(slot, snapshot.node, snapshot.layout, now)
                             .unwrap();
                         receiver = next;
+                        update.cancel_chord |= opened.cancel_chord;
                         sessions[slot] = Some(session);
                     }
                     match sessions[slot] {
@@ -771,12 +782,31 @@ async fn process_keys() {
         if !session.ready() || generation != session.generation() || update.cancel_chord {
             STROKES.clear();
             generation = session.generation();
+            #[cfg(feature = "prospector-display")]
+            {
+                reference = reference.cancel(update.keys).state;
+            }
             state = BrailleState::default();
             armed = false;
         } else if update.keys == 0 {
             armed = true;
         }
-        if armed && update.keys != state.held {
+        #[cfg(feature = "prospector-display")]
+        let forward = if armed {
+            let transition = reference.step(update.keys, Instant::now().as_millis() as u32);
+            reference = transition.state;
+            cursor = cursor.apply(transition.action, &catalog);
+            if transition.reset_braille {
+                state = BrailleState::default();
+                STROKES.clear();
+            }
+            transition.forward
+        } else {
+            false
+        };
+        #[cfg(not(feature = "prospector-display"))]
+        let forward = true;
+        if armed && forward && update.keys != state.held {
             let output = component.step(state, update.keys).unwrap();
             state = output.state;
             if output.usage != 0 {
@@ -800,7 +830,18 @@ async fn process_keys() {
             display_status.connected = connected;
             display_status.held = state.held;
             display_status.chord = state.chord;
-            if changed {
+            if matches!(
+                reference.mode,
+                kb_core::reference::Mode::Namespace
+                    | kb_core::reference::Mode::Reference
+                    | kb_core::reference::Mode::Find
+            ) {
+                let page = cursor.page(&catalog, reference.mode);
+                if reference_page != Some(page) {
+                    reference_page = Some(page);
+                    crate::prospector::show_reference(page);
+                }
+            } else if changed || reference_page.take().is_some() {
                 crate::prospector::update(display_status);
             }
         }

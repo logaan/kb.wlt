@@ -75,6 +75,21 @@ impl<B: PanelBus> St7789<B> {
         Ok(())
     }
 
+    pub async fn present_reference(
+        &mut self,
+        page: &kb_core::reference::Page,
+    ) -> Result<(), B::Error> {
+        self.bus.command(0x2a, &[0, 0, 0, 239]).await?;
+        self.bus.command(0x2b, &[0, 20, 1, 43]).await?;
+        self.bus.command(0x2c, &[]).await?;
+        let mut row = [0; PANEL_WIDTH * 2];
+        for y in 0..PANEL_HEIGHT {
+            crate::reference::render_row(page, y, &mut row);
+            self.bus.data(&row).await?;
+        }
+        Ok(())
+    }
+
     pub fn into_inner(self) -> B {
         self.bus
     }

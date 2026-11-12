@@ -273,6 +273,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-hal-async",
  "futures",
+ "kb-core",
 ]
 
 [[package]]

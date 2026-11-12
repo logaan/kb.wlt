@@ -173,3 +173,32 @@ fn reference_catalog_uses_the_active_component_map_cell_export() {
         );
     }
 }
+
+#[test]
+fn reference_capture_suppresses_real_component_output_for_every_cell() {
+    use kb_core::reference::{LEADER, REFERENCE, State};
+    let mut component = BrailleComponent::new(BRAILLE).unwrap();
+    for cell in 1..=511 {
+        let mut reference = State::new();
+        let mut state = BrailleState::default();
+        let mut outputs = Vec::new();
+        for (time, keys) in [0, 0x100, LEADER, 0x100, REFERENCE, 0x100, 0, cell, 0, 0]
+            .into_iter()
+            .enumerate()
+        {
+            let transition = reference.step(keys, time as u32);
+            reference = transition.state;
+            if transition.reset_braille {
+                state = BrailleState::default();
+            }
+            if transition.forward && state.held != keys {
+                let output = component.step(state, keys).unwrap();
+                state = output.state;
+                if output.usage != 0 {
+                    outputs.push(output.usage);
+                }
+            }
+        }
+        assert!(outputs.is_empty(), "reference leaked cell {cell:#05x}");
+    }
+}

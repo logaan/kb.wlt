@@ -80,3 +80,27 @@ fn bus_errors_are_propagated() {
         assert!(panel.present(Status::default()).await.is_err());
     });
 }
+
+#[test]
+fn reference_page_uses_the_same_panel_geometry_and_reports_bus_errors() {
+    futures::executor::block_on(async {
+        let mut panel = St7789::new(Bus::default());
+        panel
+            .present_reference(&kb_core::reference::Page::default())
+            .await
+            .unwrap();
+        let bus = panel.into_inner();
+        assert_eq!(bus.pixels.len(), 240 * 280 * 2);
+        assert!(bus.commands.contains(&(0x2b, vec![0, 20, 1, 43])));
+        let mut failed = St7789::new(Bus {
+            fail: true,
+            ..Bus::default()
+        });
+        assert!(
+            failed
+                .present_reference(&kb_core::reference::Page::default())
+                .await
+                .is_err()
+        );
+    });
+}

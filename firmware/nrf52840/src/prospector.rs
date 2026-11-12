@@ -6,10 +6,20 @@ use kb_display::{
     st7789::{PanelBus, St7789},
 };
 
-static STATUS: Signal<CriticalSectionRawMutex, Status> = Signal::new();
+#[derive(Clone, Copy)]
+enum View {
+    Status(Status),
+    Reference(kb_core::reference::Page),
+}
+
+static VIEW: Signal<CriticalSectionRawMutex, View> = Signal::new();
 
 pub fn update(status: Status) {
-    STATUS.signal(status);
+    VIEW.signal(View::Status(status));
+}
+
+pub fn show_reference(page: kb_core::reference::Page) {
+    VIEW.signal(View::Reference(page));
 }
 
 struct Bus<'a> {
@@ -64,10 +74,10 @@ pub async fn run<'a>(
     mut backlight: Output<'a>,
 ) {
     let mut panel = St7789::new(Bus { spi, cs, dc, reset });
-    let mut status = Status {
+    let mut view = View::Status(Status {
         transport: Transport::Split,
         ..Status::default()
-    };
+    });
     loop {
         backlight.set_high();
         if !matches!(
@@ -79,16 +89,22 @@ pub async fn run<'a>(
         }
         backlight.set_low();
         loop {
-            if let Some(next) = STATUS.try_take() {
-                status = next;
+            if let Some(next) = VIEW.try_take() {
+                view = next;
             }
+            let present = async {
+                match view {
+                    View::Status(status) => panel.present(status).await,
+                    View::Reference(page) => panel.present_reference(&page).await,
+                }
+            };
             if !matches!(
-                with_timeout(Duration::from_secs(2), panel.present(status)).await,
+                with_timeout(Duration::from_secs(2), present).await,
                 Ok(Ok(()))
             ) {
                 break;
             }
-            status = STATUS.wait().await;
+            view = VIEW.wait().await;
             Timer::after_millis(50).await;
         }
     }

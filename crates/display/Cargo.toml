@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+kb-core = { path = "../keyboard-core" }
 embedded-hal-async = "1.0.0"
 embedded-graphics = "0.8.1"
 

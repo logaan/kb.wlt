@@ -4,6 +4,8 @@
 
 ### Added
 
+- Prospector braille reference mode enumerates the active Wavelet module, renders six- and eight-dot cells with separate Space labels, and captures namespace, browsing, and lookup input without sending it to the host.
+
 - Toucan 2 Bluetooth firmware with a Wavelet keymap, held-key reports, momentary layers, nice!view output, and a two-half Prospector USB receiver.
 - Independent USB reset controller for a third XIAO, with two open-drain reset channels, serial commands, and a wiring diagram.
 - ST7789 display rendering and Prospector display wiring support.

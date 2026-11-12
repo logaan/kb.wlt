@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod nice_view;
+pub mod reference;
 pub mod st7789;
 
 use embedded_graphics::{
