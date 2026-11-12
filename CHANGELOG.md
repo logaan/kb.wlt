@@ -9,6 +9,7 @@
 - Bluetooth links for a single Paintbrush through Prospector, two Paintbrush halves, and a two-half Prospector receiver, with persistent peer pairing and stale-chord cancellation.
 - A dedicated firmware image that clears saved Bluetooth pairing records.
 - A portrait nice!view renderer and serial VCOM maintenance for Toucan display integration.
+- Display status for conventional keyboard key counts and active layers alongside HID output.
 - Automated host tests and nRF52840 firmware builds on pushes and pull requests to `master`.
 - Manual versioned releases with changelog notes, tagged source, UF2 firmware, source/example bundles, and checksums.
 

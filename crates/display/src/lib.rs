@@ -75,6 +75,12 @@ pub enum Transport {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct KeyboardStatus {
+    pub active_keys: u8,
+    pub layer: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Status {
     pub transport: Transport,
     pub connected: bool,
@@ -82,6 +88,7 @@ pub struct Status {
     pub chord: u16,
     pub last_usage: u8,
     pub last_modifiers: u8,
+    pub keyboard: Option<KeyboardStatus>,
 }
 
 pub fn render(status: Status) -> Frame {
@@ -104,6 +111,12 @@ pub fn render(status: Status) -> Frame {
     }
     if status.held & 0x100 != 0 {
         labels[8] = b'S';
+    }
+    if let Some(keyboard) = status.keyboard {
+        labels = *b"KEY 00 L0";
+        labels[4] = b'0' + keyboard.active_keys.min(99) / 10;
+        labels[5] = b'0' + keyboard.active_keys.min(99) % 10;
+        labels[8] = b'0' + keyboard.layer.min(9);
     }
     let _ = Text::new(
         core::str::from_utf8(&labels).unwrap(),
@@ -129,6 +142,9 @@ pub fn render(status: Status) -> Frame {
         style,
     )
     .draw(&mut frame);
+    if status.keyboard.is_some() {
+        return frame;
+    }
     for (dot, x, y) in [
         (1, 108, 0),
         (2, 108, 8),

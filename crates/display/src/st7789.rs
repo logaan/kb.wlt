@@ -93,6 +93,15 @@ pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; PANEL_
                 color = 0xffff;
             }
         }
+        if let Some(keyboard) = status.keyboard {
+            if (132..148).contains(&y) && (16..224).contains(&x) {
+                color = if x < 16 + usize::from(keyboard.active_keys.min(42)) * 208 / 42 {
+                    0x07e0
+                } else {
+                    0x2104
+                };
+            }
+        }
         for (dot, center_x, center_y) in [
             (1, 92, 134),
             (2, 92, 166),
@@ -106,7 +115,7 @@ pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; PANEL_
             let dx = x as i32 - center_x;
             let dy = y as i32 - center_y;
             let distance = dx * dx + dy * dy;
-            if distance <= 100 {
+            if status.keyboard.is_none() && distance <= 100 {
                 let active = if dot == 8 {
                     status.held & 0x100 != 0
                 } else {

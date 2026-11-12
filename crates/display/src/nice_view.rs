@@ -103,6 +103,39 @@ pub fn render(status: Status) -> Frame {
         style,
     )
     .draw(&mut frame);
+    if let Some(keyboard) = status.keyboard {
+        let keys = [
+            b'K',
+            b'e',
+            b'y',
+            b's',
+            b' ',
+            b'0' + keyboard.active_keys.min(99) / 10,
+            b'0' + keyboard.active_keys.min(99) % 10,
+        ];
+        let layer = [
+            b'L',
+            b'a',
+            b'y',
+            b'e',
+            b'r',
+            b' ',
+            b'0' + keyboard.layer.min(9),
+        ];
+        let _ = Text::new(
+            core::str::from_utf8(&keys).unwrap(),
+            Point::new(4, 88),
+            style,
+        )
+        .draw(&mut frame);
+        let _ = Text::new(
+            core::str::from_utf8(&layer).unwrap(),
+            Point::new(4, 108),
+            style,
+        )
+        .draw(&mut frame);
+        return frame;
+    }
     for (dot, x, y) in [
         (1, 14, 76),
         (2, 14, 96),
