@@ -4,6 +4,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::join::join3;
+use embassy_futures::select::{Either, select};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::usb::{Driver, vbus_detect::HardwareVbusDetect};
 use embassy_nrf::{bind_interrupts, peripherals, usb};
@@ -102,6 +103,7 @@ async fn main(_spawner: Spawner) {
     let mut msos_descriptor = [0; 64];
     let mut control_buffer = [0; 64];
     let mut hid_state = State::new();
+    let mut control_handler = kb_nrf52840::usb_hid::KeyboardControl::default();
     let mut usb_state = UsbState;
     let mut builder = Builder::new(
         driver,
@@ -117,7 +119,7 @@ async fn main(_spawner: Spawner) {
         &mut hid_state,
         HidConfig {
             report_descriptor: REPORT_DESCRIPTOR,
-            request_handler: None,
+            request_handler: Some(&mut control_handler),
             poll_ms: 1,
             max_packet_size: 8,
             hid_subclass: HidSubclass::Boot,
@@ -193,10 +195,18 @@ async fn main(_spawner: Spawner) {
     let send = async {
         loop {
             writer.ready().await;
-            let _ = writer.write(&[0; 8]).await;
-            let stroke = STROKES.receive().await;
-            if writer.write(&stroke.report()).await.is_ok() {
-                let _ = writer.write(&[0; 8]).await;
+            if writer.write(&[0; 8]).await.is_ok() {
+                kb_nrf52840::usb_hid::report_sent([0; 8]);
+            }
+            if let Either::First(stroke) =
+                select(STROKES.receive(), kb_nrf52840::usb_hid::idle_timeout()).await
+            {
+                if writer.write(&stroke.report()).await.is_ok() {
+                    kb_nrf52840::usb_hid::report_sent(stroke.report());
+                    if writer.write(&[0; 8]).await.is_ok() {
+                        kb_nrf52840::usb_hid::report_sent([0; 8]);
+                    }
+                }
             }
         }
     };

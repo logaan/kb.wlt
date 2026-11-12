@@ -11,3 +11,7 @@
 - A portrait nice!view renderer and serial VCOM maintenance for Toucan display integration.
 - Automated host tests and nRF52840 firmware builds on pushes and pull requests to `master`.
 - Manual versioned releases with changelog notes, tagged source, UF2 firmware, source/example bundles, and checksums.
+
+### Fixed
+
+- USB keyboards accept boot protocol, LED output reports, and host idle requests, and return their current HID report.

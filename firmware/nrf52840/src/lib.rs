@@ -37,3 +37,8 @@ pub mod split;
 
 #[cfg(feature = "prospector-display")]
 pub mod prospector;
+
+pub mod usb_hid;
+
+#[cfg(feature = "nice-view")]
+pub mod nice_view;

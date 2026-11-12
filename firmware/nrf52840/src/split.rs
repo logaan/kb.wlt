@@ -808,6 +808,7 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
     let mut msos = [0; 64];
     let mut control = [0; 64];
     let mut state = State::new();
+    let mut control_handler = crate::usb_hid::KeyboardControl::default();
     let mut handler = UsbState;
     let mut builder = Builder::new(
         driver,
@@ -823,7 +824,7 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
         &mut state,
         HidConfig {
             report_descriptor: REPORT_DESCRIPTOR,
-            request_handler: None,
+            request_handler: Some(&mut control_handler),
             poll_ms: 1,
             max_packet_size: 8,
             hid_subclass: HidSubclass::Boot,
@@ -834,10 +835,18 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
     let reports = async {
         loop {
             writer.ready().await;
-            let _ = writer.write(&[0; 8]).await;
-            let stroke = STROKES.receive().await;
-            if writer.write(&stroke.report()).await.is_ok() {
-                let _ = writer.write(&[0; 8]).await;
+            if writer.write(&[0; 8]).await.is_ok() {
+                crate::usb_hid::report_sent([0; 8]);
+            }
+            if let Either::First(stroke) =
+                select(STROKES.receive(), crate::usb_hid::idle_timeout()).await
+            {
+                if writer.write(&stroke.report()).await.is_ok() {
+                    crate::usb_hid::report_sent(stroke.report());
+                    if writer.write(&[0; 8]).await.is_ok() {
+                        crate::usb_hid::report_sent([0; 8]);
+                    }
+                }
             }
         }
     };
