@@ -48,3 +48,15 @@ python3 -m unittest discover -s resetter/tests -p 'test_*.py'
 ```
 
 Use your host Rust target instead of `aarch64-apple-darwin` on another machine. Tests cover command framing, independent channels, pulse timing, clock wrap, and the serial client through a simulated terminal. Hardware operation remains unverified.
+
+Hardware checklist:
+
+- [ ] Wire D0 to the test XIAO RESET, D1 to nice!nano RST, and join the three grounds as shown above.
+- [ ] Connect all three USB data cables, flash the resetter, and identify its serial port with `ports`.
+- [ ] Run `PING STATUS` and confirm the resetter identifies itself and both channels are idle.
+- [ ] Run `RESET1` and confirm only the test XIAO restarts.
+- [ ] Run `RESET2` and confirm only the nice!nano restarts.
+- [ ] Run `BOOT1` and confirm the test XIAO's UF2 volume appears.
+- [ ] Run `BOOT2` and confirm the nice!nano's UF2 volume appears.
+- [ ] Run `BOOT1 BOOT2` and confirm both bootloader volumes can be identified independently.
+- [ ] Reflash normal test firmware onto both targets and confirm the resetter remains available.
