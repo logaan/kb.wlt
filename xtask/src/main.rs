@@ -69,6 +69,11 @@ fn build(name: &str, options: &[String]) -> Result {
         "xiao-led" => ("xiao-led", Contract::Led, "usb".to_string()),
         "paintbrush-usb" => ("paintbrush-usb", Contract::Braille, "usb".to_string()),
         "paintbrush-ble" => ("paintbrush-ble", Contract::Braille, "ble".to_string()),
+        "paintbrush-ble-display" => (
+            "paintbrush-ble",
+            Contract::Braille,
+            "ble,display".to_string(),
+        ),
         "paintbrush-display" => (
             "paintbrush-usb",
             Contract::Braille,
@@ -134,6 +139,7 @@ fn build(name: &str, options: &[String]) -> Result {
             match contract {
                 Contract::Led => "KB_LED_WASM",
                 Contract::Braille => "KB_BRAILLE_WASM",
+                Contract::Keyboard => "KB_KEYBOARD_WASM",
             },
             &artifacts.core_path,
         );

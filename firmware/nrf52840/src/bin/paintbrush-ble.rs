@@ -6,6 +6,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::select;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::{bind_interrupts, pac, peripherals, rng};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -24,6 +25,11 @@ bind_interrupts!(struct Irqs {
     RADIO => mpsl::HighPrioInterruptHandler;
     TIMER0 => mpsl::HighPrioInterruptHandler;
     RTC0 => mpsl::HighPrioInterruptHandler;
+});
+
+#[cfg(feature = "display")]
+bind_interrupts!(struct DisplayIrqs {
+    TWISPI0 => embassy_nrf::twim::InterruptHandler<peripherals::TWISPI0>;
 });
 
 static READY: AtomicBool = AtomicBool::new(false);
@@ -107,6 +113,9 @@ async fn main(spawner: Spawner) {
     let mut config = kb_nrf52840::clock_config();
     config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P3;
     let p = embassy_nrf::init(config);
+    embassy_nrf::interrupt::RNG.set_priority(embassy_nrf::interrupt::Priority::P3);
+    #[cfg(feature = "display")]
+    embassy_nrf::interrupt::TWISPI0.set_priority(embassy_nrf::interrupt::Priority::P3);
     let mut indicator = Output::new(p.P0_15, Level::Low, OutputDrive::Standard);
     let inputs = [
         Input::new(p.P0_31, Pull::Up),
@@ -119,6 +128,19 @@ async fn main(spawner: Spawner) {
         Input::new(p.P0_09, Pull::Up),
     ];
     let mut component = BrailleComponent::new(include_bytes!(env!("KB_BRAILLE_WASM"))).unwrap();
+    #[cfg(feature = "display")]
+    let _display_power = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
+    #[cfg(feature = "display")]
+    let mut display_dma = [0; 32];
+    #[cfg(feature = "display")]
+    let display_bus = embassy_nrf::twim::Twim::new(
+        p.TWISPI0,
+        DisplayIrqs,
+        p.P0_17,
+        p.P0_20,
+        embassy_nrf::twim::Config::default(),
+        &mut display_dma,
+    );
     let mpsl_peripherals =
         mpsl::Peripherals::new(p.RTC0, p.TIMER0, p.TEMP, p.PPI_CH19, p.PPI_CH30, p.PPI_CH31);
     let lfclk = mpsl::raw::mpsl_clock_lfclk_cfg_t {
@@ -179,6 +201,11 @@ async fn main(spawner: Spawner) {
         let mut debounce = Debouncer::<8>::new(5);
         let mut state = BrailleState::default();
         let mut armed = false;
+        #[cfg(feature = "display")]
+        let mut display_status = kb_display::Status {
+            transport: kb_display::Transport::Bluetooth,
+            ..Default::default()
+        };
         loop {
             let raw = inputs
                 .iter()
@@ -186,7 +213,8 @@ async fn main(spawner: Spawner) {
                 .fold(0, |mask, (i, pin)| mask | (u64::from(pin.is_low()) << i));
             let (next, update) = debounce.sample(raw, Instant::now().as_millis() as u32);
             debounce = next;
-            if !READY.load(Ordering::Relaxed) {
+            let connected = READY.load(Ordering::Relaxed);
+            if !connected {
                 state = BrailleState::default();
                 armed = false;
             } else if update.stable == 0 {
@@ -208,6 +236,24 @@ async fn main(spawner: Spawner) {
                 state = output.state;
                 if output.usage != 0 {
                     let _ = STROKES.try_send(KeyStroke::new(output.usage, output.modifiers));
+                    #[cfg(feature = "display")]
+                    {
+                        display_status.last_usage = output.usage;
+                        display_status.last_modifiers = output.modifiers;
+                    }
+                }
+            }
+            #[cfg(feature = "display")]
+            {
+                let changed = display_status.connected != connected
+                    || display_status.held != state.held
+                    || display_status.chord != state.chord
+                    || (update.pressed | update.released) != 0;
+                display_status.connected = connected;
+                display_status.held = state.held;
+                display_status.chord = state.chord;
+                if changed {
+                    kb_nrf52840::display::update(display_status);
                 }
             }
             indicator.set_level(if update.stable != 0 {
@@ -255,7 +301,11 @@ async fn main(spawner: Spawner) {
     let ble = async {
         let _ = join(runner.run(), connections).await;
     };
-    join(ble, scan).await;
+    let keyboard = join(ble, scan);
+    #[cfg(feature = "display")]
+    join(keyboard, kb_nrf52840::display::run(display_bus)).await;
+    #[cfg(not(feature = "display"))]
+    keyboard.await;
 }
 
 async fn gatt_events(
