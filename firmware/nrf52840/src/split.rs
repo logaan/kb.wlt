@@ -18,6 +18,7 @@ use embassy_usb::class::hid::{
 };
 use embassy_usb::{Builder, Config};
 use kb_component_runtime::{BrailleComponent, BrailleState};
+use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
 use kb_core::split::{Layout, PACKET_LEN, Receiver, Session, Snapshot};
 use kb_core::{Debouncer, KeyStroke};
 use nrf_sdc::{self as sdc, mpsl};
@@ -46,12 +47,7 @@ const SERVICE_UUID: Uuid = Uuid::new_long(SERVICE_BYTES);
 const SNAPSHOT_UUID: Uuid = Uuid::new_long([
     0x44, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x11, 0x00, 0x17, 0x7a,
 ]);
-const REPORT_DESCRIPTOR: &[u8] = &[
-    0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x05, 0x07, 0x19, 0xe0, 0x29, 0xe7, 0x15, 0x00, 0x25, 0x01,
-    0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x05, 0x75, 0x01,
-    0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91, 0x01, 0x95, 0x06,
-    0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xc0,
-];
+
 static KEYS: AtomicU8 = AtomicU8::new(0);
 static KEY_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
@@ -899,7 +895,7 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
         &mut builder,
         &mut state,
         HidConfig {
-            report_descriptor: REPORT_DESCRIPTOR,
+            report_descriptor: &REPORT_DESCRIPTOR,
             request_handler: Some(&mut control_handler),
             poll_ms: 1,
             max_packet_size: 8,

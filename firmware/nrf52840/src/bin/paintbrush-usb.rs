@@ -15,6 +15,7 @@ use embassy_usb::class::hid::{
 };
 use embassy_usb::{Builder, Config};
 use kb_component_runtime::{BrailleComponent, BrailleState};
+use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
 use kb_core::transport::FaultLatch;
 use kb_core::{Debouncer, KeyStroke};
 use panic_halt as _;
@@ -31,12 +32,6 @@ bind_interrupts!(struct DisplayIrqs {
 
 static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
 const DOTS: [u16; 8] = [64, 4, 2, 1, 8, 16, 32, 256];
-const REPORT_DESCRIPTOR: &[u8] = &[
-    0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x05, 0x07, 0x19, 0xe0, 0x29, 0xe7, 0x15, 0x00, 0x25, 0x01,
-    0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x05, 0x75, 0x01,
-    0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91, 0x01, 0x95, 0x06,
-    0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xc0,
-];
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -96,7 +91,7 @@ async fn main(_spawner: Spawner) {
         &mut builder,
         &mut hid_state,
         HidConfig {
-            report_descriptor: REPORT_DESCRIPTOR,
+            report_descriptor: &REPORT_DESCRIPTOR,
             request_handler: Some(&mut control_handler),
             poll_ms: 1,
             max_packet_size: 8,

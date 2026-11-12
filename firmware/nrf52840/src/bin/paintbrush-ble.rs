@@ -12,6 +12,7 @@ use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_sync::channel::Channel;
 use embassy_time::{Instant, Timer};
 use kb_component_runtime::{BrailleComponent, BrailleState};
+use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
 use kb_core::transport::FaultLatch;
 use kb_core::transport::SessionGate;
 use kb_core::{Debouncer, KeyStroke};
@@ -38,12 +39,6 @@ static SESSION: Mutex<CriticalSectionRawMutex, Cell<SessionGate>> =
     Mutex::new(Cell::new(SessionGate::new()));
 static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
 const DOTS: [u16; 8] = [64, 4, 2, 1, 8, 16, 32, 256];
-const REPORT_DESCRIPTOR: [u8; 63] = [
-    0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x05, 0x07, 0x19, 0xe0, 0x29, 0xe7, 0x15, 0x00, 0x25, 0x01,
-    0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x05, 0x75, 0x01,
-    0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91, 0x01, 0x95, 0x06,
-    0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xc0,
-];
 
 #[gatt_server(connections_max = 1, attribute_table_size = 40)]
 struct Server {
@@ -56,7 +51,7 @@ struct HidService {
     #[characteristic(uuid = "2a4a", read, value = [0x11, 0x01, 0x00, 0x02], permissions(encrypted))]
     information: [u8; 4],
     #[characteristic(uuid = "2a4b", read, value = REPORT_DESCRIPTOR, permissions(encrypted))]
-    report_map: [u8; 63],
+    report_map: [u8; 65],
     #[characteristic(
         uuid = "2a4e",
         read,
