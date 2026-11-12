@@ -74,6 +74,36 @@ fn build(name: &str, options: &[String]) -> Result {
             Contract::Braille,
             "ble,display".to_string(),
         ),
+        "paintbrush-satellite" => (
+            "paintbrush-satellite",
+            Contract::Braille,
+            "split".to_string(),
+        ),
+        "paintbrush-left-satellite" => (
+            "paintbrush-satellite",
+            Contract::Braille,
+            "split,satellite-left".to_string(),
+        ),
+        "paintbrush-right-satellite" => (
+            "paintbrush-satellite",
+            Contract::Braille,
+            "split,satellite-right".to_string(),
+        ),
+        "paintbrush-central" => (
+            "paintbrush-central",
+            Contract::Braille,
+            "usb,split".to_string(),
+        ),
+        "prospector-single" => (
+            "prospector-dongle",
+            Contract::Braille,
+            "usb,split,prospector-display".to_string(),
+        ),
+        "prospector-pair" => (
+            "prospector-dongle",
+            Contract::Braille,
+            "usb,split,split-pair,prospector-display".to_string(),
+        ),
         "paintbrush-display" => (
             "paintbrush-usb",
             Contract::Braille,
@@ -83,7 +113,7 @@ fn build(name: &str, options: &[String]) -> Result {
     };
     let root = root();
     let mut source = root.join(format!("components/{0}/{0}.wlt", contract.name()));
-    let default_base = if name == "xiao-led" {
+    let default_base = if name.starts_with("xiao-") || name.starts_with("prospector-") {
         S140_V7_APPLICATION_START
     } else {
         STOCK_APPLICATION_START
@@ -97,7 +127,7 @@ fn build(name: &str, options: &[String]) -> Result {
             "--nosd" => base = NOSD_APPLICATION_START,
             "--s140v7" => base = S140_V7_APPLICATION_START,
             "--s140v6" => base = STOCK_APPLICATION_START,
-            "--left" if name != "xiao-led" => {
+            "--left" if name.starts_with("paintbrush-") => {
                 features.push_str(",paintbrush-left");
                 left = true;
             }
