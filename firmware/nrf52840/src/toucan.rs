@@ -412,7 +412,17 @@ async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
                 let _ = select(KEY_CHANGED.wait(), Timer::after_millis(100)).await;
             }
         };
-        let _ = select(gatt_events(&connection, bonds, None), notify).await;
+        let _ = select(
+            gatt_events(
+                &server.server,
+                crate::ble_bonds::TOUCAN_LINK_SCHEMA,
+                &connection,
+                bonds,
+                None,
+            ),
+            notify,
+        )
+        .await;
     }
 }
 
@@ -726,6 +736,8 @@ async fn hid_host(stack: &Host<'_>, bonds: &Bonds) {
         };
         let _ = select(
             gatt_events(
+                &server.server,
+                crate::ble_bonds::HID_SCHEMA,
                 &connection,
                 bonds,
                 Some([
@@ -739,7 +751,13 @@ async fn hid_host(stack: &Host<'_>, bonds: &Bonds) {
     }
 }
 
-async fn gatt_events(
+async fn gatt_events<
+    M: embassy_sync::blocking_mutex::raw::RawMutex,
+    const AT: usize,
+    const CN: usize,
+>(
+    server: &AttributeServer<'_, M, DefaultPacketPool, AT, CN>,
+    schema: u32,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     bonds: &Bonds,
     reset_handles: Option<[u16; 2]>,
@@ -750,9 +768,20 @@ async fn gatt_events(
             GattConnectionEvent::PairingComplete {
                 bond: Some(bond), ..
             } => {
-                bonds.lock().await.remember(&bond).await;
+                let mut bonds = bonds.lock().await;
+                bonds.remember(&bond).await;
+                bonds
+                    .remember_client_table(server, connection.raw(), schema)
+                    .await;
+            }
+            GattConnectionEvent::Encrypted { security_level, .. } if security_level.encrypted() => {
+                bonds
+                    .lock()
+                    .await
+                    .restore_client_table(server, connection.raw(), schema);
             }
             GattConnectionEvent::Gatt { event } => {
+                let changed = matches!(&event, GattEvent::Write(_));
                 if let GattEvent::Write(ref write) = event {
                     if reset_handles.is_some_and(|handles| handles.contains(&write.handle())) {
                         BLE_SESSION.lock(|state| state.set(state.get().reset()));
@@ -761,6 +790,13 @@ async fn gatt_events(
                 }
                 if let Ok(reply) = event.accept() {
                     reply.send().await;
+                }
+                if changed {
+                    bonds
+                        .lock()
+                        .await
+                        .remember_client_table(server, connection.raw(), schema)
+                        .await;
                 }
             }
             _ => {}

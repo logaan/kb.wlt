@@ -357,8 +357,23 @@ async fn gatt_events(
                 bond: Some(bond), ..
             } => {
                 bonds.remember(&bond).await;
+                bonds
+                    .remember_client_table(
+                        &server.server,
+                        connection.raw(),
+                        kb_nrf52840::ble_bonds::HID_SCHEMA,
+                    )
+                    .await;
+            }
+            GattConnectionEvent::Encrypted { security_level, .. } if security_level.encrypted() => {
+                bonds.restore_client_table(
+                    &server.server,
+                    connection.raw(),
+                    kb_nrf52840::ble_bonds::HID_SCHEMA,
+                );
             }
             GattConnectionEvent::Gatt { event } => {
+                let changed = matches!(&event, GattEvent::Write(_));
                 if let GattEvent::Write(ref write) = event {
                     if write.handle() == server.hid.protocol_mode.handle
                         || write.handle() == server.hid.control_point.handle
@@ -369,6 +384,15 @@ async fn gatt_events(
                 }
                 if let Ok(reply) = event.accept() {
                     reply.send().await;
+                }
+                if changed {
+                    bonds
+                        .remember_client_table(
+                            &server.server,
+                            connection.raw(),
+                            kb_nrf52840::ble_bonds::HID_SCHEMA,
+                        )
+                        .await;
                 }
             }
             _ => {}

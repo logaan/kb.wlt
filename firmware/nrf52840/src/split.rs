@@ -381,11 +381,20 @@ pub async fn satellite(spawner: Spawner) {
                         GattConnectionEvent::PairingComplete {
                             bond: Some(bond), ..
                         } => {
-                            bonds.lock().await.remember(&bond).await;
+                            let mut bonds = bonds.lock().await;
+                            bonds.remember(&bond).await;
+                            bonds.remember_client_table(&server.server, connection.raw(), crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA).await;
+                        }
+                        GattConnectionEvent::Encrypted { security_level, .. } if security_level.encrypted() => {
+                            bonds.lock().await.restore_client_table(&server.server, connection.raw(), crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA);
                         }
                         GattConnectionEvent::Gatt { event } => {
+                            let changed = matches!(&event, GattEvent::Write(_));
                             if let Ok(reply) = event.accept() {
                                 reply.send().await;
+                            }
+                            if changed {
+                                bonds.lock().await.remember_client_table(&server.server, connection.raw(), crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA).await;
                             }
                         }
                         _ => {}
