@@ -30,6 +30,8 @@
 
 ### Fixed
 
+- Toucan keeps a shared HID key pressed until all physical keys that map to it have been released.
+
 - Toucan discards expired key snapshots after USB or Bluetooth report backpressure and requires neutral keys when a split link resumes.
 
 - Toucan 2 retains its left nice!view display when Prospector handles the keymap and USB. The display receives split link, key, layer, HID, and fault status over Bluetooth.

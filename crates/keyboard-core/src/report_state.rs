@@ -9,7 +9,7 @@ pub enum ReportError {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Held {
     key: Key,
-    active: bool,
+    owners: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,7 +37,7 @@ impl<const N: usize> ReportState<N> {
                     usage: 0,
                     modifiers: 0,
                 },
-                active: false,
+                owners: 0,
             }; N],
         }
     }
@@ -50,7 +50,7 @@ impl<const N: usize> ReportState<N> {
         let mut report = [0; 8];
         let mut count = 0;
         let mut rollover = false;
-        for held in self.held.iter().filter(|held| held.active) {
+        for held in self.held.iter().filter(|held| held.owners != 0) {
             report[0] |= held.key.modifiers;
             if (224..=231).contains(&held.key.usage) {
                 report[0] |= 1 << (held.key.usage - 224);
@@ -75,13 +75,24 @@ impl<const N: usize> ReportState<N> {
             Action::Release(key) => self.release(key),
             Action::ReleaseAll => self.clear(),
             Action::Tap(key) => {
+                let held_report = self.report();
+                if self
+                    .held
+                    .iter()
+                    .any(|held| held.owners != 0 && held.key == key)
+                {
+                    return Ok(Reports {
+                        first: held_report,
+                        second: Some(held_report),
+                    });
+                }
                 let before = *self;
                 self.press(key)?;
                 let first = self.report();
                 *self = before;
                 return Ok(Reports {
                     first,
-                    second: Some(self.report()),
+                    second: Some(held_report),
                 });
             }
         }
@@ -95,23 +106,30 @@ impl<const N: usize> ReportState<N> {
         if key.usage < 4 || key.usage > 255 {
             return Err(ReportError::Usage);
         }
-        if self.held.iter().any(|held| held.active && held.key == key) {
+        if let Some(held) = self
+            .held
+            .iter_mut()
+            .find(|held| held.owners != 0 && held.key == key)
+        {
+            held.owners = held.owners.checked_add(1).ok_or(ReportError::Capacity)?;
             return Ok(());
         }
         let held = self
             .held
             .iter_mut()
-            .find(|held| !held.active)
+            .find(|held| held.owners == 0)
             .ok_or(ReportError::Capacity)?;
-        *held = Held { key, active: true };
+        *held = Held { key, owners: 1 };
         Ok(())
     }
 
     fn release(&mut self, key: Key) {
-        for held in &mut self.held {
-            if held.active && held.key == key {
-                held.active = false;
-            }
+        if let Some(held) = self
+            .held
+            .iter_mut()
+            .find(|held| held.owners != 0 && held.key == key)
+        {
+            held.owners -= 1;
         }
     }
 }

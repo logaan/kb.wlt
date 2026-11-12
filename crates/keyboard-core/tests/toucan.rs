@@ -234,6 +234,12 @@ fn rollover_recovers_as_keys_release_without_losing_modifiers() {
             }))
             .unwrap();
     }
+    let duplicate = Key {
+        usage: 10,
+        modifiers: 0,
+    };
+    state.apply(Action::Press(duplicate)).unwrap();
+    state.apply(Action::Release(duplicate)).unwrap();
     assert_eq!(state.report(), [2, 0, 1, 1, 1, 1, 1, 1]);
     state
         .apply(Action::Release(Key {
@@ -244,6 +250,35 @@ fn rollover_recovers_as_keys_release_without_losing_modifiers() {
     assert_eq!(state.report(), [2, 0, 4, 5, 6, 7, 8, 9]);
     state.apply(Action::ReleaseAll).unwrap();
     assert_eq!(state.report(), [0; 8]);
+}
+
+#[test]
+fn held_taps_and_releases_preserve_each_exact_key_owner() {
+    let mut state = ReportState::<2>::new();
+    let shifted = Key {
+        usage: 49,
+        modifiers: 2,
+    };
+    let plain = Key {
+        usage: 49,
+        modifiers: 0,
+    };
+    state.apply(Action::Press(shifted)).unwrap();
+    state.apply(Action::Press(shifted)).unwrap();
+    state.apply(Action::Press(plain)).unwrap();
+    let held = [2, 0, 49, 0, 0, 0, 0, 0];
+    let tap = state.apply(Action::Tap(shifted)).unwrap();
+    assert_eq!(tap.first, held);
+    assert_eq!(tap.second, Some(held));
+    assert_eq!(state.apply(Action::Release(shifted)).unwrap().first, held);
+    assert_eq!(
+        state.apply(Action::Release(shifted)).unwrap().first,
+        [0, 0, 49, 0, 0, 0, 0, 0]
+    );
+    state.apply(Action::Press(plain)).unwrap();
+    state.apply(Action::ReleaseAll).unwrap();
+    state.apply(Action::Press(plain)).unwrap();
+    assert_eq!(state.apply(Action::Release(plain)).unwrap().first, [0; 8]);
 }
 
 #[test]

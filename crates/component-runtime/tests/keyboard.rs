@@ -1,5 +1,6 @@
 use kb_component_runtime::KeyboardComponent;
 use kb_core::pipeline::{Action, Input, Key, KeyEvent, KeyState};
+use kb_core::report_state::ReportState;
 
 const PASSTHROUGH: &[u8] =
     include_bytes!("../../../components/generated/passthrough/keyboard.core.wasm");
@@ -194,6 +195,57 @@ fn toucan_accepts_all_physical_keys_in_one_scan() {
     let input = Input::<42>::with_events(0, &events).unwrap();
     let output = component.process::<64, 42, 42>(&[], &input).unwrap();
     assert_eq!(output.actions.len(), 41);
+}
+
+#[test]
+fn toucan_duplicate_usage_survives_either_physical_release_order() {
+    use kb_component_runtime::KeyboardPipeline;
+    use kb_core::pipeline::PipelineState;
+
+    let component = KeyboardComponent::new(TOUCAN).unwrap();
+    let composed = KeyboardPipeline::new(&[
+        include_bytes!("../../../components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
+        include_bytes!("../../../components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
+    ])
+    .unwrap();
+    for (first, last) in [(11, 25), (25, 11)] {
+        let input = Input::<6>::with_events(
+            0,
+            &[
+                event(41, KeyState::Pressed),
+                event(11, KeyState::Pressed),
+                event(25, KeyState::Pressed),
+                event(41, KeyState::Released),
+                event(first, KeyState::Released),
+                event(last, KeyState::Released),
+            ],
+        )
+        .unwrap();
+        let plain = component.process::<64, 6, 4>(&[], &input).unwrap();
+        let shifted = composed
+            .process::<64, 6, 4>(PipelineState::new(), input)
+            .unwrap();
+        for actions in [plain.actions, shifted.actions] {
+            let key = Key {
+                usage: 49,
+                modifiers: 0,
+            };
+            assert_eq!(
+                actions.as_slice(),
+                [
+                    Action::Press(key),
+                    Action::Press(key),
+                    Action::Release(key),
+                    Action::Release(key)
+                ]
+            );
+            let mut reports = ReportState::<42>::new();
+            let held = [0, 0, 49, 0, 0, 0, 0, 0];
+            for (action, expected) in actions.as_slice().iter().zip([held, held, held, [0; 8]]) {
+                assert_eq!(reports.apply(*action).unwrap().first, expected);
+            }
+        }
+    }
 }
 
 #[test]
