@@ -1,3 +1,5 @@
+mod bindings;
+
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -10,6 +12,7 @@ use wit_parser::{Resolve, Type, TypeDefKind, WorldItem, WorldKey};
 pub enum Contract {
     Led,
     Braille,
+    Keyboard,
 }
 
 impl Contract {
@@ -17,6 +20,15 @@ impl Contract {
         match self {
             Self::Led => "led",
             Self::Braille => "braille",
+            Self::Keyboard => "keyboard",
+        }
+    }
+
+    pub(crate) fn functions(self) -> &'static [&'static str] {
+        match self {
+            Self::Led => &["step"],
+            Self::Braille => &["step", "map-cell"],
+            Self::Keyboard => &["process", "transform-output"],
         }
     }
 
@@ -24,6 +36,7 @@ impl Contract {
         match self {
             Self::Led => "kb:firmware/led@0.1.0",
             Self::Braille => "kb:firmware/braille@0.1.0",
+            Self::Keyboard => "kb:firmware/keyboard@0.1.0",
         }
     }
 }
@@ -138,40 +151,8 @@ fn prepare_stage(component: &[u8], contract: Contract, imports: bool) -> Result<
             (name == contract.interface()).then_some(*id)
         })
         .ok_or_else(|| format!("missing {} export", contract.interface()))?;
-    let function = resolve.interfaces[interface]
-        .functions
-        .get("step")
-        .ok_or("missing step function")?;
-    let shape = function
-        .params
-        .iter()
-        .map(|param| type_shape(&resolve, param.ty))
-        .collect::<Result<Vec<_>, _>>()?;
-    let result = function
-        .result
-        .map(|ty| type_shape(&resolve, ty))
-        .transpose()?
-        .ok_or("step must return a value")?;
-    let (expected_params, expected_result) = match contract {
-        Contract::Led => (
-            vec![
-                "{phase:u8,speed:u8,last-change-ms:u32,button-was-down:bool}",
-                "u32",
-                "bool",
-            ],
-            "{state:{phase:u8,speed:u8,last-change-ms:u32,button-was-down:bool},red:u8,green:u8,blue:u8}",
-        ),
-        Contract::Braille => (
-            vec!["{held:u16,chord:u16}", "u16"],
-            "{state:{held:u16,chord:u16},usage:u8,modifiers:u8}",
-        ),
-    };
-    if shape != expected_params || result != expected_result {
-        return Err(format!(
-            "incompatible {} ABI: {shape:?} -> {result}",
-            contract.interface()
-        ));
-    }
+    validate_interface(&resolve, interface, contract)?;
+    bindings::validate(component, contract)?;
     let mut modules = Vec::new();
     for payload in Parser::new(0).parse_all(component) {
         if let Payload::ModuleSection {
@@ -189,6 +170,45 @@ fn prepare_stage(component: &[u8], contract: Contract, imports: bool) -> Result<
     Ok(core)
 }
 
+fn validate_interface(
+    resolve: &Resolve,
+    interface: wit_parser::InterfaceId,
+    contract: Contract,
+) -> Result<(), String> {
+    let mut expected = Resolve::new();
+    let package = expected
+        .push_str("firmware.wit", include_str!("../../../wit/firmware.wit"))
+        .map_err(|e| e.to_string())?;
+    let expected_interface = expected.packages[package].interfaces[contract.name()];
+    let actual_functions = &resolve.interfaces[interface].functions;
+    let expected_functions = &expected.interfaces[expected_interface].functions;
+    if actual_functions.len() != expected_functions.len() {
+        return Err("component does not implement every contract function".into());
+    }
+    for (name, function) in expected_functions {
+        let actual = actual_functions
+            .get(name)
+            .ok_or_else(|| format!("missing {name} function"))?;
+        let signature = |resolve: &Resolve, function: &wit_parser::Function| -> Result<_, String> {
+            Ok((
+                function
+                    .params
+                    .iter()
+                    .map(|param| type_shape(resolve, param.ty))
+                    .collect::<Result<Vec<_>, _>>()?,
+                function
+                    .result
+                    .map(|ty| type_shape(resolve, ty))
+                    .transpose()?,
+            ))
+        };
+        if signature(resolve, actual)? != signature(&expected, function)? {
+            return Err(format!("incompatible {}#{name} ABI", contract.interface()));
+        }
+    }
+    Ok(())
+}
+
 fn type_shape(resolve: &Resolve, ty: Type) -> Result<String, String> {
     Ok(match ty {
         Type::Bool => "bool".into(),
@@ -203,6 +223,42 @@ fn type_shape(resolve: &Resolve, ty: Type) -> Result<String, String> {
                     .fields
                     .iter()
                     .map(|field| Ok(format!("{}:{}", field.name, type_shape(resolve, field.ty)?)))
+                    .collect::<Result<Vec<_>, String>>()?
+                    .join(",")
+            ),
+            TypeDefKind::List(ty) => format!("list<{}>", type_shape(resolve, *ty)?),
+            TypeDefKind::Option(ty) => format!("option<{}>", type_shape(resolve, *ty)?),
+            TypeDefKind::Tuple(tuple) => format!(
+                "tuple<{}>",
+                tuple
+                    .types
+                    .iter()
+                    .map(|ty| type_shape(resolve, *ty))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(",")
+            ),
+            TypeDefKind::Enum(enumeration) => format!(
+                "enum<{}>",
+                enumeration
+                    .cases
+                    .iter()
+                    .map(|case| case.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            TypeDefKind::Variant(variant) => format!(
+                "variant<{}>",
+                variant
+                    .cases
+                    .iter()
+                    .map(|case| Ok(format!(
+                        "{}({})",
+                        case.name,
+                        case.ty
+                            .map(|ty| type_shape(resolve, ty))
+                            .transpose()?
+                            .unwrap_or_default()
+                    )))
                     .collect::<Result<Vec<_>, String>>()?
                     .join(",")
             ),
@@ -252,13 +308,22 @@ fn validate_core(core: &[u8], contract: Contract, imports: bool) -> Result<(), S
     if memories != 1 {
         return Err("embedded component requires exactly one memory".into());
     }
-    for export in [
-        "memory".into(),
-        format!("{}#step", contract.interface()),
-        format!("cabi_post_{}#step", contract.interface()),
-    ] {
-        if !exports.contains(&export) {
-            return Err(format!("missing canonical export {export}"));
+    let functions: &[&str] = match contract {
+        Contract::Led => &["step"],
+        Contract::Braille => &["step", "map-cell"],
+        Contract::Keyboard => &["process", "transform-output"],
+    };
+    if !exports.iter().any(|name| name == "memory") {
+        return Err("missing canonical memory export".into());
+    }
+    for function in functions {
+        for export in [
+            format!("{}#{function}", contract.interface()),
+            format!("cabi_post_{}#{function}", contract.interface()),
+        ] {
+            if !exports.contains(&export) {
+                return Err(format!("missing canonical export {export}"));
+            }
         }
     }
     Ok(())
@@ -275,6 +340,9 @@ pub fn compile_chain(
     output_dir: &Path,
     contract: Contract,
 ) -> Result<ChainArtifacts, String> {
+    if contract == Contract::Keyboard {
+        return Err("keyboard components compose through the host middleware pipeline".into());
+    }
     if sources.len() != 2 {
         return Err("embedded middleware chains require exactly two components".into());
     }

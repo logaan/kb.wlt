@@ -8,6 +8,7 @@ fn main() {
             let contract = match contract.as_str() {
                 "led" => Contract::Led,
                 "braille" => Contract::Braille,
+                "keyboard" => Contract::Keyboard,
                 _ => {
                     eprintln!("unknown contract");
                     std::process::exit(2);
@@ -37,15 +38,18 @@ fn main() {
             let contract = match contract.as_str() {
                 "led" => Contract::Led,
                 "braille" => Contract::Braille,
+                "keyboard" => Contract::Keyboard,
                 _ => {
-                    eprintln!("contract must be led or braille");
+                    eprintln!("contract must be led, braille, or keyboard");
                     std::process::exit(2);
                 }
             };
             compile(Path::new(source), Path::new(output), contract)
         }
         _ => {
-            eprintln!("usage: kb-component-build <led|braille> <source.wlt> <output-directory>");
+            eprintln!(
+                "usage: kb-component-build <led|braille|keyboard> <source.wlt> <output-directory>"
+            );
             std::process::exit(2);
         }
     };

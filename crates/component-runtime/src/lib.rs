@@ -2,7 +2,10 @@
 
 extern crate alloc;
 
+mod keyboard;
 mod link;
+
+pub use keyboard::KeyboardComponent;
 
 use wasmi::{
     Config, Engine, Instance, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder,
@@ -21,6 +24,7 @@ pub enum Error {
     InvalidReturn,
     InvalidState,
     InvalidChain,
+    Capacity,
 }
 
 impl From<wasmi::Error> for Error {

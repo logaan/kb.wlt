@@ -1,4 +1,7 @@
-use kb_component_runtime::{BrailleComponent, BrailleState, LedComponent, LedState};
+use kb_component_runtime::{
+    BrailleComponent, BrailleState, KeyboardComponent, LedComponent, LedState,
+};
+use kb_core::pipeline::{Input, KeyEvent, KeyState};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -64,6 +67,26 @@ fn embedded_components_fit_the_nrf_heap_budget() {
     }
     let chain_peak = PEAK.load(Ordering::SeqCst) - baseline;
     eprintln!("Composed LED peak allocations: {chain_peak} bytes");
+    let baseline = LIVE.load(Ordering::SeqCst);
+    PEAK.store(baseline, Ordering::SeqCst);
+    {
+        let component = KeyboardComponent::new(include_bytes!(
+            "../../../components/generated/toucan-keymap/keyboard.core.wasm"
+        ))
+        .unwrap();
+        let events: Vec<_> = (0..42)
+            .map(|position| KeyEvent {
+                position,
+                state: KeyState::Pressed,
+                timestamp_ms: 0,
+            })
+            .collect();
+        let input = Input::<42>::with_events(0, &events).unwrap();
+        component.process::<64, 42, 42>(&[], &input).unwrap();
+    }
+    let keyboard_peak = PEAK.load(Ordering::SeqCst) - baseline;
+    eprintln!("Toucan keymap peak allocations: {keyboard_peak} bytes");
+    assert!(keyboard_peak <= 160 * 1024);
     assert!(chain_peak <= 208 * 1024);
     assert!(led_peak <= 160 * 1024);
     assert!(braille_peak <= 160 * 1024);
