@@ -1,6 +1,13 @@
+use core::sync::atomic::{AtomicBool, Ordering};
 use kb_core::storage::{COMMIT_LEN, MAX_ENCODED_LEN, MAX_PAYLOAD_LEN, encode};
 use nrf_mpsl::{Flash, FlashError};
 use trouble_host::prelude::BondInformation;
+
+static STORAGE_FAILED: AtomicBool = AtomicBool::new(false);
+
+pub fn storage_failed() -> bool {
+    STORAGE_FAILED.load(Ordering::Relaxed)
+}
 
 const PAGES: [u32; 2] = [0xf2000, 0xf3000];
 
@@ -51,6 +58,19 @@ impl<'d> BondStore<'d> {
         self.slot = Some(selected.slot);
         self.generation = selected.generation;
         Ok(self.bonds.clone())
+    }
+
+    pub async fn remember(&mut self, bond: &BondInformation) {
+        let pending = kb_bond_storage::inserting(&self.bonds, bond);
+        let failed = self.save(bond).await.is_err();
+        if failed {
+            self.bonds = pending;
+        }
+        STORAGE_FAILED.store(failed, Ordering::Relaxed);
+    }
+
+    pub async fn forget(&mut self) {
+        STORAGE_FAILED.store(self.clear().await.is_err(), Ordering::Relaxed);
     }
 
     pub async fn save(&mut self, bond: &BondInformation) -> Result<(), Error> {
