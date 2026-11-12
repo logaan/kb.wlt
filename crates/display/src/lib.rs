@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod st7789;
+
 use embedded_graphics::{
     draw_target::DrawTarget,
     geometry::{OriginDimensions, Size},
