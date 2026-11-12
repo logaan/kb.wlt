@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- USB suspend, reset, and disconnect cancel pending keyboard report writes. The next USB session starts with a neutral report.
+
 - Interrupted Bluetooth saves preserve newly learned pairings in memory, and clearing saved pairings commits an empty journal record before erasing the previous page.
 
 - Preferences retry transient flash failures, and unchanged Bluetooth subscriptions retry a failed pairing save.

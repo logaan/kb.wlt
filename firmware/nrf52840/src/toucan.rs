@@ -1008,26 +1008,6 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
         },
     );
     let mut usb = builder.build();
-    let send = async {
-        let mut previous = [0; 8];
-        let mut generation = u32::MAX;
-        loop {
-            writer.ready().await;
-            let session = crate::usb_hid::connection();
-            if generation != session.generation() {
-                previous = [0; 8];
-                generation = session.generation();
-            }
-            let (token, report) =
-                match select(REPORTS.receive(), crate::usb_hid::idle_timeout()).await {
-                    Either::First(report) => report,
-                    Either::Second(_) => (generation, previous),
-                };
-            if crate::usb_hid::connection().accepts(token) && writer.write(&report).await.is_ok() {
-                previous = report;
-                crate::usb_hid::report_sent(report);
-            }
-        }
-    };
+    let send = crate::usb_hid::send_held_reports(&mut writer, &REPORTS);
     join(usb.run(), send).await;
 }

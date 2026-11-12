@@ -3,7 +3,6 @@
 
 use embassy_executor::Spawner;
 use embassy_futures::join::join3;
-use embassy_futures::select::{Either, select};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::usb::{Driver, vbus_detect::HardwareVbusDetect};
 use embassy_nrf::{bind_interrupts, peripherals, usb};
@@ -185,27 +184,7 @@ async fn main(_spawner: Spawner) {
             Timer::after_millis(1).await;
         }
     };
-    let send = async {
-        loop {
-            writer.ready().await;
-            if writer.write(&[0; 8]).await.is_ok() {
-                kb_nrf52840::usb_hid::report_sent([0; 8]);
-            }
-            if let Either::First((generation, stroke)) =
-                select(STROKES.receive(), kb_nrf52840::usb_hid::idle_timeout()).await
-            {
-                if !kb_nrf52840::usb_hid::connection().accepts(generation) {
-                    continue;
-                }
-                if writer.write(&stroke.report()).await.is_ok() {
-                    kb_nrf52840::usb_hid::report_sent(stroke.report());
-                    if writer.write(&[0; 8]).await.is_ok() {
-                        kb_nrf52840::usb_hid::report_sent([0; 8]);
-                    }
-                }
-            }
-        }
-    };
+    let send = kb_nrf52840::usb_hid::send_strokes(&mut writer, &STROKES);
     let keyboard = join3(usb.run(), scan, send);
     #[cfg(feature = "display")]
     embassy_futures::join::join(keyboard, kb_nrf52840::display::run(display_bus)).await;
