@@ -153,3 +153,23 @@ fn composed_led_middleware_transforms_outgoing_colours() {
         state = component.step(state, time, false).unwrap().state;
     }
 }
+
+#[test]
+fn reference_catalog_uses_the_active_component_map_cell_export() {
+    let mut component = BrailleComponent::new(BRAILLE).unwrap();
+    let catalog =
+        kb_core::reference::Catalog::try_from_fn(|cell| component.map_cell(cell)).unwrap();
+    for cell in 1..=511 {
+        let actual = catalog
+            .find(cell)
+            .map(|index| catalog.entries()[usize::from(index)].packed);
+        assert_eq!(actual, computer8(cell).map(|stroke| stroke.packed()));
+    }
+    for cell in 0..20_000 {
+        let cell = cell % 512;
+        assert_eq!(
+            component.map_cell(cell).unwrap(),
+            computer8(cell).map_or(0, |stroke| stroke.packed())
+        );
+    }
+}

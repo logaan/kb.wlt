@@ -14,3 +14,5 @@ pub use debounce::{DebounceUpdate, Debouncer};
 pub use hid::{KeyStroke, QueueFull, ReportQueue};
 
 pub mod transport;
+
+pub mod reference;

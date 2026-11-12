@@ -191,6 +191,8 @@ pub struct BrailleComponent {
     runtime: Runtime,
     step: TypedFunc<(i32, i32, i32), i32>,
     post_return: TypedFunc<i32, ()>,
+    map_cell: TypedFunc<i32, i32>,
+    map_post_return: TypedFunc<i32, ()>,
 }
 
 impl BrailleComponent {
@@ -206,11 +208,29 @@ impl BrailleComponent {
         let post_return = runtime
             .instance
             .get_typed_func(&runtime.store, "cabi_post_kb:firmware/braille@0.1.0#step")?;
+        let map_cell = runtime
+            .instance
+            .get_typed_func(&runtime.store, "kb:firmware/braille@0.1.0#map-cell")?;
+        let map_post_return = runtime.instance.get_typed_func(
+            &runtime.store,
+            "cabi_post_kb:firmware/braille@0.1.0#map-cell",
+        )?;
         Ok(Self {
             runtime,
             step,
             post_return,
+            map_cell,
+            map_post_return,
         })
+    }
+
+    pub fn map_cell(&mut self, cell: u16) -> Result<u32, Error> {
+        self.runtime.store.set_fuel(CALL_FUEL)?;
+        let result = self
+            .map_cell
+            .call(&mut self.runtime.store, i32::from(cell))?;
+        self.map_post_return.call(&mut self.runtime.store, result)?;
+        Ok(result as u32)
     }
 
     pub fn step(&mut self, state: BrailleState, keys: u16) -> Result<BrailleOutput, Error> {
