@@ -5,6 +5,7 @@ pub mod chord;
 pub mod debounce;
 pub mod hid;
 pub mod pipeline;
+pub mod split;
 pub mod storage;
 
 pub use braille::computer8;
