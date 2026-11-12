@@ -13,6 +13,14 @@ pub enum Mode {
     Namespace,
     Reference,
     Find,
+    Guide,
+    Main,
+    Config,
+    Bindings,
+    Diagnostics,
+    BindingOptions,
+    BindingCapture,
+    BindingText,
     ReleaseGuard,
 }
 
@@ -21,6 +29,12 @@ pub enum Action {
     #[default]
     None,
     Namespace,
+    Main,
+    Config,
+    Bindings,
+    Diagnostics,
+    Activate,
+    Back,
     Enter,
     Exit,
     Cancel,
@@ -32,6 +46,7 @@ pub enum Action {
     First,
     Last,
     Find,
+    Guide,
     Lookup(u16),
 }
 
@@ -123,9 +138,14 @@ impl State {
                     action = Action::Namespace;
                     forward = false;
                 }
-                Mode::Namespace if cell == REFERENCE => {
-                    self.mode = Mode::Reference;
-                    action = Action::Enter;
+                Mode::Namespace if matches!(cell, LEADER | REFERENCE | 0x109 | 0x103 | 0x119) => {
+                    (self.mode, action) = match cell {
+                        LEADER => (Mode::Main, Action::Main),
+                        REFERENCE => (Mode::Reference, Action::Enter),
+                        0x109 => (Mode::Config, Action::Config),
+                        0x103 => (Mode::Bindings, Action::Bindings),
+                        _ => (Mode::Diagnostics, Action::Diagnostics),
+                    };
                 }
                 Mode::Namespace => {
                     self.mode = Mode::ReleaseGuard;
@@ -135,7 +155,24 @@ impl State {
                     self.mode = Mode::Reference;
                     action = Action::Lookup(cell);
                 }
-                Mode::Reference => {
+                mode if !matches!(mode, Mode::Typing | Mode::Find) && cell == LEADER => {
+                    self.mode = Mode::Namespace;
+                    self.started_ms = now_ms;
+                    action = Action::Namespace;
+                }
+                Mode::BindingCapture => action = Action::Lookup(cell),
+                Mode::BindingText => {
+                    action = match cell {
+                        0x140 => Action::Activate,
+                        0x103 => Action::Back,
+                        _ => Action::Lookup(cell),
+                    };
+                }
+                Mode::Main
+                | Mode::Config
+                | Mode::Bindings
+                | Mode::Diagnostics
+                | Mode::BindingOptions => {
                     action = match cell {
                         0x101 => Action::Previous,
                         0x108 => Action::Next,
@@ -143,6 +180,27 @@ impl State {
                         0x120 => Action::NextPage,
                         0x107 => Action::First,
                         0x138 => Action::Last,
+                        0x140 => Action::Activate,
+                        0x103 => Action::Back,
+                        _ => Action::Lookup(cell),
+                    };
+                }
+                Mode::Reference | Mode::Guide => {
+                    action = match cell {
+                        0x101 => Action::Previous,
+                        0x108 => Action::Next,
+                        0x104 => Action::PreviousPage,
+                        0x120 => Action::NextPage,
+                        0x107 => Action::First,
+                        0x138 => Action::Last,
+                        0x11b if self.mode == Mode::Guide => {
+                            self.mode = Mode::Reference;
+                            Action::Guide
+                        }
+                        0x11b => {
+                            self.mode = Mode::Guide;
+                            Action::Guide
+                        }
                         0x10b => {
                             self.mode = Mode::Find;
                             Action::Find
@@ -245,6 +303,30 @@ impl Catalog {
         Ok(catalog)
     }
 
+    pub fn for_settings(&self, settings: &crate::preferences::Settings) -> Self {
+        let mut catalog = Self::new();
+        for cell in (1..=511).filter(|cell| *cell != LEADER) {
+            let packed = if let Some(binding) = settings
+                .bindings
+                .iter()
+                .find(|binding| binding.trigger() == [cell])
+            {
+                binding
+                    .text()
+                    .first()
+                    .and_then(|byte| KeyStroke::from_ascii(*byte))
+                    .map_or(0, KeyStroke::packed)
+            } else if settings.mode == crate::preferences::BrailleMode::Ueb1 {
+                crate::ueb1::map_cell(cell)
+            } else {
+                self.find(cell)
+                    .map_or(0, |index| self.entries[usize::from(index)].packed)
+            };
+            let _ = catalog.append(cell, packed);
+        }
+        catalog
+    }
+
     pub fn entries(&self) -> &[Entry] {
         &self.entries[..usize::from(self.len)]
     }
@@ -296,6 +378,37 @@ impl Cursor {
         self
     }
 
+    pub fn navigate(mut self, action: Action, total: u16) -> Self {
+        let last = total.saturating_sub(1);
+        self.selected = match action {
+            Action::Enter | Action::First | Action::Guide => 0,
+            Action::Last => last,
+            Action::Previous => self.selected.saturating_sub(1),
+            Action::Next => self.selected.saturating_add(1).min(last),
+            Action::PreviousPage => self.selected.saturating_sub(PAGE_SIZE as u16),
+            Action::NextPage => self.selected.saturating_add(PAGE_SIZE as u16).min(last),
+            _ => self.selected.min(last),
+        };
+        self.lookup = None;
+        self
+    }
+
+    pub fn guide_page(self) -> Page {
+        let start = usize::from(self.selected) / PAGE_SIZE * PAGE_SIZE;
+        Page {
+            mode: Mode::Guide,
+            braille_mode: crate::preferences::BrailleMode::Ueb1,
+            total: crate::ueb1::RULES.len() as u16,
+            start: start as u16,
+            selected: (usize::from(self.selected) % PAGE_SIZE) as u8,
+            len: crate::ueb1::RULES
+                .len()
+                .saturating_sub(start)
+                .min(PAGE_SIZE) as u8,
+            ..Page::default()
+        }
+    }
+
     pub fn page(self, catalog: &Catalog, mode: Mode) -> Page {
         let start = usize::from(self.selected) / PAGE_SIZE * PAGE_SIZE;
         let mut page = Page {
@@ -317,6 +430,38 @@ impl Cursor {
         }
         page
     }
+
+    pub fn active_page(
+        self,
+        catalog: &Catalog,
+        mode: Mode,
+        settings: &crate::preferences::Settings,
+    ) -> Page {
+        let mut page = if mode == Mode::Guide {
+            self.guide_page()
+        } else {
+            self.page(catalog, mode)
+        };
+        page.braille_mode = settings.mode;
+        for index in 0..usize::from(page.len) {
+            let single = [page.entries[index].cell];
+            let trigger = if mode == Mode::Guide {
+                let rule = &crate::ueb1::RULES[usize::from(page.start) + index];
+                &rule.cells[..usize::from(rule.count)]
+            } else {
+                &single
+            };
+            if let Some(binding) = settings
+                .bindings
+                .iter()
+                .find(|binding| binding.trigger() == trigger)
+            {
+                page.labels[index][..binding.text().len()].copy_from_slice(binding.text());
+                page.label_lengths[index] = binding.text_len;
+            }
+        }
+        page
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -329,4 +474,7 @@ pub struct Page {
     pub start: u16,
     pub lookup: Option<u16>,
     pub lookup_found: bool,
+    pub braille_mode: crate::preferences::BrailleMode,
+    pub labels: [[u8; 24]; PAGE_SIZE],
+    pub label_lengths: [u8; PAGE_SIZE],
 }

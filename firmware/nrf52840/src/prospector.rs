@@ -10,6 +10,7 @@ use kb_display::{
 enum View {
     Status(Status),
     Reference(kb_core::reference::Page),
+    Menu(kb_display::menu::Page),
 }
 
 static VIEW: Signal<CriticalSectionRawMutex, View> = Signal::new();
@@ -20,6 +21,10 @@ pub fn update(status: Status) {
 
 pub fn show_reference(page: kb_core::reference::Page) {
     VIEW.signal(View::Reference(page));
+}
+
+pub fn show_menu(page: kb_display::menu::Page) {
+    VIEW.signal(View::Menu(page));
 }
 
 struct Bus<'a> {
@@ -96,6 +101,7 @@ pub async fn run<'a>(
                 match view {
                     View::Status(status) => panel.present(status).await,
                     View::Reference(page) => panel.present_reference(&page).await,
+                    View::Menu(page) => panel.present_menu(&page).await,
                 }
             };
             if !matches!(

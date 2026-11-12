@@ -195,3 +195,19 @@ fn silence_and_disconnect_cancel_partial_chords_and_release_keys() {
     assert_eq!(update.released, 1);
     assert!(update.cancel_chord);
 }
+
+#[test]
+fn replacing_closing_and_expiring_idle_links_cancel_pending_input() {
+    let receiver = Receiver::<1>::new(500);
+    let (receiver, session, update) = receiver.connect(0, 1, Layout::Single, 0).unwrap();
+    assert!(!update.cancel_chord);
+    assert!(receiver.disconnect(session).unwrap().1.cancel_chord);
+    assert!(receiver.expire(500).1.cancel_chord);
+    assert!(
+        receiver
+            .connect(0, 2, Layout::Single, 499)
+            .unwrap()
+            .2
+            .cancel_chord
+    );
+}

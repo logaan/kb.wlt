@@ -18,25 +18,11 @@ Both Paintbrushes send their top-row keys to a Prospector over Bluetooth. The do
 
 Default bootloader addresses and mirrored-assembly options are the same as milestones 5 and 6. Both satellites intentionally have no USB HID interface. The dongle must run kb.wlt rather than stock ZMK firmware.
 
-## Braille reference
+## QuickBrailleFox menu
 
-Hold Space and chord **q** (dots 1+2+3+4+5), release the dots, then chord **r** (dots 1+2+3+5) within two seconds. Keep Space held throughout, or release and press Space for each chord. The namespace is mnemonic: **QuickBrailleFox → reference**. Space+q then Space+c is reserved for configuration; unknown namespace commands are swallowed.
+Follow the [Prospector menu controls and hardware checks](../05-paintbrush-prospector/readme.md#quickbraillefox-menu) using the combined braille layout.
 
-The LCD lists every nonzero mapping returned by the active Wavelet component, including custom mappings after a rebuild. It shows six-dot cells when possible, eight-dot cells when dot 7 or 8 is used, and labels Space separately. The stock component has 111 mappings. Some eight-dot mappings require a physical dot-8 key that the default Paintbrush layout replaces with Space.
-
-| Reference control | Action |
-| --- | --- |
-| Space + dot 1 / dot 4 | Previous / next mapping |
-| Space + dot 3 / dot 6 | Previous / next page |
-| Space + dots 1+2+3 / 4+5+6 | First / last mapping |
-| A plain chord | Jump to that mapping, or show unmapped |
-| Space + f (dots 1+2+4), then any chord | Look up that exact chord, including navigation controls |
-| Space + dots 1+2 | Exit reference |
-
-All reference input is captured. After exiting, timing out in the namespace, or losing a connection, release every key before typing again. Space+q is reserved by the Prospector interface even if a custom component maps it. Hardware checks:
-
-- [ ] Enter reference both with Space held continuously and with full releases between chords; confirm neither entry sequence types anything.
-- [ ] Browse through the last mapping, inspect dot-7/dot-8 cells and Space mappings, and use literal lookup for Space+1.
-- [ ] Exit while keeping Space held, press another chord, then release everything; confirm no Space or partial chord leaks into the editor.
-- [ ] Disconnect a satellite during reference and reconnect with keys held; confirm typing resumes only after all keys release.
-- [ ] Change a mapping in this milestone's `braille.wlt`, rebuild the dongle, and confirm its reference entry changes.
+- [ ] Open **qq**, **qr**, **qc**, **qb**, and **qd** with the namespace chords split across the two halves. Confirm the editor receives no keystrokes.
+- [ ] Capture a trigger that spans both halves and a second binding with more than one chord. Confirm the saved bindings type their expansions in both braille modes.
+- [ ] Restart the links and confirm diagnostics shows both peers after reconnecting. Clear pairings, let both halves re-pair, and verify braille preferences persist.
+- [ ] Disconnect either half while navigating or capturing a trigger. Release every key before typing again and confirm the interrupted chord produces no host report.

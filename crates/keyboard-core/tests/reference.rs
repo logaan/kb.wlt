@@ -1,5 +1,10 @@
 use core::convert::Infallible;
-use kb_core::{computer8, reference::*};
+use kb_core::{
+    computer8,
+    preferences::{BrailleMode, Settings},
+    reference::*,
+    ueb1::RULES,
+};
 
 #[derive(Default)]
 struct Host {
@@ -105,8 +110,8 @@ fn every_release_order_captures_the_leader_before_output() {
 }
 
 #[test]
-fn unknown_and_reserved_namespaces_are_swallowed_until_neutral() {
-    for command in [0x109, 0x101, 1, 0x117 & !SPACE] {
+fn unknown_and_unmodified_namespaces_are_swallowed_until_neutral() {
+    for command in [0x102, 0x101, 1, 0x117 & !SPACE] {
         let mut host = Host::default();
         assert_eq!(host.chord(LEADER), Action::Namespace);
         assert_eq!(host.chord(command), Action::Rejected);
@@ -325,4 +330,40 @@ fn incremental_catalog_matches_synchronous_catalog_and_rejects_invalid_order() {
     }
     assert_eq!(full.len(), 511);
     assert_eq!(full.append(511, 4), Err(CatalogError::OutOfOrder));
+}
+
+#[test]
+fn active_reference_shows_overrides_and_every_ueb_rule() {
+    let mut settings = Settings {
+        mode: BrailleMode::Ueb1,
+        ..Settings::default()
+    };
+    settings.set_binding(0, &[1], b"apple").unwrap();
+    settings.set_binding(1, &[32, 1], b"Alpha").unwrap();
+    let base = Catalog::try_from_fn(|cell| Ok::<_, Infallible>(u32::from(cell))).unwrap();
+    let catalog = base.for_settings(&settings);
+    assert_eq!(catalog.find(LEADER), None);
+    let cursor = Cursor::default().apply(Action::Lookup(1), &catalog);
+    let page = cursor.active_page(&catalog, Mode::Reference, &settings);
+    let index = usize::from(page.selected);
+    assert_eq!(page.braille_mode, BrailleMode::Ueb1);
+    assert_eq!(
+        &page.labels[index][..usize::from(page.label_lengths[index])],
+        b"apple"
+    );
+
+    let mut cursor = Cursor::default();
+    for (index, rule) in RULES.iter().enumerate() {
+        let page = cursor.active_page(&catalog, Mode::Guide, &settings);
+        assert_eq!(usize::from(page.start) + usize::from(page.selected), index);
+        if rule.cells == [32, 1, 0] && rule.count == 2 {
+            let selected = usize::from(page.selected);
+            assert_eq!(
+                &page.labels[selected][..usize::from(page.label_lengths[selected])],
+                b"Alpha"
+            );
+        }
+        cursor = cursor.navigate(Action::Next, RULES.len() as u16);
+    }
+    assert_eq!(usize::from(cursor.selected), RULES.len() - 1);
 }

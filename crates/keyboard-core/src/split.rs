@@ -178,7 +178,7 @@ impl<const N: usize> Receiver<N> {
     ) -> Result<(Self, Session, Update), ReceiveError> {
         let previous = self.keys();
         let peer = self.peers.get_mut(slot).ok_or(ReceiveError::Slot)?;
-        let cancel_chord = peer.keys != 0;
+        let cancel_chord = peer.connected;
         let generation = peer.generation.wrapping_add(1);
         *peer = Peer {
             node,
@@ -234,11 +234,10 @@ impl<const N: usize> Receiver<N> {
     pub fn disconnect(mut self, session: Session) -> Result<(Self, Update), ReceiveError> {
         let previous = self.keys();
         let peer = self.session_peer(session)?;
-        let cancel_chord = peer.keys != 0;
         peer.connected = false;
         peer.keys = 0;
         peer.armed = false;
-        Ok((self, self.update(previous, cancel_chord)))
+        Ok((self, self.update(previous, true)))
     }
 
     pub fn expire(mut self, now_ms: u32) -> (Self, Update) {
@@ -246,7 +245,7 @@ impl<const N: usize> Receiver<N> {
         let mut cancel_chord = false;
         for peer in &mut self.peers {
             if peer.connected && now_ms.wrapping_sub(peer.last_seen_ms) >= self.timeout_ms {
-                cancel_chord |= peer.keys != 0;
+                cancel_chord = true;
                 peer.connected = false;
                 peer.keys = 0;
                 peer.armed = false;

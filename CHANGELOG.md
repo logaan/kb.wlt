@@ -10,6 +10,8 @@
 
 - Prospector braille reference mode enumerates the active Wavelet module, renders six- and eight-dot cells with separate Space labels, and captures namespace, browsing, and lookup input without sending it to the host.
 
+- The Prospector QuickBrailleFox menu provides reference and diagnostics screens, Bluetooth controls, a Computer 8 and UEB Grade 1 switch, and persistent chord and contraction editing.
+
 - Toucan 2 Bluetooth firmware with a Wavelet keymap, held-key reports, momentary layers, nice!view output, and a two-half Prospector USB receiver.
 - Independent USB reset controller for a third XIAO, with two open-drain reset channels, serial commands, and a wiring diagram.
 - ST7789 display rendering and Prospector display wiring support.
@@ -21,6 +23,8 @@
 - Manual versioned releases with changelog notes, tagged source, UF2 firmware, source/example bundles, and checksums.
 
 ### Fixed
+
+- Split keyboard link loss discards pending contractions and HID reports even when the disconnected keyboard has released its keys.
 
 - USB suspend, reset, and disconnect cancel pending keyboard report writes. The next USB session starts with a neutral report.
 

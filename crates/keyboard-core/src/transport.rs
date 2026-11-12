@@ -72,6 +72,10 @@ impl InputGate {
         }
     }
 
+    pub fn acknowledge_generation(&mut self, generation: u32) {
+        self.generation = Some(generation);
+    }
+
     pub fn observe(
         &mut self,
         generation: u32,

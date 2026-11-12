@@ -3,6 +3,7 @@ use core::fmt::Write;
 use kb_core::{
     KeyStroke, computer8,
     reference::{Catalog, Cursor, Entry, Mode, Page},
+    ueb1::RULES,
 };
 use kb_display::reference::{ACCENT, BACKGROUND, Label, dot_label, label, render_row};
 
@@ -103,5 +104,26 @@ fn catalog_pages_and_namespace_render_full_frames() {
                 .count();
         }
         assert!(changed > 1000);
+    }
+}
+
+#[test]
+fn guide_renders_all_cells_of_a_three_cell_sign() {
+    let rule_index = RULES.iter().position(|rule| rule.count == 3).unwrap();
+    let page = Cursor {
+        selected: rule_index as u16,
+        lookup: None,
+    }
+    .guide_page();
+    let mut row = [0; 480];
+    let top = 50 + usize::from(page.selected) * 37;
+    for x in [12, 36, 60] {
+        let active = (top..top + 27).any(|y| {
+            render_row(&page, y, &mut row);
+            row[x * 2..(x + 15) * 2]
+                .chunks_exact(2)
+                .any(|pixel| pixel == ACCENT.to_be_bytes())
+        });
+        assert!(active);
     }
 }

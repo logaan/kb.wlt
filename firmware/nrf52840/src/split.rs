@@ -19,7 +19,11 @@ use embassy_usb::class::hid::{
 use embassy_usb::{Builder, Config};
 use kb_component_runtime::{BrailleComponent, BrailleState};
 use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
+use kb_core::preferences::{
+    Engine, Fallback, MAX_TEXT, MAX_TRIGGER, Output as StrokeBatch, Settings,
+};
 use kb_core::split::{Layout, PACKET_LEN, Receiver, Session, Snapshot};
+use kb_core::transport::{FaultLatch, InputGate};
 use kb_core::{Debouncer, KeyStroke};
 use nrf_sdc::{self as sdc, mpsl};
 use static_cell::StaticCell;
@@ -51,7 +55,8 @@ const SNAPSHOT_UUID: Uuid = Uuid::new_long([
 static KEYS: AtomicU8 = AtomicU8::new(0);
 static KEY_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
-static EVENTS: Channel<CriticalSectionRawMutex, LinkEvent, 64> = Channel::new();
+const LINK_TIMEOUT_MS: u32 = 500;
+static EVENTS: Channel<CriticalSectionRawMutex, (u32, LinkEvent), 64> = Channel::new();
 static ADVERTISEMENTS: Channel<CriticalSectionRawMutex, Discovered, 16> = Channel::new();
 static CONNECT_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
@@ -70,6 +75,12 @@ enum LinkEvent {
     Open(usize, Snapshot),
     Snapshot(usize, Snapshot),
     Close(usize),
+}
+
+impl LinkEvent {
+    async fn send(self) {
+        EVENTS.send((Instant::now().as_millis() as u32, self)).await;
+    }
 }
 
 struct Discovery;
@@ -546,13 +557,12 @@ async fn local_snapshots(boot: u32) {
             layout: Layout::Left,
             keys: KEYS.load(Ordering::Relaxed),
         };
-        EVENTS
-            .send(if first {
-                LinkEvent::Open(0, snapshot)
-            } else {
-                LinkEvent::Snapshot(0, snapshot)
-            })
-            .await;
+        let event = if first {
+            LinkEvent::Open(0, snapshot)
+        } else {
+            LinkEvent::Snapshot(0, snapshot)
+        };
+        event.send().await;
         first = false;
         sequence = sequence.wrapping_add(1);
         let _ = select(KEY_CHANGED.wait(), Timer::after_millis(100)).await;
@@ -630,7 +640,7 @@ async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, slot: usize, layout: Layout)
         };
         let _ = select(connected, crate::settings::radio_changed(epoch)).await;
         connection.disconnect();
-        EVENTS.send(LinkEvent::Close(slot)).await;
+        LinkEvent::Close(slot).send().await;
         Timer::after_millis(100).await;
     }
 }
@@ -729,13 +739,12 @@ async fn receive_snapshots(
                 if snapshot.layout != layout {
                     return;
                 }
-                EVENTS
-                    .send(if first {
-                        LinkEvent::Open(slot, snapshot)
-                    } else {
-                        LinkEvent::Snapshot(slot, snapshot)
-                    })
-                    .await;
+                let event = if first {
+                    LinkEvent::Open(slot, snapshot)
+                } else {
+                    LinkEvent::Snapshot(slot, snapshot)
+                };
+                event.send().await;
                 first = false;
             }
         };
@@ -762,14 +771,77 @@ async fn receive_snapshots(
     let _ = select(client.task(), receive).await;
 }
 
+#[derive(Default)]
+struct Typing {
+    component: BrailleState,
+    held: u16,
+    chord: u16,
+    tentative: Fallback,
+}
+
+impl Typing {
+    fn step(
+        &mut self,
+        component: &mut FaultLatch<BrailleComponent>,
+        engine: &mut Engine,
+        settings: &Settings,
+        keys: u16,
+        now: u32,
+    ) -> StrokeBatch {
+        if keys == self.held {
+            return engine.poll(settings, now);
+        }
+        self.held = keys;
+        self.chord |= keys;
+        let result = component.call(|component| -> Result<_, kb_component_runtime::Error> {
+            let output = component.step(self.component, keys)?;
+            self.component = output.state;
+            let fallback =
+                (output.usage != 0).then_some(KeyStroke::new(output.usage, output.modifiers));
+            if cfg!(feature = "prospector-display") {
+                if let Some(stroke) = fallback {
+                    self.tentative
+                        .push(stroke)
+                        .map_err(|_| kb_component_runtime::Error::InvalidReturn)?;
+                }
+                Ok(None)
+            } else {
+                Ok(fallback)
+            }
+        });
+        match result {
+            Ok(fallback) if keys == 0 => {
+                let cell = core::mem::take(&mut self.chord);
+                if cfg!(feature = "prospector-display") {
+                    engine.accept_batch(settings, cell, core::mem::take(&mut self.tentative), now)
+                } else {
+                    engine.accept(settings, cell, fallback, now)
+                }
+            }
+            Ok(Some(stroke)) => StrokeBatch::from_slice(&[stroke], KeyStroke::default()).unwrap(),
+            Ok(None) => engine.poll(settings, now),
+            Err(_) => StrokeBatch::default(),
+        }
+    }
+}
+
 async fn process_keys() {
-    let mut component = kb_core::transport::FaultLatch::new(BrailleComponent::new(include_bytes!(
-        env!("KB_BRAILLE_WASM")
-    )));
-    let mut fault_generation = None;
-    let mut state = BrailleState::default();
+    const PENDING_CAPACITY: usize = 128;
+    const BATCH_CAPACITY: usize = MAX_TRIGGER * MAX_TEXT;
+    let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(env!(
+        "KB_BRAILLE_WASM"
+    ))));
+    let mut fault_seen = false;
+    let settings = crate::settings::current()
+        .and_then(|blob| Settings::decode(blob.as_slice()).ok())
+        .unwrap_or_default();
     #[cfg(feature = "prospector-display")]
-    let catalog = {
+    let mut settings = settings;
+    let mut engine = Engine::default();
+    let mut pending = kb_core::pipeline::Bounded::<KeyStroke, PENDING_CAPACITY>::default();
+    let mut typing = Typing::default();
+    #[cfg(feature = "prospector-display")]
+    let base_catalog = {
         let mut catalog = kb_core::reference::Catalog::new();
         let mut failed = false;
         for cell in 1..=511 {
@@ -790,13 +862,20 @@ async fn process_keys() {
     #[cfg(feature = "prospector-display")]
     let mut reference = kb_core::reference::State::new();
     #[cfg(feature = "prospector-display")]
+    let mut catalog = base_catalog
+        .as_ref()
+        .map(|base| base.for_settings(&settings));
+    #[cfg(feature = "prospector-display")]
+    let mut menu = kb_core::menu::State::default();
+    #[cfg(feature = "prospector-display")]
+    let mut menu_page = None;
+    #[cfg(feature = "prospector-display")]
     let mut cursor = kb_core::reference::Cursor::default();
     #[cfg(feature = "prospector-display")]
     let mut reference_page = None;
-    let mut receiver = Receiver::<2>::new(500);
+    let mut receiver = Receiver::<2>::new(LINK_TIMEOUT_MS);
     let mut sessions: [Option<Session>; 2] = [None; 2];
-    let mut armed = false;
-    let mut generation = 0;
+    let mut input = InputGate::new();
     #[cfg(feature = "prospector-display")]
     let mut display_status = kb_display::Status {
         transport: kb_display::Transport::Split,
@@ -806,46 +885,46 @@ async fn process_keys() {
         let now = Instant::now().as_millis() as u32;
         let (next, mut update) = receiver.expire(now);
         receiver = next;
-        if update.cancel_chord {
-            state = BrailleState::default();
-            armed = false;
-        }
-        if let Either::First(event) = select(EVENTS.receive(), Timer::after_millis(5)).await {
-            let now = Instant::now().as_millis() as u32;
+        let event = if PENDING_CAPACITY - pending.len() >= BATCH_CAPACITY {
+            match select(EVENTS.receive(), Timer::after_millis(5)).await {
+                Either::First(event) => Some(event),
+                Either::Second(_) => None,
+            }
+        } else {
+            Timer::after_millis(1).await;
+            None
+        };
+        let now = Instant::now().as_millis() as u32;
+        if let Some((received_at, event)) = event.filter(|(received_at, event)| {
+            matches!(event, LinkEvent::Close(_)) || now.wrapping_sub(*received_at) < LINK_TIMEOUT_MS
+        }) {
             let result = match event {
                 LinkEvent::Open(slot, snapshot) => {
                     let (next, session, opened) = receiver
-                        .connect(slot, snapshot.node, snapshot.layout, now)
+                        .connect(slot, snapshot.node, snapshot.layout, received_at)
                         .unwrap();
                     receiver = next;
                     sessions[slot] = Some(session);
                     update.cancel_chord |= opened.cancel_chord;
-                    if opened.cancel_chord {
-                        state = BrailleState::default();
-                        armed = false;
-                    }
-                    receiver.receive(session, snapshot, now)
+                    receiver.receive(session, snapshot, received_at).ok()
                 }
                 LinkEvent::Snapshot(slot, snapshot) => {
                     if !receiver.is_connected(slot) {
                         let (next, session, opened) = receiver
-                            .connect(slot, snapshot.node, snapshot.layout, now)
+                            .connect(slot, snapshot.node, snapshot.layout, received_at)
                             .unwrap();
                         receiver = next;
                         update.cancel_chord |= opened.cancel_chord;
                         sessions[slot] = Some(session);
                     }
-                    match sessions[slot] {
-                        Some(session) => receiver.receive(session, snapshot, now),
-                        None => continue,
-                    }
+                    sessions[slot]
+                        .and_then(|session| receiver.receive(session, snapshot, received_at).ok())
                 }
-                LinkEvent::Close(slot) => match sessions[slot].take() {
-                    Some(session) => receiver.disconnect(session),
-                    None => continue,
-                },
+                LinkEvent::Close(slot) => sessions[slot]
+                    .take()
+                    .and_then(|session| receiver.disconnect(session).ok()),
             };
-            if let Ok((next, received)) = result {
+            if let Some((next, received)) = result {
                 update.cancel_chord |= received.cancel_chord;
                 update.keys = received.keys;
                 update.pressed |= received.pressed;
@@ -854,27 +933,107 @@ async fn process_keys() {
             }
         }
         let session = crate::usb_hid::connection();
-        if !session.ready() || generation != session.generation() || update.cancel_chord {
+        let mut generation = session.generation();
+        let input_update = input.observe(
+            generation,
+            cfg!(feature = "prospector-display") || session.ready(),
+            u64::from(update.keys),
+            update.cancel_chord,
+        );
+        if input_update.cancel {
             STROKES.clear();
-            fault_generation = None;
-            generation = session.generation();
+            pending = Default::default();
+            engine.reset();
+            if update.cancel_chord {
+                generation = crate::usb_hid::invalidate_pending_reports();
+                input.acknowledge_generation(generation);
+            }
             #[cfg(feature = "prospector-display")]
             {
                 reference = reference.cancel(update.keys).state;
+                menu = Default::default();
             }
-            state = BrailleState::default();
-            armed = false;
-        } else if update.keys == 0 && !component.is_faulted() {
-            armed = true;
+            typing = Typing::default();
         }
         #[cfg(feature = "prospector-display")]
-        let forward = if let Some(catalog) = catalog.as_ref().filter(|_| armed) {
-            let transition = reference.step(update.keys, Instant::now().as_millis() as u32);
+        let forward = if input_update.keys.is_some() {
+            let previous_mode = reference.mode;
+            let transition = reference.step(update.keys, now);
             reference = transition.state;
-            cursor = cursor.apply(transition.action, catalog);
-            if transition.reset_braille {
-                state = BrailleState::default();
+            let editor_key = match transition.action {
+                kb_core::reference::Action::Lookup(cell) => kb_core::computer8(cell),
+                _ => None,
+            };
+            let menu_update = menu.step(reference.mode, transition.action, &settings, editor_key);
+            menu = menu_update.state;
+            reference.mode = menu_update.mode;
+            let mut settings_changed = false;
+            match menu_update.effect {
+                kb_core::menu::Effect::None => {}
+                kb_core::menu::Effect::SetMode(mode) => {
+                    settings.mode = mode;
+                    settings_changed = true;
+                }
+                kb_core::menu::Effect::SetBinding { slot, binding } => {
+                    settings_changed = settings
+                        .set_binding(usize::from(slot), binding.trigger(), binding.text())
+                        .is_ok();
+                }
+                kb_core::menu::Effect::ClearBinding(slot) => {
+                    settings_changed = settings.clear_binding(usize::from(slot)).is_ok();
+                }
+                kb_core::menu::Effect::Bluetooth(action) => {
+                    let command = match action {
+                        kb_core::menu::BluetoothAction::Reconnect => {
+                            crate::settings::BluetoothControl::Reconnect
+                        }
+                        kb_core::menu::BluetoothAction::ClearBonds => {
+                            crate::settings::BluetoothControl::ClearBonds
+                        }
+                    };
+                    if !crate::settings::request_bluetooth(command) {
+                        menu.notice = kb_core::menu::Notice::Busy;
+                    }
+                }
+            }
+            if settings_changed {
+                engine.reset();
+                let mut bytes = [0; kb_core::preferences::ENCODED_LEN];
+                if settings.encode(&mut bytes).is_err() || !crate::settings::request_save(&bytes) {
+                    menu.notice = kb_core::menu::Notice::Busy;
+                }
+                catalog = base_catalog
+                    .as_ref()
+                    .map(|base| base.for_settings(&settings));
+                cursor = Default::default();
+            }
+            if reference.mode == kb_core::reference::Mode::Guide
+                && settings.mode != kb_core::preferences::BrailleMode::Ueb1
+            {
+                reference.mode = kb_core::reference::Mode::Reference;
+            }
+            if reference.mode == kb_core::reference::Mode::Guide {
+                cursor = cursor.navigate(transition.action, kb_core::ueb1::RULES.len() as u16);
+            } else if let Some(catalog) = catalog.as_ref() {
+                if previous_mode != reference.mode
+                    && reference.mode == kb_core::reference::Mode::Reference
+                {
+                    cursor = Default::default();
+                }
+                cursor = cursor.apply(transition.action, catalog);
+            } else if matches!(
+                reference.mode,
+                kb_core::reference::Mode::Reference | kb_core::reference::Mode::Find
+            ) {
+                reference.mode = kb_core::reference::Mode::Diagnostics;
+            }
+            if transition.reset_braille && previous_mode == kb_core::reference::Mode::Typing {
+                typing = Typing::default();
+                pending = Default::default();
+                engine.reset();
                 STROKES.clear();
+                generation = crate::usb_hid::invalidate_pending_reports();
+                input.acknowledge_generation(generation);
             }
             transition.forward
         } else {
@@ -882,64 +1041,121 @@ async fn process_keys() {
         };
         #[cfg(not(feature = "prospector-display"))]
         let forward = true;
-        if armed && forward && update.keys != state.held {
-            if let Ok(output) = component.call(|component| component.step(state, update.keys)) {
-                state = output.state;
-                if output.usage != 0 {
-                    let _ = STROKES
-                        .try_send((generation, KeyStroke::new(output.usage, output.modifiers)));
-                    #[cfg(feature = "prospector-display")]
-                    {
-                        display_status.last_usage = output.usage;
-                        display_status.last_modifiers = output.modifiers;
-                    }
-                }
-            }
+        if session.ready()
+            && input_update.keys.is_some()
+            && forward
+            && !component.is_faulted()
+            && PENDING_CAPACITY - pending.len() >= BATCH_CAPACITY
+        {
+            let output_batch =
+                typing.step(&mut component, &mut engine, &settings, update.keys, now);
+            pending.extend_from_slice(output_batch.as_slice()).unwrap();
         }
-        if component.is_faulted() {
-            state = BrailleState::default();
-            armed = false;
+        if !fault_seen && component.is_faulted() {
+            fault_seen = true;
+            typing = Typing::default();
+            pending = Default::default();
+            engine.reset();
+            STROKES.clear();
+            generation = crate::usb_hid::invalidate_pending_reports();
+            input.acknowledge_generation(generation);
             #[cfg(feature = "prospector-display")]
             {
                 reference = reference.cancel(update.keys).state;
             }
-            if session.ready() && fault_generation != Some(generation) {
-                STROKES.clear();
-                if STROKES.try_send((generation, KeyStroke::new(0, 0))).is_ok() {
-                    fault_generation = Some(generation);
-                }
+        }
+        let mut sent = 0;
+        for stroke in pending.as_slice() {
+            if STROKES.try_send((generation, *stroke)).is_err() {
+                break;
             }
+            sent += 1;
+            #[cfg(feature = "prospector-display")]
+            {
+                display_status.last_usage = stroke.usage;
+                display_status.last_modifiers = stroke.modifiers;
+            }
+        }
+        if sent != 0 {
+            pending = kb_core::pipeline::Bounded::from_slice(
+                &pending.as_slice()[sent..],
+                KeyStroke::default(),
+            )
+            .unwrap();
         }
         #[cfg(feature = "prospector-display")]
         {
             let connected =
                 session.ready() && (receiver.is_connected(0) || receiver.is_connected(1));
             let pairing_unsaved = crate::ble_bonds::storage_failed();
-            let changed = display_status.pairing_unsaved != pairing_unsaved
+            let changed = sent != 0
+                || display_status.pairing_unsaved != pairing_unsaved
                 || display_status.faulted != component.is_faulted()
                 || display_status.connected != connected
-                || display_status.held != state.held
-                || display_status.chord != state.chord
+                || display_status.held != typing.held
+                || display_status.chord != typing.chord
                 || update.pressed | update.released != 0;
             display_status.connected = connected;
             display_status.faulted = component.is_faulted();
             display_status.pairing_unsaved = pairing_unsaved;
-            display_status.held = state.held;
-            display_status.chord = state.chord;
+            display_status.held = typing.held;
+            display_status.chord = typing.chord;
             if matches!(
                 reference.mode,
                 kb_core::reference::Mode::Namespace
                     | kb_core::reference::Mode::Reference
                     | kb_core::reference::Mode::Find
-            ) && let Some(catalog) = catalog.as_ref()
-            {
-                let page = cursor.page(catalog, reference.mode);
+                    | kb_core::reference::Mode::Guide
+            ) {
+                let page = catalog.as_ref().map_or(
+                    kb_core::reference::Page {
+                        mode: reference.mode,
+                        braille_mode: settings.mode,
+                        ..Default::default()
+                    },
+                    |catalog| cursor.active_page(catalog, reference.mode, &settings),
+                );
+                menu_page = None;
                 if reference_page != Some(page) {
                     reference_page = Some(page);
                     crate::prospector::show_reference(page);
                 }
-            } else if changed || reference_page.take().is_some() {
-                crate::prospector::update(display_status);
+            } else if !matches!(
+                reference.mode,
+                kb_core::reference::Mode::Typing | kb_core::reference::Mode::ReleaseGuard
+            ) {
+                let diagnostics = reference.mode == kb_core::reference::Mode::Diagnostics;
+                let page = kb_display::menu::Page {
+                    mode: reference.mode,
+                    state: menu,
+                    settings,
+                    diagnostics: kb_core::menu::Diagnostics {
+                        uptime_seconds: if diagnostics {
+                            (Instant::now().as_secs()) as u32
+                        } else {
+                            0
+                        },
+                        usb_ready: session.ready(),
+                        peers: u8::from(receiver.is_connected(0))
+                            + u8::from(receiver.is_connected(1)),
+                        held: if diagnostics { update.keys } else { 0 },
+                        last_usage: display_status.last_usage,
+                        last_modifiers: display_status.last_modifiers,
+                        component_fault: component.is_faulted(),
+                        pairing_unsaved,
+                        settings_unsaved: crate::settings::unsaved(),
+                    },
+                };
+                reference_page = None;
+                if menu_page != Some(page) {
+                    menu_page = Some(page);
+                    crate::prospector::show_menu(page);
+                }
+            } else {
+                let leaving_menu = menu_page.take().is_some() | reference_page.take().is_some();
+                if changed || leaving_menu {
+                    crate::prospector::update(display_status);
+                }
             }
         }
     }

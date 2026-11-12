@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod menu;
 pub mod nice_view;
 pub mod reference;
 pub mod st7789;

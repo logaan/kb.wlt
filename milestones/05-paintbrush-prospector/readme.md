@@ -18,25 +18,49 @@ This build sends raw Paintbrush key snapshots over an encrypted Bluetooth link t
 
 The peripheral image intentionally has no USB keyboard interface; its USB cable supplies power and allows bootloader access. The dongle uses kb.wlt's split protocol and does not connect to stock ZMK peripherals. Automatic LCD brightness, touch, and the optional light sensor are not implemented.
 
-## Braille reference
+## QuickBrailleFox menu
 
-Hold Space and chord **q** (dots 1+2+3+4+5), release the dots, then chord **r** (dots 1+2+3+5) within two seconds. Keep Space held throughout, or release and press Space for each chord. The namespace is mnemonic: **QuickBrailleFox → reference**. Space+q then Space+c is reserved for configuration; unknown namespace commands are swallowed.
+Hold Space and chord **q** (dots 1+2+3+4+5), release the dots, and chord **q** again within two seconds. Keep Space held between chords or release and press it again. To open a screen directly, replace the second **q** with the screen's shortcut, still holding Space.
 
-The LCD lists every nonzero mapping returned by the active Wavelet component, including custom mappings after a rebuild. It shows six-dot cells when possible, eight-dot cells when dot 7 or 8 is used, and labels Space separately. The stock component has 111 mappings. Some eight-dot mappings require a physical dot-8 key that the default Paintbrush layout replaces with Space.
+| Shortcut | Screen |
+| --- | --- |
+| qq | Main menu |
+| qr (r = dots 1+2+3+5) | Braille reference |
+| qc (c = dots 1+4) | Configuration |
+| qb (b = dots 1+2) | Chords and contractions |
+| qd (d = dots 1+4+5) | Diagnostics |
+
+In menus, Space+1 and Space+4 move the selection, Space+3 and Space+6 move a page, Space+7 selects, and Space+12 goes back. Space+12 from the main menu returns to typing. All menu chords stay on the Prospector. Release every key after exiting or reconnecting before typing again.
+
+### Reference
+
+In Computer 8, the LCD shows the active Wavelet component's nonzero mappings, with Space labeled separately. Some eight-dot mappings require a physical dot-8 key that the default Paintbrush layout replaces with Space. The Prospector holds up to 24 taps from a custom component until the chord finishes. A component exceeding that limit raises a fault. In UEB Grade 1, Space+g opens the sign guide, including multi-cell and context-dependent signs, and Space+g again returns to the single-cell map. A single-chord override appears in the reference map. Find all saved triggers in **qb**.
 
 | Reference control | Action |
 | --- | --- |
 | Space + dot 1 / dot 4 | Previous / next mapping |
 | Space + dot 3 / dot 6 | Previous / next page |
 | Space + dots 1+2+3 / 4+5+6 | First / last mapping |
-| A plain chord | Jump to that mapping, or show unmapped |
-| Space + f (dots 1+2+4), then any chord | Look up that exact chord, including navigation controls |
+| A plain chord | Jump to that mapping |
+| Space + f (dots 1+2+4), then any chord | Look up that exact chord |
 | Space + dots 1+2 | Exit reference |
 
-All reference input is captured. After exiting, timing out in the namespace, or losing a connection, release every key before typing again. Space+q is reserved by the Prospector interface even if a custom component maps it. Hardware checks:
+### Configuration and bindings
 
-- [ ] Enter reference both with Space held continuously and with full releases between chords; confirm neither entry sequence types anything.
-- [ ] Browse through the last mapping, inspect dot-7/dot-8 cells and Space mappings, and use literal lookup for Space+1.
-- [ ] Exit while keeping Space held, press another chord, then release everything; confirm no Space or partial chord leaks into the editor.
-- [ ] Disconnect a satellite during reference and reconnect with keys held; confirm typing resumes only after all keys release.
-- [ ] Change a mapping in this milestone's `braille.wlt`, rebuild the dongle, and confirm its reference entry changes.
+Select the braille mode to switch between Computer 8 and UEB Grade 1. The Bluetooth actions restart the Prospector’s wireless keyboard links or clear saved pairings and pair again. Pairing reset preserves the Prospector’s braille mode and bindings. The USB host connection stays active while the keyboards reconnect.
+
+The binding editor has 12 slots. Select a slot and a trigger length from one to four chords, then press and release each trigger chord. Type up to 24 characters using Computer 8. Dot 7 erases, Space+7 applies the edit, and Space+12 cancels. Choose **Edit expansion** to change the text while retaining the trigger, or **Delete this binding** to clear the slot. Space+q is reserved. Space+q followed by Space+q returns to the main menu during trigger capture.
+
+The mode and bindings take effect immediately and save asynchronously. The configuration and diagnostics screens show an unsaved warning until storage succeeds. A complete binding that also starts a longer trigger waits up to 1.2 seconds for the remaining chords.
+
+### Menu hardware checks
+
+- [ ] Open each screen both with Space held and with full releases between chords. Navigate, enter text in the binding editor, cancel, and return to typing with no host output from the menus.
+- [ ] Browse to the last Computer 8 mapping, inspect six-dot and eight-dot cells, and look up Space+1 with literal lookup. Change a mapping in this milestone's Wavelet source, rebuild the dongle, and confirm the reference changes.
+- [ ] Switch to UEB Grade 1. Check a capital, a number, and a multi-cell punctuation sign against the on-device guide.
+- [ ] Save a one-chord override and a multi-chord contraction. Confirm both expand in a US English text editor. Edit the expansion and delete one slot.
+- [ ] Wait for the unsaved indicator to clear, then power-cycle the Prospector and confirm the mode and remaining binding persist.
+- [ ] Restart the Bluetooth links, then clear saved pairings and confirm automatic re-pairing. Verify the braille mode and bindings persist.
+- [ ] Exit a menu with Space held. Press another chord, then release everything. Confirm no Space or partial chord reaches the editor.
+- [ ] Disconnect a satellite while a menu chord is held. Reconnect with keys held and confirm typing resumes after all keys release.
+- [ ] With a test Wavelet component that traps, confirm diagnostics remains reachable and reports the fault.

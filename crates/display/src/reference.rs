@@ -59,6 +59,24 @@ impl Write for Label {
     }
 }
 
+pub(crate) fn escaped(bytes: &[u8]) -> Label {
+    let mut label = Label::new();
+    for byte in bytes {
+        match byte {
+            b'\n' => {
+                let _ = label.write_str("\\n");
+            }
+            b'\t' => {
+                let _ = label.write_str("\\t");
+            }
+            byte => {
+                let _ = write!(label, "{}", char::from(*byte));
+            }
+        }
+    }
+    label
+}
+
 pub fn label(entry: Entry) -> Label {
     let mut output = Label::new();
     let stroke = entry.stroke();
@@ -153,9 +171,9 @@ pub fn dot_label(cell: u16) -> Label {
     output
 }
 
-struct Row<'a> {
-    y: usize,
-    bytes: &'a mut [u8; 480],
+pub(crate) struct Row<'a> {
+    pub(crate) y: usize,
+    pub(crate) bytes: &'a mut [u8; 480],
 }
 
 impl OriginDimensions for Row<'_> {
@@ -182,7 +200,7 @@ impl DrawTarget for Row<'_> {
     }
 }
 
-fn text(row: &mut Row<'_>, text: &str, x: i32, baseline: i32, color: u16, bold: bool) {
+pub(crate) fn text(row: &mut Row<'_>, text: &str, x: i32, baseline: i32, color: u16, bold: bool) {
     let height = if bold { 13 } else { 10 };
     if (baseline - height..=baseline + 2).contains(&(row.y as i32)) {
         let font = if bold { &FONT_7X13_BOLD } else { &FONT_6X10 };
@@ -193,7 +211,7 @@ fn text(row: &mut Row<'_>, text: &str, x: i32, baseline: i32, color: u16, bold: 
 
 use embedded_graphics::pixelcolor::raw::RawU16;
 
-fn cell(row: &mut Row<'_>, entry: Entry, x: i32, y: i32) {
+pub(crate) fn cell(row: &mut Row<'_>, entry: Entry, x: i32, y: i32) {
     for (dot, column, line) in [
         (1, 0, 0),
         (2, 0, 1),
@@ -242,13 +260,35 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
     if page.mode == Mode::Namespace {
         text(&mut row, "QuickBrailleFox", 10, 57, WHITE, true);
         text(&mut row, "Space + q received", 10, 82, MUTED, false);
-        text(&mut row, "Then Space + r", 10, 115, ACCENT, true);
-        text(&mut row, "Open mapping reference", 10, 135, WHITE, false);
+        text(
+            &mut row,
+            "Press Space + q for the menu",
+            10,
+            115,
+            ACCENT,
+            false,
+        );
+        text(
+            &mut row,
+            "r: Reference   c: Configuration",
+            10,
+            141,
+            WHITE,
+            false,
+        );
+        text(
+            &mut row,
+            "b: Bindings    d: Diagnostics",
+            10,
+            157,
+            WHITE,
+            false,
+        );
         text(
             &mut row,
             "Keep Space held, or release",
             10,
-            171,
+            191,
             MUTED,
             false,
         );
@@ -256,11 +296,10 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
             &mut row,
             "and press it for each chord.",
             10,
-            187,
+            207,
             MUTED,
             false,
         );
-        text(&mut row, "Space + c is reserved.", 10, 219, MUTED, false);
         text(
             &mut row,
             "Typing is captured here.",
@@ -274,7 +313,8 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
     let mut subtitle = Label::new();
     let _ = write!(
         subtitle,
-        "Active map  {}-{} of {}",
+        "{}  {}-{} of {}",
+        page.braille_mode.name(),
         if page.len == 0 { 0 } else { page.start + 1 },
         page.start + u16::from(page.len),
         page.total
@@ -286,25 +326,72 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
         .enumerate()
     {
         let top = 50 + index as i32 * 37;
-        cell(&mut row, entry, 12, top);
-        let title = label(entry);
-        text(&mut row, title.as_str(), 38, top + 10, WHITE, false);
-        let dots = dot_label(entry.cell);
-        text(
-            &mut row,
-            dots.as_str(),
-            38,
-            top + 24,
-            if entry.has_space() {
-                SPACE_COLOR
+        let override_text = &page.labels[index][..usize::from(page.label_lengths[index])];
+        let expansion = escaped(override_text);
+        if page.mode == Mode::Guide {
+            let Some(rule) = kb_core::ueb1::RULES.get(usize::from(page.start) + index) else {
+                continue;
+            };
+            for (offset, dots) in rule.cells[..usize::from(rule.count)].iter().enumerate() {
+                let x = 12 + offset as i32 * 24;
+                cell(
+                    &mut row,
+                    Entry {
+                        cell: *dots,
+                        packed: 0,
+                    },
+                    x,
+                    top,
+                );
+                if dots & kb_core::reference::SPACE != 0 {
+                    text(&mut row, "S", x + 4, top + 30, SPACE_COLOR, false);
+                }
+            }
+            text(&mut row, rule.label, 86, top + 10, WHITE, false);
+            if !override_text.is_empty() {
+                let title = expansion.as_str();
+                text(
+                    &mut row,
+                    title.get(..24).unwrap_or(title),
+                    86,
+                    top + 24,
+                    SPACE_COLOR,
+                    false,
+                );
+            }
+        } else {
+            cell(&mut row, entry, 12, top);
+            let title = if override_text.is_empty() {
+                label(entry)
             } else {
-                MUTED
-            },
-            false,
-        );
-        let mut code = Label::new();
-        let _ = write!(code, "{:03X}", entry.cell);
-        text(&mut row, code.as_str(), 208, top + 24, MUTED, false);
+                expansion
+            };
+            let title = title.as_str();
+            text(
+                &mut row,
+                title.get(..32).unwrap_or(title),
+                38,
+                top + 10,
+                WHITE,
+                false,
+            );
+            let dots = dot_label(entry.cell);
+            text(
+                &mut row,
+                dots.as_str(),
+                38,
+                top + 24,
+                if entry.has_space() {
+                    SPACE_COLOR
+                } else {
+                    MUTED
+                },
+                false,
+            );
+            let mut code = Label::new();
+            let _ = write!(code, "{:03X}", entry.cell);
+            text(&mut row, code.as_str(), 208, top + 24, MUTED, false);
+        }
     }
     if page.len == 0 {
         text(
@@ -319,6 +406,8 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
     let mut prompt = Label::new();
     if page.mode == Mode::Find {
         let _ = prompt.write_str("FIND: press any chord");
+    } else if page.mode == Mode::Guide {
+        let _ = prompt.write_str("UEB signs  S = Space");
     } else if let Some(cell) = page.lookup {
         let _ = write!(
             prompt,
@@ -342,12 +431,12 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
         MUTED,
         false,
     );
-    text(
-        &mut row,
-        "Space+f:find  Space+12:exit",
-        10,
-        274,
-        MUTED,
-        false,
-    );
+    let footer = match page.mode {
+        Mode::Guide => "Space+g:map  Space+12:exit",
+        _ if page.braille_mode == kb_core::preferences::BrailleMode::Ueb1 => {
+            "Space+f:find  +g:signs  +12:exit"
+        }
+        _ => "Space+f:find  Space+12:exit",
+    };
+    text(&mut row, footer, 10, 274, MUTED, false);
 }
