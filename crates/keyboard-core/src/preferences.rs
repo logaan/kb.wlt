@@ -190,11 +190,12 @@ impl Settings {
 }
 
 pub type Output = Bounded<KeyStroke, { MAX_TRIGGER * MAX_TEXT }>;
+pub type Fallback = Bounded<KeyStroke, MAX_TEXT>;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Pending {
     cell: u16,
-    fallback: Option<KeyStroke>,
+    fallback: Fallback,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -220,6 +221,20 @@ impl Engine {
         settings: &Settings,
         cell: u16,
         fallback: Option<KeyStroke>,
+        now_ms: u32,
+    ) -> Output {
+        let mut batch = Fallback::default();
+        if let Some(stroke) = fallback {
+            let _ = batch.push(stroke);
+        }
+        self.accept_batch(settings, cell, batch, now_ms)
+    }
+
+    pub fn accept_batch(
+        &mut self,
+        settings: &Settings,
+        cell: u16,
+        fallback: Fallback,
         now_ms: u32,
     ) -> Output {
         let mut output = self.poll(settings, now_ms);
@@ -289,9 +304,7 @@ impl Engine {
                 self.remove(1);
                 match self.mode {
                     BrailleMode::Computer8 => {
-                        if let Some(stroke) = pending.fallback {
-                            let _ = output.push(stroke);
-                        }
+                        let _ = output.extend_from_slice(pending.fallback.as_slice());
                     }
                     BrailleMode::Ueb1 => {
                         let _ = output.extend_from_slice(self.ueb.accept(pending.cell).as_slice());

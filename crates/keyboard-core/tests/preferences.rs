@@ -112,6 +112,47 @@ fn mismatches_replay_the_actual_component_fallback_in_order() {
 }
 
 #[test]
+fn tentative_component_batches_are_replayed_or_replaced_atomically() {
+    use kb_core::preferences::Fallback;
+    let mut settings = Settings::default();
+    settings
+        .set_binding(0, &[1, 2, 3, 5], b"replacement")
+        .unwrap();
+    let mut engine = Engine::default();
+    let batch = |cell: u16| {
+        Fallback::from_slice(
+            &[KeyStroke::new(cell as u8 + 4, 0); 24],
+            KeyStroke::default(),
+        )
+        .unwrap()
+    };
+    for cell in 1..=3 {
+        assert!(
+            engine
+                .accept_batch(&settings, cell, batch(cell), cell as u32)
+                .is_empty()
+        );
+    }
+    let replay = engine.accept_batch(&settings, 4, batch(4), 4);
+    let expected = (1..=4)
+        .flat_map(|cell| batch(cell).as_slice().to_vec())
+        .collect::<Vec<_>>();
+    assert_eq!(replay.len(), 96);
+    assert_eq!(replay.as_slice(), expected);
+    for cell in 1..=3 {
+        assert!(
+            engine
+                .accept_batch(&settings, cell, batch(cell), cell as u32 + 10)
+                .is_empty()
+        );
+    }
+    assert_eq!(
+        engine.accept_batch(&settings, 5, batch(5), 15).as_slice(),
+        ascii("replacement")
+    );
+}
+
+#[test]
 fn timeout_chooses_complete_prefix_and_handles_clock_wrap() {
     let mut settings = Settings::default();
     settings.set_binding(0, &[1], b"short").unwrap();
