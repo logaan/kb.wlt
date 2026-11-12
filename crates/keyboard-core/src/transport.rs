@@ -26,6 +26,13 @@ impl SessionGate {
         }
     }
 
+    pub const fn invalidate(self) -> Self {
+        Self {
+            generation: self.generation.wrapping_add(1),
+            ..self
+        }
+    }
+
     pub const fn ready(self) -> bool {
         self.ready
     }
@@ -143,6 +150,16 @@ mod tests {
         let connected = SessionGate::new().set_ready(true);
         let queued = connected.token().unwrap();
         assert!(connected.set_ready(true).accepts(queued));
+    }
+
+    #[test]
+    fn invalidating_pending_output_preserves_readiness() {
+        let connected = SessionGate::new().set_ready(true);
+        let invalidated = connected.invalidate();
+        assert!(invalidated.ready());
+        assert!(!invalidated.accepts(connected.token().unwrap()));
+        assert!(invalidated.accepts(invalidated.token().unwrap()));
+        assert!(!SessionGate::new().invalidate().ready());
     }
 
     #[test]

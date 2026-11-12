@@ -33,6 +33,17 @@ pub fn connection() -> SessionGate {
     CONNECTION.lock(Cell::get)
 }
 
+pub fn invalidate_pending_reports() -> u32 {
+    let next = CONNECTION.lock(|state| {
+        let next = state.get().invalidate();
+        state.set(next);
+        next
+    });
+    report_sent([0; 8]);
+    CONNECTION_CHANGED.signal(());
+    next.generation()
+}
+
 impl ConnectionState {
     fn update(&self) {
         let changed = CONNECTION.lock(|state| {
