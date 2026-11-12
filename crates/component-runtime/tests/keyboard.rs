@@ -237,6 +237,61 @@ fn pipeline_composes_wavelet_input_and_output_middleware() {
     assert_eq!(output.state.stages[1].len(), 42);
 }
 
+#[test]
+fn owning_pipeline_composes_optimized_components() {
+    use kb_component_runtime::KeyboardPipeline;
+    use kb_core::pipeline::PipelineState;
+    let pipeline = KeyboardPipeline::new(&[
+        include_bytes!("../../../components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
+        include_bytes!("../../../components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
+    ])
+    .unwrap();
+    let input = Input::<8>::with_events(
+        0,
+        &[
+            event(1, KeyState::Pressed),
+            event(1, KeyState::Released),
+            event(38, KeyState::Pressed),
+        ],
+    )
+    .unwrap();
+    let output = pipeline
+        .process::<64, 8, 8>(PipelineState::new(), input)
+        .unwrap();
+    assert_eq!(
+        output.actions.as_slice(),
+        &[
+            Action::Press(Key {
+                usage: 20,
+                modifiers: 2
+            }),
+            Action::Release(Key {
+                usage: 20,
+                modifiers: 2
+            }),
+            Action::Press(Key {
+                usage: 44,
+                modifiers: 0
+            }),
+        ]
+    );
+    assert!(output.state.stages[0].is_empty());
+    assert_eq!(output.state.stages[1].len(), 42);
+}
+
+#[test]
+fn owning_pipeline_rejects_invalid_stage_counts() {
+    use kb_component_runtime::{Error, KeyboardPipeline};
+    assert!(matches!(
+        KeyboardPipeline::<0>::new(&[]),
+        Err(Error::InvalidChain)
+    ));
+    assert!(matches!(
+        KeyboardPipeline::<3>::new(&[TOUCAN; 3]),
+        Err(Error::InvalidChain)
+    ));
+}
+
 fn synthetic_component(output: &[u8]) -> KeyboardComponent {
     let data = output
         .iter()

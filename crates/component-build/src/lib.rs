@@ -51,6 +51,49 @@ pub fn compile(source: &Path, output_dir: &Path, contract: Contract) -> Result<A
     compile_stage(source, output_dir, contract, false)
 }
 
+pub fn compile_optimized(
+    source: &Path,
+    output_dir: &Path,
+    contract: Contract,
+) -> Result<Artifacts, String> {
+    let artifacts = compile(source, output_dir, contract)?;
+    let staging = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let optimized = staging.path().join("optimized.wasm");
+    let binary = std::env::var_os("WASM_OPT").unwrap_or_else(|| "wasm-opt".into());
+    let output = Command::new(binary)
+        .arg(&artifacts.core_path)
+        .args([
+            "-O4",
+            "--always-inline-max-function-size",
+            "0",
+            "--flexible-inline-max-function-size",
+            "0",
+            "--one-caller-inline-max-function-size",
+            "0",
+            "--enable-bulk-memory",
+            "--enable-multivalue",
+            "--enable-tail-call",
+        ])
+        .arg("-o")
+        .arg(&optimized)
+        .output()
+        .map_err(|error| format!("failed to run Binaryen optimizer: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "core optimization failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    let bytes = std::fs::read(&optimized).map_err(|error| error.to_string())?;
+    Validator::new()
+        .validate_all(&bytes)
+        .map_err(|error| error.to_string())?;
+    validate_core(&bytes, contract, false)?;
+    std::fs::write(&artifacts.core_path, bytes).map_err(|error| error.to_string())?;
+    Ok(artifacts)
+}
+
 fn compile_stage(
     source: &Path,
     output_dir: &Path,

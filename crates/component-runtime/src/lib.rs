@@ -5,7 +5,7 @@ extern crate alloc;
 mod keyboard;
 mod link;
 
-pub use keyboard::KeyboardComponent;
+pub use keyboard::{KeyboardComponent, KeyboardPipeline};
 
 use wasmi::{
     Config, Engine, Instance, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder,
@@ -25,6 +25,7 @@ pub enum Error {
     InvalidState,
     InvalidChain,
     Capacity,
+    Pipeline(kb_core::pipeline::PipelineError),
 }
 
 impl From<wasmi::Error> for Error {
@@ -44,13 +45,27 @@ impl Runtime {
         if bytes.is_empty() || bytes.len() > 2 {
             return Err(Error::InvalidChain);
         }
+        Self::with_engine(bytes, contract, &Self::engine(false))
+    }
+
+    fn engine(eager: bool) -> Engine {
         let mut config = Config::default();
         config.consume_fuel(true);
         config.set_min_stack_height(1024);
         config.set_max_stack_height(16 * 1024);
         config.set_max_recursion_depth(64);
         config.set_max_cached_stacks(1);
-        let engine = Engine::new(&config);
+        if eager {
+            config.compilation_mode(wasmi::CompilationMode::Eager);
+        }
+        Engine::new(&config)
+    }
+
+    fn with_engine(
+        bytes: &[&[u8]],
+        contract: link::Contract,
+        engine: &Engine,
+    ) -> Result<Self, Error> {
         let limits = StoreLimitsBuilder::new()
             .memory_size(MAX_MEMORY_BYTES)
             .table_elements(128)
@@ -59,13 +74,13 @@ impl Runtime {
             .tables(bytes.len())
             .trap_on_grow_failure(true)
             .build();
-        let mut store = Store::new(&engine, limits);
+        let mut store = Store::new(engine, limits);
         store.limiter(|state| state);
         store.set_fuel(CALL_FUEL)?;
         let mut downstream = None;
         for bytes in bytes.iter().rev() {
-            let module = Module::new(&engine, bytes)?;
-            let mut linker = Linker::new(&engine);
+            let module = Module::new(engine, bytes)?;
+            let mut linker = Linker::new(engine);
             if let Some(provider) = downstream {
                 link::connect(&mut linker, &store, provider, contract)?;
             }

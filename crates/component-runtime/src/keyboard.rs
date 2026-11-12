@@ -1,8 +1,8 @@
 use crate::{CALL_FUEL, Error, Runtime, link};
 use core::cell::RefCell;
 use kb_core::pipeline::{
-    Action, Bounded, Input, Key, KeyEvent, KeyState, Middleware, Output, StageError,
-    TransformedOutput,
+    Action, Bounded, Input, Key, KeyEvent, KeyState, Middleware, Output, Pipeline, PipelineState,
+    StageError, TransformedOutput, Transition,
 };
 use wasmi::TypedFunc;
 
@@ -26,7 +26,11 @@ pub struct KeyboardComponent {
 
 impl KeyboardComponent {
     pub fn new(bytes: &[u8]) -> Result<Self, Error> {
-        let runtime = Runtime::new_chain(&[bytes], link::Contract::Led)?;
+        Self::with_engine(bytes, &Runtime::engine(false))
+    }
+
+    fn with_engine(bytes: &[u8], engine: &wasmi::Engine) -> Result<Self, Error> {
+        let runtime = Runtime::with_engine(&[bytes], link::Contract::Led, engine)?;
         let instance = runtime.instance;
         let store = &runtime.store;
         let process = instance.get_typed_func(store, "kb:firmware/keyboard@0.1.0#process")?;
@@ -90,6 +94,38 @@ impl KeyboardComponent {
             instance.poisoned = true;
         }
         result
+    }
+}
+
+pub struct KeyboardPipeline<const M: usize> {
+    stages: [KeyboardComponent; M],
+}
+
+impl<const M: usize> KeyboardPipeline<M> {
+    pub fn new(modules: &[&[u8]; M]) -> Result<Self, Error> {
+        if M == 0 || M > 2 {
+            return Err(Error::InvalidChain);
+        }
+        let engine = Runtime::engine(M > 1);
+        let mut stages: [Option<KeyboardComponent>; M] = core::array::from_fn(|_| None);
+        for (stage, module) in stages.iter_mut().zip(modules) {
+            *stage = Some(KeyboardComponent::with_engine(module, &engine)?);
+        }
+        Ok(Self {
+            stages: stages.map(|stage| stage.unwrap()),
+        })
+    }
+
+    pub fn process<const S: usize, const E: usize, const A: usize>(
+        &self,
+        state: PipelineState<M, S>,
+        input: Input<E>,
+    ) -> Result<Transition<M, S, E, A>, Error> {
+        let stages: [&dyn Middleware<S, E, A>; M] =
+            core::array::from_fn(|index| &self.stages[index] as &dyn Middleware<S, E, A>);
+        Pipeline::new(stages)
+            .process(state, input)
+            .map_err(Error::Pipeline)
     }
 }
 

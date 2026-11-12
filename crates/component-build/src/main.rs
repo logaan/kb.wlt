@@ -1,4 +1,4 @@
-use kb_component_build::{Contract, compile, compile_chain};
+use kb_component_build::{Contract, compile, compile_chain, compile_optimized};
 use std::path::Path;
 
 fn main() {
@@ -34,6 +34,18 @@ fn main() {
         }
     }
     let result = match args.as_slice() {
+        [command, contract, source, output] if command == "optimized" => {
+            let contract = match contract.as_str() {
+                "led" => Contract::Led,
+                "braille" => Contract::Braille,
+                "keyboard" => Contract::Keyboard,
+                _ => {
+                    eprintln!("unknown contract");
+                    std::process::exit(2);
+                }
+            };
+            compile_optimized(Path::new(source), Path::new(output), contract)
+        }
         [contract, source, output] => {
             let contract = match contract.as_str() {
                 "led" => Contract::Led,
@@ -48,7 +60,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "usage: kb-component-build <led|braille|keyboard> <source.wlt> <output-directory>"
+                "usage: kb-component-build [optimized] <led|braille|keyboard> <source.wlt> <output-directory>"
             );
             std::process::exit(2);
         }
