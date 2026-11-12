@@ -23,6 +23,7 @@ pub struct BondStore<'d> {
     flash: Flash<'d>,
     slot: Option<usize>,
     generation: u32,
+    bonds: [Option<BondInformation>; 4],
 }
 
 impl<'d> BondStore<'d> {
@@ -31,26 +32,46 @@ impl<'d> BondStore<'d> {
             flash,
             slot: None,
             generation: 0,
+            bonds: core::array::from_fn(|_| None),
         }
     }
 
     pub fn load(&mut self) -> Result<Option<BondInformation>, Error> {
+        Ok(self.load_all()?.into_iter().flatten().next())
+    }
+
+    pub fn load_all(&mut self) -> Result<[Option<BondInformation>; 4], Error> {
         let mut pages = [[0; MAX_ENCODED_LEN]; 2];
         self.flash.read(PAGES[0], &mut pages[0])?;
         self.flash.read(PAGES[1], &mut pages[1])?;
         let Some(selected) = select_newest(&pages[0], &pages[1]) else {
-            return Ok(None);
+            return Ok(self.bonds.clone());
         };
-        let bond =
-            postcard::from_bytes(selected.envelope.payload).map_err(|_| Error::Serialization)?;
+        self.bonds = postcard::from_bytes(selected.envelope.payload)
+            .or_else(|_| {
+                postcard::from_bytes::<BondInformation>(selected.envelope.payload)
+                    .map(|bond| [Some(bond), None, None, None])
+            })
+            .map_err(|_| Error::Serialization)?;
         self.slot = Some(selected.slot);
         self.generation = selected.envelope.generation;
-        Ok(Some(bond))
+        Ok(self.bonds.clone())
     }
 
     pub async fn save(&mut self, bond: &BondInformation) -> Result<(), Error> {
+        let mut bonds = self.bonds.clone();
+        let index = bonds
+            .iter()
+            .position(|entry| {
+                entry
+                    .as_ref()
+                    .is_some_and(|old| old.identity == bond.identity)
+            })
+            .or_else(|| bonds.iter().position(Option::is_none))
+            .unwrap_or(0);
+        bonds[index] = Some(bond.clone());
         let mut payload = [0; MAX_PAYLOAD_LEN];
-        let payload = postcard::to_slice(bond, &mut payload).map_err(|_| Error::Serialization)?;
+        let payload = postcard::to_slice(&bonds, &mut payload).map_err(|_| Error::Serialization)?;
         let generation = self.generation.wrapping_add(1);
         let mut encoded = AlignedBuffer([0; MAX_ENCODED_LEN]);
         let len = encode(payload, generation, &mut encoded.0).map_err(|_| Error::Serialization)?;
@@ -64,6 +85,7 @@ impl<'d> BondStore<'d> {
             .await?;
         self.slot = Some(slot);
         self.generation = generation;
+        self.bonds = bonds;
         Ok(())
     }
 
@@ -73,6 +95,7 @@ impl<'d> BondStore<'d> {
         }
         self.slot = None;
         self.generation = 0;
+        self.bonds = core::array::from_fn(|_| None);
         Ok(())
     }
 }

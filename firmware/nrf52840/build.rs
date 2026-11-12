@@ -14,6 +14,9 @@ fn main() {
     if env::var_os("CARGO_FEATURE_COMPOSED").is_some() {
         artifacts.push(("KB_LED_WRAPPER_WASM", "led-dim/stage0/led.core.wasm"));
     }
+    if env::var_os("CARGO_FEATURE_TOUCAN").is_some() {
+        artifacts.push(("KB_KEYBOARD_WASM", "toucan-keymap/keyboard.core.wasm"));
+    }
     for (key, file) in artifacts {
         let path = env::var_os(key)
             .map(PathBuf::from)

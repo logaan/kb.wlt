@@ -31,3 +31,9 @@ pub mod ble_bonds;
 
 #[cfg(not(feature = "ble"))]
 mod critical_section;
+
+#[cfg(feature = "split")]
+pub mod split;
+
+#[cfg(feature = "prospector-display")]
+pub mod prospector;

@@ -12,18 +12,29 @@ usb = []
 ble = ["dep:nrf-sdc", "dep:nrf-mpsl", "dep:trouble-host", "dep:static_cell", "dep:postcard"]
 paintbrush-left = []
 composed = []
+settings-reset = []
+split = ["ble", "nrf-sdc/central", "trouble-host/central", "trouble-host/scan"]
+split-pair = ["split"]
+satellite-left = ["split"]
+satellite-right = ["split"]
+prospector-display = ["dep:kb-display"]
+toucan = ["split"]
+toucan-right = ["toucan"]
+toucan-dongle = ["toucan"]
+niceview-display = ["dep:kb-display"]
 display = ["dep:kb-display"]
 
 [dependencies]
 critical-section = { version = "1.2.0", features = ["restore-state-bool"] }
 cortex-m = "0.7.7"
-cortex-m-rt = "0.7.5"
+cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-futures = "0.1.2"
 embassy-nrf = { version = "0.11.0", features = ["nrf52840", "time-driver-rtc1", "unstable-pac", "nfc-pins-as-gpio"] }
 embassy-sync = "0.8.0"
 embassy-time = "0.5.1"
 embassy-usb = "0.6.0"
+embedded-storage = "0.3.2"
 embedded-alloc = { version = "0.7.0", default-features = false, features = ["llff"] }
 kb-component-runtime = { path = "../../crates/component-runtime" }
 kb-display = { path = "../../crates/display", optional = true }
@@ -47,6 +58,22 @@ required-features = ["usb"]
 [[bin]]
 name = "paintbrush-ble"
 required-features = ["ble"]
+
+[[bin]]
+name = "paintbrush-satellite"
+required-features = ["split"]
+
+[[bin]]
+name = "paintbrush-central"
+required-features = ["split"]
+
+[[bin]]
+name = "prospector-dongle"
+required-features = ["split"]
+
+[[bin]]
+name = "settings-reset"
+required-features = ["settings-reset"]
 
 [profile.release]
 codegen-units = 1
