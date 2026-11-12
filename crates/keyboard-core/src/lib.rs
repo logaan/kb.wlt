@@ -4,6 +4,7 @@ pub mod braille;
 pub mod chord;
 pub mod debounce;
 pub mod hid;
+pub mod pipeline;
 
 pub use braille::computer8;
 pub use chord::{ChordError, ChordState, DotEvent, PhysicalKey};
