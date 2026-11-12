@@ -1,0 +1,4 @@
+/target/
+/dist/
+/firmware/nrf52840/target/
+.DS_Store

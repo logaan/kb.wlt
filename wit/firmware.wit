@@ -1,0 +1,87 @@
+package kb:firmware@0.1.0;
+
+interface led {
+    record state {
+        phase: u8,
+        speed: u8,
+        last-change-ms: u32,
+        button-was-down: bool,
+    }
+
+    record output {
+        state: state,
+        red: u8,
+        green: u8,
+        blue: u8,
+    }
+
+    step: func(state: state, now-ms: u32, button-down: bool) -> output;
+}
+
+interface keyboard {
+    enum key-state {
+        pressed,
+        released,
+    }
+
+    record key-event {
+        position: u16,
+        state: key-state,
+        timestamp-ms: u32,
+    }
+
+    record key {
+        usage: u16,
+        modifiers: u8,
+    }
+
+    variant action {
+        press(key),
+        release(key),
+        tap(key),
+        release-all,
+    }
+
+    record input {
+        events: list<key-event>,
+        now-ms: u32,
+    }
+
+    record output {
+        state: list<u8>,
+        events: list<key-event>,
+        actions: list<action>,
+        wake-at-ms: option<u32>,
+    }
+
+    process: func(state: list<u8>, input: input) -> output;
+    transform-output: func(state: list<u8>, actions: list<action>) -> tuple<list<u8>, list<action>>;
+}
+
+world led-module {
+    export led;
+}
+
+interface braille {
+    record state {
+        held: u16,
+        chord: u16,
+    }
+
+    record output {
+        state: state,
+        usage: u8,
+        modifiers: u8,
+    }
+
+    step: func(state: state, keys: u16) -> output;
+    map-cell: func(cell: u16) -> u32;
+}
+
+world braille-module {
+    export braille;
+}
+
+world keyboard-module {
+    export keyboard;
+}
