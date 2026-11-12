@@ -3,6 +3,7 @@ use crate::split::sequence_is_newer;
 pub const PACKET_LEN: usize = 24;
 pub const DISPLAY_PACKET_LEN: usize = 10;
 pub const DISPLAY_TIMEOUT_MS: u32 = 600;
+pub const LINK_TIMEOUT_MS: u32 = 500;
 pub const KEYS_MASK: u32 = (1 << 21) - 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,6 +14,10 @@ pub enum Side {
 }
 
 impl Side {
+    pub const fn index(self) -> usize {
+        self as usize - 1
+    }
+
     pub const fn position(self, local: u8) -> Option<u8> {
         if local >= 21 {
             return None;
@@ -255,13 +260,30 @@ impl Receiver {
         *self = Self::new();
     }
     pub fn expire(&mut self, now: u32) -> bool {
-        if self.connected() && now.wrapping_sub(self.last_seen) >= 500 {
+        if self.connected() && now.wrapping_sub(self.last_seen) >= LINK_TIMEOUT_MS {
             self.close();
             true
         } else {
             false
         }
     }
+    pub fn receive_queued(
+        &mut self,
+        snapshot: Snapshot,
+        received_at: u32,
+        now: u32,
+        opens: bool,
+    ) -> Result<bool, PacketError> {
+        if now.wrapping_sub(received_at) >= LINK_TIMEOUT_MS {
+            return Ok(false);
+        }
+        let replaced = opens && self.connected();
+        let mut next = if replaced { Self::new() } else { *self };
+        let reset = next.receive(snapshot, received_at)?;
+        *self = next;
+        Ok(replaced || reset)
+    }
+
     pub fn receive(&mut self, snapshot: Snapshot, now: u32) -> Result<bool, PacketError> {
         if snapshot.keys & !KEYS_MASK != 0 {
             return Err(PacketError::Keys);

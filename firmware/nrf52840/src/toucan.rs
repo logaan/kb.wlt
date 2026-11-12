@@ -97,9 +97,22 @@ struct Discovered {
 
 #[derive(Clone, Copy)]
 enum LinkEvent {
-    Open(usize, Snapshot),
-    Snapshot(usize, Snapshot),
-    Close(usize),
+    Snapshot {
+        snapshot: Snapshot,
+        received_at: u32,
+        opens: bool,
+    },
+    Close(Side),
+}
+
+impl LinkEvent {
+    fn snapshot(snapshot: Snapshot, opens: bool) -> Self {
+        Self::Snapshot {
+            snapshot,
+            received_at: Instant::now().as_millis() as u32,
+            opens,
+        }
+    }
 }
 
 struct Discovery;
@@ -338,7 +351,7 @@ pub async fn run(spawner: Spawner, role: Role) {
                 join3(
                     join(
                         hid_host(&stack, &bonds),
-                        peer_loop(&stack, &bonds, 1, Side::Right),
+                        peer_loop(&stack, &bonds, Side::Right),
                     ),
                     join(process_keys(), local_snapshots(boot)),
                     scanner,
@@ -348,8 +361,8 @@ pub async fn run(spawner: Spawner, role: Role) {
             Role::Dongle => {
                 join3(
                     join(
-                        peer_loop(&stack, &bonds, 0, Side::Left),
-                        peer_loop(&stack, &bonds, 1, Side::Right),
+                        peer_loop(&stack, &bonds, Side::Left),
+                        peer_loop(&stack, &bonds, Side::Right),
                     ),
                     process_keys(),
                     run_usb(p.USBD),
@@ -518,7 +531,7 @@ async fn run_remote_display() {
 
 async fn local_snapshots(boot: u32) {
     let mut sequence = 0;
-    let mut first = true;
+    let mut opens = true;
     loop {
         let snapshot = Snapshot {
             node: device_id(),
@@ -527,19 +540,14 @@ async fn local_snapshots(boot: u32) {
             side: Side::Left,
             keys: KEYS.load(Ordering::Relaxed),
         };
-        EVENTS
-            .send(if first {
-                LinkEvent::Open(0, snapshot)
-            } else {
-                LinkEvent::Snapshot(0, snapshot)
-            })
-            .await;
-        first = false;
+        opens = EVENTS
+            .try_send(LinkEvent::snapshot(snapshot, opens))
+            .is_err();
         sequence = sequence.wrapping_add(1);
         let _ = select(KEY_CHANGED.wait(), Timer::after_millis(100)).await;
     }
 }
-async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, slot: usize, side: Side) {
+async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, side: Side) {
     loop {
         let (connection, display_feedback) = {
             let _guard = CONNECT_LOCK.lock().await;
@@ -594,10 +602,10 @@ async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, slot: usize, side: Side) {
             }
         };
         if crate::split::authenticate(&connection, stack, bonds).await {
-            receive_snapshots(stack, bonds, &connection, slot, side, display_feedback).await;
+            receive_snapshots(stack, bonds, &connection, side, display_feedback).await;
         }
         connection.disconnect();
-        EVENTS.send(LinkEvent::Close(slot)).await;
+        EVENTS.send(LinkEvent::Close(side)).await;
         Timer::after_millis(100).await;
     }
 }
@@ -606,7 +614,6 @@ async fn receive_snapshots(
     stack: &Host<'_>,
     bonds: &Bonds,
     connection: &Connection<'_, DefaultPacketPool>,
-    slot: usize,
     side: Side,
     display_feedback: bool,
 ) {
@@ -647,7 +654,7 @@ async fn receive_snapshots(
             return;
         };
         let notifications = async {
-            let mut first = true;
+            let mut opens = true;
             loop {
                 let Ok(notification) = with_timeout(Duration::from_secs(1), listener.next()).await
                 else {
@@ -659,14 +666,9 @@ async fn receive_snapshots(
                 if snapshot.side != side {
                     return;
                 }
-                EVENTS
-                    .send(if first {
-                        LinkEvent::Open(slot, snapshot)
-                    } else {
-                        LinkEvent::Snapshot(slot, snapshot)
-                    })
-                    .await;
-                first = false;
+                opens = EVENTS
+                    .try_send(LinkEvent::snapshot(snapshot, opens))
+                    .is_err();
             }
         };
         let events = async {
@@ -983,27 +985,29 @@ async fn process_keys() {
     #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
     let mut previous_display = display_status;
     loop {
-        let mut invalidated = false;
-        if let Either::First(event) = select(EVENTS.receive(), Timer::after_millis(5)).await {
-            let now = Instant::now().as_millis() as u32;
-            match event {
-                LinkEvent::Open(slot, snapshot) => {
-                    invalidated |= receivers[slot].connected();
-                    receivers[slot].close();
-                    let _ = receivers[slot].receive(snapshot, now);
-                }
-                LinkEvent::Snapshot(slot, snapshot) => {
-                    invalidated |= receivers[slot].receive(snapshot, now).unwrap_or(false);
-                }
-                LinkEvent::Close(slot) => {
-                    invalidated |= receivers[slot].connected();
-                    receivers[slot].close();
-                }
-            }
-        }
+        let event = select(EVENTS.receive(), Timer::after_millis(5)).await;
         let now = Instant::now().as_millis() as u32;
+        let mut invalidated = false;
         for receiver in &mut receivers {
             invalidated |= receiver.expire(now);
+        }
+        if let Either::First(event) = event {
+            match event {
+                LinkEvent::Snapshot {
+                    snapshot,
+                    received_at,
+                    opens,
+                } => {
+                    invalidated |= receivers[snapshot.side.index()]
+                        .receive_queued(snapshot, received_at, now, opens)
+                        .unwrap_or(false);
+                }
+                LinkEvent::Close(side) => {
+                    let receiver = &mut receivers[side.index()];
+                    invalidated |= receiver.connected();
+                    receiver.close();
+                }
+            }
         }
         let keys = receivers
             .iter()

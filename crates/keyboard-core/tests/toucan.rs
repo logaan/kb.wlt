@@ -1,6 +1,6 @@
 use kb_core::matrix_link::{
-    DISPLAY_TIMEOUT_MS, DisplayFeedback, DisplayReceiver, DisplayStatus, KEYS_MASK, PacketError,
-    Receiver, Side, Snapshot,
+    DISPLAY_TIMEOUT_MS, DisplayFeedback, DisplayReceiver, DisplayStatus, KEYS_MASK,
+    LINK_TIMEOUT_MS, PacketError, Receiver, Side, Snapshot,
 };
 use kb_core::pipeline::{Action, Key};
 use kb_core::report_state::ReportState;
@@ -136,6 +136,85 @@ fn links_require_idle_after_connect_and_reboot_and_ignore_old_packets() {
     assert_eq!(receiver.keys(), 0);
     assert!(receiver.expire(504));
     assert!(!receiver.connected());
+}
+
+#[test]
+fn expired_queue_entries_cannot_rearm_or_resurrect_keys() {
+    let mut receiver = Receiver::new();
+    let arrived = u32::MAX - 100;
+    let drained = arrived.wrapping_add(LINK_TIMEOUT_MS);
+    for (index, keys) in [0, 1, 0].into_iter().enumerate() {
+        let offset = index as u32;
+        let stale = snapshot(Side::Left, keys, index as u16);
+        assert_eq!(
+            receiver.receive_queued(
+                stale,
+                arrived.wrapping_add(offset),
+                drained + offset,
+                index == 0
+            ),
+            Ok(false)
+        );
+        assert!(!receiver.connected());
+    }
+
+    let fresh = drained + 10;
+    receiver
+        .receive_queued(snapshot(Side::Left, 1, 3), fresh, fresh, false)
+        .unwrap();
+    assert!(receiver.connected());
+    assert_eq!(receiver.keys(), 0);
+    receiver
+        .receive_queued(snapshot(Side::Left, 0, 4), fresh + 1, fresh + 1, false)
+        .unwrap();
+    receiver
+        .receive_queued(snapshot(Side::Left, 1, 5), fresh + 2, fresh + 100, false)
+        .unwrap();
+    assert_eq!(receiver.keys(), 1);
+    assert!(!receiver.expire(fresh + 2 + LINK_TIMEOUT_MS - 1));
+    assert!(receiver.expire(fresh + 2 + LINK_TIMEOUT_MS));
+    assert_eq!(receiver.keys(), 0);
+}
+
+#[test]
+fn replacing_a_link_requires_neutral_for_the_new_identity() {
+    let mut receiver = Receiver::new();
+    receiver
+        .receive_queued(snapshot(Side::Left, 0, 0), 500, 500, true)
+        .unwrap();
+    receiver
+        .receive_queued(snapshot(Side::Left, 1, 1), 501, 501, false)
+        .unwrap();
+    let replacement = Snapshot {
+        node: 18,
+        ..snapshot(Side::Left, 1, 0)
+    };
+    assert_eq!(
+        receiver.receive_queued(replacement, 1, 502, true),
+        Ok(false)
+    );
+    assert_eq!(receiver.keys(), 1);
+    assert_eq!(
+        receiver.receive_queued(replacement, 503, 503, true),
+        Ok(true)
+    );
+    assert_eq!(receiver.keys(), 0);
+    assert_eq!(
+        receiver.receive_queued(snapshot(Side::Left, 0, 2), 504, 504, false),
+        Err(PacketError::Side)
+    );
+    let neutral = Snapshot {
+        keys: 0,
+        sequence: 1,
+        ..replacement
+    };
+    receiver.receive_queued(neutral, 505, 505, false).unwrap();
+    let pressed = Snapshot {
+        sequence: 2,
+        ..replacement
+    };
+    receiver.receive_queued(pressed, 506, 506, false).unwrap();
+    assert_eq!(receiver.keys(), 1);
 }
 
 #[test]
