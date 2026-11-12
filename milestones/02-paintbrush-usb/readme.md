@@ -29,3 +29,16 @@ The physical key in the dot-8 position is Space. Space + dot 7 is Return. Dot 7 
 - [ ] Repeat `a` quickly several times and confirm there are no stuck keys or duplicate characters.
 - [ ] Hold a chord while unplugging USB; reconnect and release it. Confirm no phantom character appears, then confirm fresh chords work.
 - [ ] Edit a mapping in this folder's `braille.wlt`, rebuild and flash, and confirm your edited output.
+
+## One-shot hardware checks
+
+Use a HID event monitor that can show keyboard modifiers and Consumer Control usage. Release all keys in each chord before entering the next chord.
+
+- [ ] Chord Space+4+7 and verify that left Shift is pressed immediately.
+- [ ] Chord Space+3+7 and verify that left Control is pressed immediately.
+- [ ] Chord Space+2+7 and verify that left Alt is pressed immediately.
+- [ ] Chord Space+1+7 and verify that left GUI (Command) is pressed immediately.
+- [ ] Chord Space+5+7 and verify that Globe is pressed on the Consumer Control interface (usage `0x029D`).
+- [ ] Arm Control, then Shift, then type `a` within one second of the first chord. Verify Control+Shift with `a`, then type another `a` and verify neither modifier remains.
+- [ ] Arm Shift and wait a second without typing. Verify Shift releases, then type `a` and verify it is unmodified.
+- [ ] Arm Globe and type `a` within one second. Verify the `a` key press while Globe is held and that both interfaces return to neutral.

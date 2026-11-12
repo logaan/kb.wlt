@@ -18,6 +18,19 @@ This build sends raw Paintbrush key snapshots over an encrypted Bluetooth link t
 
 The peripheral image intentionally has no USB keyboard interface; its USB cable supplies power and allows bootloader access. The dongle uses kb.wlt's split protocol and does not connect to stock ZMK peripherals. Automatic LCD brightness, touch, and the optional light sensor are not implemented.
 
+## One-shot hardware checks
+
+Follow the [milestone 2 one-shot procedure](../02-paintbrush-usb/readme.md#one-shot-hardware-checks) through Prospector in Computer 8 and UEB Grade 1.
+
+- [ ] Shift arms immediately.
+- [ ] Control arms immediately.
+- [ ] Alt arms immediately.
+- [ ] Command arms immediately.
+- [ ] Globe arms immediately on the USB Consumer Control interface.
+- [ ] Control and Shift stack for the next key and then release.
+- [ ] The armed modifier expires after one second without another key.
+- [ ] Globe plus `a` produces both host events and releases both.
+
 ## QuickBrailleFox menu
 
 Hold Space and chord **q** (dots 1+2+3+4+5), release the dots, and chord **q** again within two seconds. Keep Space held between chords or release and press it again. To open a screen directly, replace the second **q** with the screen's shortcut, still holding Space.

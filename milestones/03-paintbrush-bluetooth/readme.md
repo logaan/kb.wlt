@@ -16,3 +16,18 @@ The firmware cross-compiles with encrypted Bluetooth HID and persistent pairing 
 - [ ] Edit this folder's `braille.wlt`, rebuild and flash, and confirm the custom mapping works over Bluetooth.
 
 Bond data lives in two reserved flash pages and is retained by ordinary application flashing. Pairing uses Just Works; the board has no passcode display or confirmation button. Battery-life tuning and low-power sleep are not yet hardware-validated.
+
+## One-shot hardware checks
+
+When upgrading a previously paired device, clear the Paintbrush's saved pairing using the reset chord above, forget the device on the host, and pair again so the host reads the updated Bluetooth HID report map.
+
+Follow the [milestone 2 one-shot procedure](../02-paintbrush-usb/readme.md#one-shot-hardware-checks) over Bluetooth.
+
+- [ ] Shift arms immediately.
+- [ ] Control arms immediately.
+- [ ] Alt arms immediately.
+- [ ] Command arms immediately.
+- [ ] Globe arms immediately on the Consumer Control report.
+- [ ] Control and Shift stack for the next key and then release.
+- [ ] The armed modifier expires after one second without another key.
+- [ ] Globe plus `a` produces both host events and releases both.

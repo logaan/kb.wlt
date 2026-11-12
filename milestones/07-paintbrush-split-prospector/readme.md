@@ -19,6 +19,19 @@ Both Paintbrushes send key snapshots to a Prospector over Bluetooth. The dongle 
 
 Default bootloader addresses and mirrored-assembly options are the same as milestones 5 and 6. Both satellites intentionally have no USB HID interface. The dongle must run kb.wlt rather than stock ZMK firmware.
 
+## One-shot hardware checks
+
+Follow the [milestone 2 one-shot procedure](../02-paintbrush-usb/readme.md#one-shot-hardware-checks) in Computer 8 and UEB Grade 1. Use both halves for the command chords and verify that either bottom Space key works.
+
+- [ ] Shift arms immediately.
+- [ ] Control arms immediately.
+- [ ] Alt arms immediately.
+- [ ] Command arms immediately.
+- [ ] Globe arms immediately on the USB Consumer Control interface.
+- [ ] Control and Shift stack for the next key and then release.
+- [ ] The armed modifier expires after one second without another key.
+- [ ] Globe plus `a` produces both host events and releases both.
+
 ## QuickBrailleFox menu
 
 Follow the [Prospector menu controls and hardware checks](../05-paintbrush-prospector/readme.md#quickbraillefox-menu) using the combined braille layout.
