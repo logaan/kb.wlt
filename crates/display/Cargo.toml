@@ -1,0 +1,11 @@
+[package]
+name = "kb-display"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+embedded-hal-async = "1.0.0"
+embedded-graphics = "0.8.1"
+
+[dev-dependencies]
+futures = { version = "0.3.31", default-features = false, features = ["executor"] }

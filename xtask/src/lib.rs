@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 pub const NRF52840_FAMILY: u32 = 0xada5_2840;
-pub const FLASH_END: u32 = 0x000f_4000;
+pub const FLASH_END: u32 = 0x000f_2000;
 pub const STOCK_APPLICATION_START: u32 = 0x0002_6000;
+pub const S140_V7_APPLICATION_START: u32 = 0x0002_7000;
 pub const NOSD_APPLICATION_START: u32 = 0x0000_1000;
 const BLOCK_SIZE: usize = 512;
 const PAYLOAD_SIZE: usize = 256;
@@ -46,6 +47,26 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32> {
     ))
 }
 
+fn header_only_segment(bytes: &[u8], file_size: usize) -> Result<bool> {
+    let section_offset = u32_at(bytes, 32)? as usize;
+    let section_size = u16_at(bytes, 46)? as usize;
+    let section_count = u16_at(bytes, 48)? as usize;
+    if section_size != 40 || section_count == 0 {
+        return Ok(false);
+    }
+    for index in 0..section_count {
+        let section = range(bytes, section_offset + index * section_size, section_size)?;
+        let kind = u32_at(section, 4)?;
+        let flags = u32_at(section, 8)?;
+        let offset = u32_at(section, 16)? as usize;
+        let size = u32_at(section, 20)?;
+        if kind != 8 && flags & 2 != 0 && size != 0 && offset < file_size {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FirmwareImage {
     pub base_address: u32,
@@ -56,9 +77,11 @@ impl FirmwareImage {
     pub fn from_elf(bytes: &[u8], application_start: u32) -> Result<Self> {
         if !matches!(
             application_start,
-            STOCK_APPLICATION_START | NOSD_APPLICATION_START
+            STOCK_APPLICATION_START | S140_V7_APPLICATION_START | NOSD_APPLICATION_START
         ) {
-            return reject("application address must be 0x26000 (stock) or 0x1000 (nosd)");
+            return reject(
+                "application address must be 0x26000 (S140 v6), 0x27000 (S140 v7) or 0x1000 (nosd)",
+            );
         }
         if range(bytes, 0, 7)? != b"\x7fELF\x01\x01\x01" {
             return reject("expected ELF32 little-endian firmware");
@@ -84,6 +107,13 @@ impl FirmwareImage {
             if file_size == 0 {
                 continue;
             }
+            let file_offset = u32_at(header, 4)? as usize;
+            if file_offset == 0
+                && u32_at(header, 24)? == 4
+                && header_only_segment(bytes, file_size as usize)?
+            {
+                continue;
+            }
             let address = u32_at(header, 12)?;
             let segment_end = address
                 .checked_add(file_size)
@@ -96,7 +126,7 @@ impl FirmwareImage {
             if file_size > u32_at(header, 20)? {
                 return reject("ELF file size exceeds segment memory size");
             }
-            let data = range(bytes, u32_at(header, 4)? as usize, file_size as usize)?;
+            let data = range(bytes, file_offset, file_size as usize)?;
             if segments.insert(address, data).is_some() {
                 return reject("duplicate ELF load address");
             }

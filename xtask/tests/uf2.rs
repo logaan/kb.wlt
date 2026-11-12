@@ -104,3 +104,30 @@ fn padding_does_not_cross_bootloader_boundary() {
     assert_eq!(uf2[512 + 32], 0x5a);
     assert!(uf2[512 + 33..512 + 288].iter().all(|b| *b == 0xff));
 }
+
+#[test]
+fn skips_linker_generated_read_only_elf_header_segment() {
+    let mut bytes = elf();
+    bytes.resize(0x280 + 80, 0);
+    put32(&mut bytes, 32, 0x280);
+    put16(&mut bytes, 46, 40);
+    put16(&mut bytes, 48, 2);
+    put32(&mut bytes, 0x280 + 40 + 4, 1);
+    put32(&mut bytes, 0x280 + 40 + 8, 2);
+    put32(&mut bytes, 0x280 + 40 + 16, 0x100);
+    put32(&mut bytes, 0x280 + 40 + 20, 0x180);
+    put16(&mut bytes, 44, 3);
+    put32(&mut bytes, 116, 1);
+    put32(&mut bytes, 120, 0);
+    put32(&mut bytes, 124, 0x20000);
+    put32(&mut bytes, 128, 0x20000);
+    put32(&mut bytes, 132, 148);
+    put32(&mut bytes, 136, 148);
+    put32(&mut bytes, 140, 4);
+    assert!(FirmwareImage::from_elf(&bytes, BASE).is_ok());
+    put32(&mut bytes, 140, 5);
+    assert!(FirmwareImage::from_elf(&bytes, BASE).is_err());
+    put32(&mut bytes, 140, 4);
+    put32(&mut bytes, 132, 257);
+    assert!(FirmwareImage::from_elf(&bytes, BASE).is_err());
+}

@@ -3,5 +3,8 @@ name = "xtask"
 version.workspace = true
 edition.workspace = true
 
+[dependencies]
+kb-component-build = { path = "../crates/component-build" }
+
 [dev-dependencies]
 wit-parser = "0.251.0"

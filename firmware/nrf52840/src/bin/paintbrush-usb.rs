@@ -23,6 +23,11 @@ bind_interrupts!(struct Irqs {
     CLOCK_POWER => usb::vbus_detect::InterruptHandler;
 });
 
+#[cfg(feature = "display")]
+bind_interrupts!(struct DisplayIrqs {
+    TWISPI0 => embassy_nrf::twim::InterruptHandler<peripherals::TWISPI0>;
+});
+
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static STROKES: Channel<CriticalSectionRawMutex, KeyStroke, 32> = Channel::new();
 const DOTS: [u16; 8] = [64, 4, 2, 1, 8, 16, 32, 256];
@@ -71,10 +76,20 @@ async fn main(_spawner: Spawner) {
         Input::new(p.P0_10, Pull::Up),
         Input::new(p.P0_09, Pull::Up),
     ];
-    let mut component = BrailleComponent::new(include_bytes!(
-        "../../../../components/generated/braille.core.wasm"
-    ))
-    .unwrap();
+    let mut component = BrailleComponent::new(include_bytes!(env!("KB_BRAILLE_WASM"))).unwrap();
+    #[cfg(feature = "display")]
+    let _display_power = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
+    #[cfg(feature = "display")]
+    let mut display_dma = [0; 32];
+    #[cfg(feature = "display")]
+    let display_bus = embassy_nrf::twim::Twim::new(
+        p.TWISPI0,
+        DisplayIrqs,
+        p.P0_17,
+        p.P0_20,
+        embassy_nrf::twim::Config::default(),
+        &mut display_dma,
+    );
     let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
     let mut config = Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("kb.wlt");
@@ -114,6 +129,8 @@ async fn main(_spawner: Spawner) {
         let mut debounce = Debouncer::<8>::new(5);
         let mut state = BrailleState::default();
         let mut armed = false;
+        #[cfg(feature = "display")]
+        let mut display_status = kb_display::Status::default();
         loop {
             let raw = inputs
                 .iter()
@@ -145,6 +162,24 @@ async fn main(_spawner: Spawner) {
                 state = output.state;
                 if output.usage != 0 {
                     let _ = STROKES.try_send(KeyStroke::new(output.usage, output.modifiers));
+                    #[cfg(feature = "display")]
+                    {
+                        display_status.last_usage = output.usage;
+                        display_status.last_modifiers = output.modifiers;
+                    }
+                }
+            }
+            #[cfg(feature = "display")]
+            {
+                let changed = display_status.connected != configured
+                    || display_status.held != state.held
+                    || display_status.chord != state.chord
+                    || (update.pressed | update.released) != 0;
+                display_status.connected = configured;
+                display_status.held = state.held;
+                display_status.chord = state.chord;
+                if changed {
+                    kb_nrf52840::display::update(display_status);
                 }
             }
             indicator.set_level(if update.stable != 0 {
@@ -165,5 +200,9 @@ async fn main(_spawner: Spawner) {
             }
         }
     };
-    join3(usb.run(), scan, send).await;
+    let keyboard = join3(usb.run(), scan, send);
+    #[cfg(feature = "display")]
+    embassy_futures::join::join(keyboard, kb_nrf52840::display::run(display_bus)).await;
+    #[cfg(not(feature = "display"))]
+    keyboard.await;
 }
