@@ -4,7 +4,7 @@ use std::fmt;
 pub mod targets;
 
 pub const NRF52840_FAMILY: u32 = 0xada5_2840;
-pub const FLASH_END: u32 = 0x000f_2000;
+pub const FLASH_END: u32 = 0x000f_0000;
 pub const STOCK_APPLICATION_START: u32 = 0x0002_6000;
 pub const S140_V7_APPLICATION_START: u32 = 0x0002_7000;
 pub const NOSD_APPLICATION_START: u32 = 0x0000_1000;
