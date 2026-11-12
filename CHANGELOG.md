@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Bluetooth HID suspend and protocol changes cancel pending chords, reconnect starts with released keys, and saved host pairings are restored together.
+
 - USB suspend, reset, and reconnect cancel in-progress chords and discard reports from earlier connection sessions.
 
 - USB keyboards accept boot protocol, LED output reports, and host idle requests, and return their current HID report.

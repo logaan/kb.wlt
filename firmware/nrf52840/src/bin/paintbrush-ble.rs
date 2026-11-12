@@ -1,17 +1,18 @@
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::cell::Cell;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::select;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::{bind_interrupts, pac, peripherals, rng};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_sync::channel::Channel;
 use embassy_time::{Instant, Timer};
 use kb_component_runtime::{BrailleComponent, BrailleState};
+use kb_core::transport::SessionGate;
 use kb_core::{Debouncer, KeyStroke};
 use nrf_sdc::{self as sdc, mpsl};
 use panic_halt as _;
@@ -32,8 +33,9 @@ bind_interrupts!(struct DisplayIrqs {
     TWISPI0 => embassy_nrf::twim::InterruptHandler<peripherals::TWISPI0>;
 });
 
-static READY: AtomicBool = AtomicBool::new(false);
-static STROKES: Channel<CriticalSectionRawMutex, KeyStroke, 32> = Channel::new();
+static SESSION: Mutex<CriticalSectionRawMutex, Cell<SessionGate>> =
+    Mutex::new(Cell::new(SessionGate::new()));
+static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
 const DOTS: [u16; 8] = [64, 4, 2, 1, 8, 16, 32, 256];
 const REPORT_DESCRIPTOR: [u8; 63] = [
     0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x05, 0x07, 0x19, 0xe0, 0x29, 0xe7, 0x15, 0x00, 0x25, 0x01,
@@ -165,7 +167,7 @@ async fn main(spawner: Spawner) {
             bonds.clear().await.unwrap();
         }
     }
-    let saved_bond = bonds.load().unwrap();
+    let saved_bonds = bonds.load_all().unwrap();
     let sdc_peripherals = sdc::Peripherals::new(
         p.PPI_CH17, p.PPI_CH18, p.PPI_CH20, p.PPI_CH21, p.PPI_CH22, p.PPI_CH23, p.PPI_CH24,
         p.PPI_CH25, p.PPI_CH26, p.PPI_CH27, p.PPI_CH28, p.PPI_CH29,
@@ -187,7 +189,7 @@ async fn main(spawner: Spawner) {
         .set_random_address(address())
         .set_io_capabilities(IoCapabilities::NoInputNoOutput)
         .build();
-    if let Some(bond) = saved_bond {
+    for bond in saved_bonds.into_iter().flatten() {
         stack.add_bond_information(bond).unwrap();
     }
     let mut runner = stack.runner();
@@ -201,6 +203,7 @@ async fn main(spawner: Spawner) {
         let mut debounce = Debouncer::<8>::new(5);
         let mut state = BrailleState::default();
         let mut armed = false;
+        let mut generation = 0;
         #[cfg(feature = "display")]
         let mut display_status = kb_display::Status {
             transport: kb_display::Transport::Bluetooth,
@@ -213,8 +216,11 @@ async fn main(spawner: Spawner) {
                 .fold(0, |mask, (i, pin)| mask | (u64::from(pin.is_low()) << i));
             let (next, update) = debounce.sample(raw, Instant::now().as_millis() as u32);
             debounce = next;
-            let connected = READY.load(Ordering::Relaxed);
-            if !connected {
+            let session = SESSION.lock(Cell::get);
+            let connected = session.ready();
+            if !connected || generation != session.generation() {
+                STROKES.clear();
+                generation = session.generation();
                 state = BrailleState::default();
                 armed = false;
             } else if update.stable == 0 {
@@ -235,7 +241,8 @@ async fn main(spawner: Spawner) {
                 let output = component.step(state, dots).unwrap();
                 state = output.state;
                 if output.usage != 0 {
-                    let _ = STROKES.try_send(KeyStroke::new(output.usage, output.modifiers));
+                    let _ = STROKES
+                        .try_send((generation, KeyStroke::new(output.usage, output.modifiers)));
                     #[cfg(feature = "display")]
                     {
                         display_status.last_usage = output.usage;
@@ -276,7 +283,7 @@ async fn main(spawner: Spawner) {
         )
         .unwrap();
         loop {
-            READY.store(false, Ordering::Relaxed);
+            SESSION.lock(|state| state.set(state.get().reset()));
             STROKES.clear();
             let advertiser = peripheral
                 .advertise(
@@ -291,8 +298,12 @@ async fn main(spawner: Spawner) {
             let connection = advertiser.accept().await.unwrap();
             connection.set_bondable(true).unwrap();
             let connection = connection.with_attribute_server(&server).unwrap();
+            connection.set(&server.hid.protocol_mode, &1).unwrap();
+            connection.set(&server.hid.control_point, &1).unwrap();
+            connection.set(&server.hid.input_report, &[0; 8]).unwrap();
+            connection.set(&server.hid.boot_input, &[0; 8]).unwrap();
             let _ = select(
-                gatt_events(&connection, &mut bonds),
+                gatt_events(&server, &connection, &mut bonds),
                 send_reports(&server, &connection),
             )
             .await;
@@ -309,6 +320,7 @@ async fn main(spawner: Spawner) {
 }
 
 async fn gatt_events(
+    server: &Server<'_>,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     bonds: &mut kb_nrf52840::ble_bonds::BondStore<'_>,
 ) {
@@ -321,6 +333,14 @@ async fn gatt_events(
                 bonds.save(&bond).await.unwrap();
             }
             GattConnectionEvent::Gatt { event } => {
+                if let GattEvent::Write(ref write) = event {
+                    if write.handle() == server.hid.protocol_mode.handle
+                        || write.handle() == server.hid.control_point.handle
+                    {
+                        SESSION.lock(|state| state.set(state.get().reset()));
+                        STROKES.clear();
+                    }
+                }
                 if let Ok(reply) = event.accept() {
                     reply.send().await;
                 }
@@ -331,6 +351,7 @@ async fn gatt_events(
 }
 
 async fn send_reports(server: &Server<'_>, connection: &GattConnection<'_, '_, DefaultPacketPool>) {
+    let mut generation = None;
     loop {
         let boot = connection.get(&server.hid.protocol_mode).unwrap_or(1) == 0;
         let report = if boot {
@@ -343,14 +364,28 @@ async fn send_reports(server: &Server<'_>, connection: &GattConnection<'_, '_, D
             .security_level()
             .map(|level| level.encrypted())
             .unwrap_or(false)
+            && connection.get(&server.hid.control_point).unwrap_or(1) != 0
             && report.should_notify(connection);
-        READY.store(ready, Ordering::Relaxed);
+        let session = SESSION.lock(|state| {
+            let next = state.get().set_ready(ready);
+            state.set(next);
+            next
+        });
         if !ready {
             STROKES.clear();
             Timer::after_millis(10).await;
             continue;
         }
-        if let Ok(stroke) = STROKES.try_receive() {
+        if generation != session.token() {
+            generation = session.token();
+            if report.notify(connection, &[0; 8], true).await.is_err() {
+                return;
+            }
+        }
+        if let Ok((token, stroke)) = STROKES.try_receive() {
+            if !SESSION.lock(Cell::get).accepts(token) {
+                continue;
+            }
             if report
                 .notify(connection, &stroke.report(), true)
                 .await
