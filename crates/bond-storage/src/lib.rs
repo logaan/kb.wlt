@@ -371,7 +371,11 @@ mod tests {
         for index in 0..4 {
             let bond = bond(index);
             records = records.inserting(&bond);
-            assert!(records.set_client(&bond.identity, u32::MAX, table.raw()).unwrap());
+            assert!(
+                records
+                    .set_client(&bond.identity, u32::MAX, table.raw())
+                    .unwrap()
+            );
         }
         let mut bytes = [0; 512];
         let payload = encode_records(&records, &mut bytes).unwrap();
