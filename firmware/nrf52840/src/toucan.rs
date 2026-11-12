@@ -26,10 +26,11 @@ use embassy_usb::class::hid::{
 use embassy_usb::{Builder, Config};
 use kb_component_runtime::KeyboardComponent;
 use kb_core::Debouncer;
+use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
 use kb_core::matrix_link::{KEYS_MASK, PACKET_LEN, Receiver, Side, Snapshot};
 use kb_core::pipeline::{Bounded, Input, KeyEvent, KeyState};
 use kb_core::report_state::ReportState;
-use kb_core::transport::SessionGate;
+use kb_core::transport::{InputGate, SessionGate};
 use nrf_sdc::{self as sdc, mpsl};
 use trouble_host::prelude::*;
 
@@ -45,12 +46,7 @@ const SERVICE_UUID: Uuid = Uuid::new_long(SERVICE_BYTES);
 const SNAPSHOT_UUID: Uuid = Uuid::new_long([
     0x44, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x22, 0x00, 0x17, 0x7a,
 ]);
-const REPORT_DESCRIPTOR: [u8; 63] = [
-    0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x05, 0x07, 0x19, 0xe0, 0x29, 0xe7, 0x15, 0x00, 0x25, 0x01,
-    0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x05, 0x75, 0x01,
-    0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91, 0x01, 0x95, 0x06,
-    0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xc0,
-];
+
 static BLE_SESSION: BlockingMutex<CriticalSectionRawMutex, Cell<SessionGate>> =
     BlockingMutex::new(Cell::new(SessionGate::new()));
 static KEYS: AtomicU32 = AtomicU32::new(0);
@@ -590,7 +586,7 @@ struct HidService {
     #[characteristic(uuid = "2a4a", read, value = [0x11, 0x01, 0x00, 0x02], permissions(encrypted))]
     information: [u8; 4],
     #[characteristic(uuid = "2a4b", read, value = REPORT_DESCRIPTOR, permissions(encrypted))]
-    report_map: [u8; 63],
+    report_map: [u8; 65],
     #[characteristic(
         uuid = "2a4e",
         read,
@@ -757,12 +753,12 @@ async fn gatt_events(
 }
 
 async fn process_keys() {
-    let component = KeyboardComponent::new(include_bytes!(env!("KB_KEYBOARD_WASM"))).unwrap();
+    let mut component = KeyboardComponent::new(include_bytes!(env!("KB_KEYBOARD_WASM"))).ok();
     let mut state = Bounded::<u8, 64>::new(0);
     let mut reports = ReportState::<42>::new();
     let mut receivers = [Receiver::new(); 2];
     let mut previous = 0;
-    let mut generation = u32::MAX;
+    let mut input_gate = InputGate::new();
     let mut wake_at = None;
     #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
     let mut display_status = kb_display::Status {
@@ -776,39 +772,47 @@ async fn process_keys() {
     #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
     let mut previous_display = display_status;
     loop {
+        let mut invalidated = false;
         if let Either::First(event) = select(EVENTS.receive(), Timer::after_millis(5)).await {
             let now = Instant::now().as_millis() as u32;
             match event {
                 LinkEvent::Open(slot, snapshot) => {
+                    invalidated |= receivers[slot].connected();
                     receivers[slot].close();
                     let _ = receivers[slot].receive(snapshot, now);
                 }
                 LinkEvent::Snapshot(slot, snapshot) => {
-                    let _ = receivers[slot].receive(snapshot, now);
+                    invalidated |= receivers[slot].receive(snapshot, now).unwrap_or(false);
                 }
-                LinkEvent::Close(slot) => receivers[slot].close(),
+                LinkEvent::Close(slot) => {
+                    invalidated |= receivers[slot].connected();
+                    receivers[slot].close();
+                }
             }
         }
         let now = Instant::now().as_millis() as u32;
         for receiver in &mut receivers {
-            receiver.expire(now);
+            invalidated |= receiver.expire(now);
         }
         let keys = receivers
             .iter()
             .fold(0, |keys, receiver| keys | receiver.keys());
         let session = transport();
         let ready = session.ready();
-        if !ready || generation != session.generation() {
+        let gate = input_gate.observe(session.generation(), ready, keys, invalidated);
+        if gate.cancel {
             state = Bounded::new(0);
             reports.clear();
             wake_at = None;
-            previous = keys;
+            previous = 0;
             REPORTS.clear();
             if ready {
                 REPORTS.send((session.generation(), [0; 8])).await;
             }
-        } else if previous != keys
-            || wake_at.is_some_and(|deadline: u32| now.wrapping_sub(deadline) as i32 >= 0)
+        } else if component.is_some()
+            && gate.keys.is_some()
+            && (previous != keys
+                || wake_at.is_some_and(|deadline: u32| now.wrapping_sub(deadline) as i32 >= 0))
         {
             let mut input = Input::<42>::tick(now);
             for position in 0..42 {
@@ -828,34 +832,64 @@ async fn process_keys() {
                         .unwrap();
                 }
             }
-            let output = component
-                .process::<64, 42, 42>(state.as_slice(), &input)
-                .unwrap();
-            wake_at = output.wake_at_ms;
-            let output = component
-                .transform_output::<64, 42>(output.state.as_slice(), output.actions.as_slice())
-                .unwrap();
-            state = output.state;
-            for action in output.actions.as_slice() {
-                let update = reports.apply(*action).unwrap();
-                REPORTS.send((session.generation(), update.first)).await;
-                if let Some(second) = update.second {
-                    REPORTS.send((session.generation(), second)).await;
-                }
-                #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
-                {
-                    display_status.last_modifiers = update.first[0];
-                    if update.first[2] != 0 {
-                        display_status.last_usage = update.first[2];
+            let result = (|| {
+                let component = component
+                    .as_ref()
+                    .ok_or(kb_component_runtime::Error::InvalidState)?;
+                let output = component.process::<64, 42, 42>(state.as_slice(), &input)?;
+                let wake = output.wake_at_ms;
+                let output = component.transform_output::<64, 42>(
+                    output.state.as_slice(),
+                    output.actions.as_slice(),
+                )?;
+                let mut next_reports = reports;
+                let mut pending = Bounded::<[u8; 8], 84>::new([0; 8]);
+                for action in output.actions.as_slice() {
+                    let update = next_reports
+                        .apply(*action)
+                        .map_err(|_| kb_component_runtime::Error::InvalidReturn)?;
+                    pending
+                        .push(update.first)
+                        .map_err(|_| kb_component_runtime::Error::Capacity)?;
+                    if let Some(second) = update.second {
+                        pending
+                            .push(second)
+                            .map_err(|_| kb_component_runtime::Error::Capacity)?;
                     }
+                }
+                Ok::<_, kb_component_runtime::Error>((output.state, wake, next_reports, pending))
+            })();
+            match result {
+                Ok((next_state, wake, next_reports, pending)) => {
+                    state = next_state;
+                    wake_at = wake;
+                    reports = next_reports;
+                    for report in pending.as_slice() {
+                        REPORTS.send((session.generation(), *report)).await;
+                        #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
+                        {
+                            display_status.last_modifiers = report[0];
+                            if report[2] != 0 {
+                                display_status.last_usage = report[2];
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    component = None;
+                    state = Bounded::new(0);
+                    wake_at = None;
+                    reports.clear();
+                    REPORTS.clear();
+                    REPORTS.send((session.generation(), [0; 8])).await;
                 }
             }
             previous = keys;
         }
-        generation = session.generation();
         #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
         {
             display_status.connected = ready;
+            display_status.faulted = component.is_none();
             display_status.keyboard = Some(kb_display::KeyboardStatus {
                 active_keys: keys.count_ones() as u8,
                 layer: u8::from(keys & (1u64 << 41) != 0),
