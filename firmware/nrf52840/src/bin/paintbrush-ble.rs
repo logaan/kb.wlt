@@ -12,6 +12,7 @@ use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_sync::channel::Channel;
 use embassy_time::{Instant, Timer};
 use kb_component_runtime::{BrailleComponent, BrailleState};
+use kb_core::transport::FaultLatch;
 use kb_core::transport::SessionGate;
 use kb_core::{Debouncer, KeyStroke};
 use nrf_sdc::{self as sdc, mpsl};
@@ -129,7 +130,9 @@ async fn main(spawner: Spawner) {
         Input::new(p.P0_10, Pull::Up),
         Input::new(p.P0_09, Pull::Up),
     ];
-    let mut component = BrailleComponent::new(include_bytes!(env!("KB_BRAILLE_WASM"))).unwrap();
+    let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(env!(
+        "KB_BRAILLE_WASM"
+    ))));
     #[cfg(feature = "display")]
     let _display_power = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
     #[cfg(feature = "display")]
@@ -226,7 +229,7 @@ async fn main(spawner: Spawner) {
             } else if update.stable == 0 {
                 armed = true;
             }
-            if armed && (update.pressed | update.released) != 0 {
+            if armed && !component.is_faulted() && (update.pressed | update.released) != 0 {
                 let mut dots = 0;
                 for position in 0..8 {
                     if update.stable & (1 << position) != 0 {
@@ -238,24 +241,38 @@ async fn main(spawner: Spawner) {
                         dots |= DOTS[dot_index];
                     }
                 }
-                let output = component.step(state, dots).unwrap();
-                state = output.state;
-                if output.usage != 0 {
-                    let _ = STROKES
-                        .try_send((generation, KeyStroke::new(output.usage, output.modifiers)));
-                    #[cfg(feature = "display")]
-                    {
-                        display_status.last_usage = output.usage;
-                        display_status.last_modifiers = output.modifiers;
+                match component.call(|component| component.step(state, dots)) {
+                    Ok(output) => {
+                        state = output.state;
+                        if output.usage != 0 {
+                            let _ = STROKES.try_send((
+                                generation,
+                                KeyStroke::new(output.usage, output.modifiers),
+                            ));
+                            #[cfg(feature = "display")]
+                            {
+                                display_status.last_usage = output.usage;
+                                display_status.last_modifiers = output.modifiers;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        state = BrailleState::default();
+                        armed = false;
+                        STROKES.clear();
+                        let _ = STROKES.try_send((generation, KeyStroke::new(0, 0)));
                     }
                 }
             }
             #[cfg(feature = "display")]
             {
-                let changed = display_status.connected != connected
+                let faulted = component.is_faulted();
+                let changed = display_status.faulted != faulted
+                    || display_status.connected != connected
                     || display_status.held != state.held
                     || display_status.chord != state.chord
                     || (update.pressed | update.released) != 0;
+                display_status.faulted = faulted;
                 display_status.connected = connected;
                 display_status.held = state.held;
                 display_status.chord = state.chord;
@@ -263,11 +280,12 @@ async fn main(spawner: Spawner) {
                     kb_nrf52840::display::update(display_status);
                 }
             }
-            indicator.set_level(if update.stable != 0 {
-                Level::High
+            let illuminated = if component.is_faulted() {
+                Instant::now().as_millis() / 200 % 2 == 0
             } else {
-                Level::Low
-            });
+                update.stable != 0
+            };
+            indicator.set_level(if illuminated { Level::High } else { Level::Low });
             Timer::after_millis(1).await;
         }
     };

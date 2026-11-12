@@ -6,6 +6,7 @@ use embassy_nrf::gpio::Level;
 use embassy_nrf::pwm::{DutyCycle, Prescaler, SimpleConfig, SimplePwm};
 use embassy_time::{Instant, Timer};
 use kb_component_runtime::{LedComponent, LedState};
+use kb_core::transport::FaultLatch;
 use panic_halt as _;
 
 #[embassy_executor::main]
@@ -20,22 +21,26 @@ async fn main(_spawner: Spawner) {
     pwm_config.ch2_idle_level = Level::High;
     let mut rgb = SimplePwm::new_3ch(p.PWM0, p.P0_26, p.P0_30, p.P0_06, &pwm_config);
     #[cfg(not(feature = "composed"))]
-    let mut component = LedComponent::new(include_bytes!(env!("KB_LED_WASM"))).unwrap();
+    let mut component = FaultLatch::new(LedComponent::new(include_bytes!(env!("KB_LED_WASM"))));
     #[cfg(feature = "composed")]
-    let mut component = LedComponent::new_chain(&[
+    let mut component = FaultLatch::new(LedComponent::new_chain(&[
         include_bytes!(env!("KB_LED_WRAPPER_WASM")),
         include_bytes!(env!("KB_LED_WASM")),
-    ]).unwrap();
+    ]));
     let mut state = LedState::default();
     loop {
-        let output = component
-            .step(state, Instant::now().as_millis() as u32, false)
-            .unwrap();
-        state = output.state;
+        let now = Instant::now().as_millis() as u32;
+        let colors = match component.call(|component| component.step(state, now, false)) {
+            Ok(output) => {
+                state = output.state;
+                [output.red, output.green, output.blue]
+            }
+            Err(_) => [if now / 200 % 2 == 0 { 255 } else { 0 }, 0, 0],
+        };
         rgb.set_all_duties([
-            DutyCycle::normal(u16::from(output.red)),
-            DutyCycle::normal(u16::from(output.green)),
-            DutyCycle::normal(u16::from(output.blue)),
+            DutyCycle::normal(u16::from(colors[0])),
+            DutyCycle::normal(u16::from(colors[1])),
+            DutyCycle::normal(u16::from(colors[2])),
             DutyCycle::normal(0),
         ]);
         Timer::after_millis(10).await;

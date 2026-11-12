@@ -20,6 +20,10 @@
 
 ### Fixed
 
+- Paintbrush component traps release typing state and keep USB or Bluetooth alive; failed keyboard and LED components signal a latched fault until firmware is replaced.
+
+- Toucan link loss cancels pending middleware actions, and component failures release all held keys while Bluetooth, USB, and fault displays remain active.
+
 - Prospector component failures stop typing, release pending HID state, preserve USB and radio tasks, and display a persistent firmware fault instead of halting the device.
 
 - Pairing records reject truncated, trailing, or unsupported payloads and fall back to the previous valid flash journal entry.
