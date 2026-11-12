@@ -52,6 +52,19 @@ fn embedded_components_fit_the_nrf_heap_budget() {
     eprintln!(
         "LED peak allocations: {led_peak} bytes; Braille peak allocations: {braille_peak} bytes"
     );
+    let baseline = LIVE.load(Ordering::SeqCst);
+    PEAK.store(baseline, Ordering::SeqCst);
+    {
+        let mut component = LedComponent::new_chain(&[
+            include_bytes!("../../../components/generated/led-dim/stage0/led.core.wasm"),
+            include_bytes!("../../../components/generated/led-dim/stage1/led.core.wasm"),
+        ])
+        .unwrap();
+        component.step(LedState::default(), 1000, false).unwrap();
+    }
+    let chain_peak = PEAK.load(Ordering::SeqCst) - baseline;
+    eprintln!("Composed LED peak allocations: {chain_peak} bytes");
+    assert!(chain_peak <= 208 * 1024);
     assert!(led_peak <= 160 * 1024);
     assert!(braille_peak <= 160 * 1024);
 }

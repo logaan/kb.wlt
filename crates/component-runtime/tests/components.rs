@@ -125,3 +125,31 @@ fn excessive_guest_memory_is_rejected() {
     let module = wat::parse_str("(module (memory (export \"memory\") 2))").unwrap();
     assert!(LedComponent::new(&module).is_err());
 }
+
+#[test]
+fn composed_led_middleware_transforms_outgoing_colours() {
+    let mut component = LedComponent::new_chain(&[
+        include_bytes!("../../../components/generated/led-dim/stage0/led.core.wasm"),
+        include_bytes!("../../../components/generated/led-dim/stage1/led.core.wasm"),
+    ])
+    .unwrap();
+    let mut state = LedState::default();
+    for (second, rgb) in [
+        (63, 0, 0),
+        (63, 63, 0),
+        (0, 63, 0),
+        (0, 63, 63),
+        (0, 0, 63),
+        (63, 0, 63),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let output = component.step(state, second as u32 * 1000, false).unwrap();
+        assert_eq!((output.red, output.green, output.blue), rgb);
+        state = output.state;
+    }
+    for time in 6000..16000 {
+        state = component.step(state, time, false).unwrap().state;
+    }
+}

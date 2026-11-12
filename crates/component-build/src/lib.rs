@@ -35,6 +35,15 @@ pub struct Artifacts {
 }
 
 pub fn compile(source: &Path, output_dir: &Path, contract: Contract) -> Result<Artifacts, String> {
+    compile_stage(source, output_dir, contract, false)
+}
+
+fn compile_stage(
+    source: &Path,
+    output_dir: &Path,
+    contract: Contract,
+    imports: bool,
+) -> Result<Artifacts, String> {
     let staging = tempfile::tempdir().map_err(|e| e.to_string())?;
     let source_dir = staging.path().join("src");
     let wit_dir = staging.path().join("wit/deps");
@@ -72,7 +81,7 @@ pub fn compile(source: &Path, output_dir: &Path, contract: Contract) -> Result<A
         return Err("Wavelet must produce exactly one component".into());
     }
     let component = std::fs::read(&paths[0]).map_err(|e| e.to_string())?;
-    let core = prepare(&component, contract)?;
+    let core = prepare_stage(&component, contract, imports)?;
     std::fs::create_dir_all(output_dir).map_err(|e| e.to_string())?;
     let artifacts = Artifacts {
         component_path: output_dir.join(format!("{}.component.wasm", contract.name())),
@@ -84,6 +93,10 @@ pub fn compile(source: &Path, output_dir: &Path, contract: Contract) -> Result<A
 }
 
 pub fn prepare(component: &[u8], contract: Contract) -> Result<Vec<u8>, String> {
+    prepare_stage(component, contract, false)
+}
+
+fn prepare_stage(component: &[u8], contract: Contract, imports: bool) -> Result<Vec<u8>, String> {
     Validator::new()
         .validate_all(component)
         .map_err(|e| e.to_string())?;
@@ -92,7 +105,23 @@ pub fn prepare(component: &[u8], contract: Contract) -> Result<Vec<u8>, String> 
     else {
         return Err("expected a WebAssembly Component".into());
     };
-    if !resolve.worlds[world].imports.is_empty() {
+    if imports {
+        if resolve.worlds[world].imports.len() != 1 {
+            return Err("middleware requires exactly one downstream interface".into());
+        }
+        for (key, item) in &resolve.worlds[world].imports {
+            let WorldItem::Interface { id, .. } = item else {
+                return Err("middleware imports must be interfaces".into());
+            };
+            let name = match key {
+                WorldKey::Name(name) => name.clone(),
+                WorldKey::Interface(_) => resolve.id_of(*id).unwrap_or_default(),
+            };
+            if name != contract.interface() {
+                return Err("middleware imports an incompatible downstream interface".into());
+            }
+        }
+    } else if !resolve.worlds[world].imports.is_empty() {
         return Err("embedded components must not require host imports".into());
     }
     let interface = resolve.worlds[world]
@@ -152,11 +181,11 @@ pub fn prepare(component: &[u8], contract: Contract) -> Result<Vec<u8>, String> 
             modules.push(component[unchecked_range].to_vec());
         }
     }
-    if modules.len() != 1 {
-        return Err("embedded component must contain exactly one core module".into());
+    if modules.len() != if imports { 3 } else { 1 } {
+        return Err("component contains unsupported core module topology".into());
     }
-    let core = modules.pop().unwrap();
-    validate_core(&core, contract)?;
+    let core = modules.remove(0);
+    validate_core(&core, contract, imports)?;
     Ok(core)
 }
 
@@ -183,13 +212,22 @@ fn type_shape(resolve: &Resolve, ty: Type) -> Result<String, String> {
     })
 }
 
-fn validate_core(core: &[u8], contract: Contract) -> Result<(), String> {
+fn validate_core(core: &[u8], contract: Contract, imports: bool) -> Result<(), String> {
     let mut memories = 0;
     let mut exports = Vec::new();
     for payload in Parser::new(0).parse_all(core) {
         match payload.map_err(|e| e.to_string())? {
-            Payload::ImportSection(imports) if imports.count() != 0 => {
-                return Err("embedded core module imports are unsupported".into());
+            Payload::ImportSection(section) => {
+                for import in section.into_imports() {
+                    let import = import.map_err(|e| e.to_string())?;
+                    if !imports
+                        || import.module != contract.interface()
+                        || !matches!(import.name, "step" | "map-cell")
+                        || !matches!(import.ty, wasmparser::TypeRef::Func(_))
+                    {
+                        return Err("unsupported embedded core import".into());
+                    }
+                }
             }
             Payload::StartSection { .. } => {
                 return Err("embedded core start functions are unsupported".into());
@@ -224,4 +262,65 @@ fn validate_core(core: &[u8], contract: Contract) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct ChainArtifacts {
+    pub component_path: PathBuf,
+    pub core_paths: Vec<PathBuf>,
+}
+
+pub fn compile_chain(
+    sources: &[&Path],
+    output_dir: &Path,
+    contract: Contract,
+) -> Result<ChainArtifacts, String> {
+    if sources.len() != 2 {
+        return Err("embedded middleware chains require exactly two components".into());
+    }
+    let mut stages = Vec::new();
+    for (index, source) in sources.iter().enumerate() {
+        let mut stage = compile_stage(
+            source,
+            &output_dir.join(format!("stage{index}")),
+            contract,
+            index + 1 < sources.len(),
+        )?;
+        let renamed = output_dir.join(format!("stage{index}-{}.component.wasm", contract.name()));
+        std::fs::rename(&stage.component_path, &renamed).map_err(|e| e.to_string())?;
+        stage.component_path = renamed;
+        stages.push(stage);
+    }
+    let component_path = output_dir.join(format!("{}.component.wasm", contract.name()));
+    let binary = std::env::var_os("WAVELET").unwrap_or_else(|| "wavelet".into());
+    let output = Command::new(binary)
+        .arg("compose")
+        .args(stages.iter().map(|stage| &stage.component_path))
+        .arg("-o")
+        .arg(&component_path)
+        .output()
+        .map_err(|e| format!("failed to compose components: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "component composition failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let bytes = std::fs::read(&component_path).map_err(|e| e.to_string())?;
+    Validator::new()
+        .validate_all(&bytes)
+        .map_err(|e| e.to_string())?;
+    let DecodedWasm::Component(resolve, world) =
+        wit_component::decode(&bytes).map_err(|e| e.to_string())?
+    else {
+        return Err("composition did not produce a component".into());
+    };
+    if !resolve.worlds[world].imports.is_empty() {
+        return Err("composition contains unresolved imports".into());
+    }
+    Ok(ChainArtifacts {
+        component_path,
+        core_paths: stages.into_iter().map(|stage| stage.core_path).collect(),
+    })
 }

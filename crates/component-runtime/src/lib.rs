@@ -2,6 +2,8 @@
 
 extern crate alloc;
 
+mod link;
+
 use wasmi::{
     Config, Engine, Instance, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder,
     TypedFunc,
@@ -18,6 +20,7 @@ pub enum Error {
     MissingMemory,
     InvalidReturn,
     InvalidState,
+    InvalidChain,
 }
 
 impl From<wasmi::Error> for Error {
@@ -33,7 +36,10 @@ struct Runtime {
 }
 
 impl Runtime {
-    fn new(bytes: &[u8]) -> Result<Self, Error> {
+    fn new_chain(bytes: &[&[u8]], contract: link::Contract) -> Result<Self, Error> {
+        if bytes.is_empty() || bytes.len() > 2 {
+            return Err(Error::InvalidChain);
+        }
         let mut config = Config::default();
         config.consume_fuel(true);
         config.set_min_stack_height(1024);
@@ -41,20 +47,27 @@ impl Runtime {
         config.set_max_recursion_depth(64);
         config.set_max_cached_stacks(1);
         let engine = Engine::new(&config);
-        let module = Module::new(&engine, bytes)?;
         let limits = StoreLimitsBuilder::new()
             .memory_size(MAX_MEMORY_BYTES)
             .table_elements(128)
-            .instances(1)
-            .memories(1)
-            .tables(1)
+            .instances(bytes.len())
+            .memories(bytes.len())
+            .tables(bytes.len())
             .trap_on_grow_failure(true)
             .build();
         let mut store = Store::new(&engine, limits);
         store.limiter(|state| state);
         store.set_fuel(CALL_FUEL)?;
-        let linker = Linker::new(&engine);
-        let instance = linker.instantiate_and_start(&mut store, &module)?;
+        let mut downstream = None;
+        for bytes in bytes.iter().rev() {
+            let module = Module::new(&engine, bytes)?;
+            let mut linker = Linker::new(&engine);
+            if let Some(provider) = downstream {
+                link::connect(&mut linker, &store, provider, contract)?;
+            }
+            downstream = Some(linker.instantiate_and_start(&mut store, &module)?);
+        }
+        let instance = downstream.ok_or(Error::InvalidChain)?;
         let memory = instance
             .get_memory(&store, "memory")
             .ok_or(Error::MissingMemory)?;
@@ -101,7 +114,11 @@ pub struct LedComponent {
 
 impl LedComponent {
     pub fn new(bytes: &[u8]) -> Result<Self, Error> {
-        let runtime = Runtime::new(bytes)?;
+        Self::new_chain(&[bytes])
+    }
+
+    pub fn new_chain(bytes: &[&[u8]]) -> Result<Self, Error> {
+        let runtime = Runtime::new_chain(bytes, link::Contract::Led)?;
         let step = runtime
             .instance
             .get_typed_func(&runtime.store, LED_EXPORT)?;
@@ -174,7 +191,11 @@ pub struct BrailleComponent {
 
 impl BrailleComponent {
     pub fn new(bytes: &[u8]) -> Result<Self, Error> {
-        let runtime = Runtime::new(bytes)?;
+        Self::new_chain(&[bytes])
+    }
+
+    pub fn new_chain(bytes: &[&[u8]]) -> Result<Self, Error> {
+        let runtime = Runtime::new_chain(bytes, link::Contract::Braille)?;
         let step = runtime
             .instance
             .get_typed_func(&runtime.store, BRAILLE_EXPORT)?;
