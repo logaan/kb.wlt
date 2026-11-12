@@ -2,7 +2,7 @@
 use crate::split::DisplayIrqs;
 use crate::split::{Bonds, Host, Irqs, address, device_id};
 use core::cell::Cell;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
 use embassy_futures::select::{Either, select};
@@ -49,6 +49,7 @@ const SNAPSHOT_UUID: Uuid = Uuid::new_long([
 
 static BLE_SESSION: BlockingMutex<CriticalSectionRawMutex, Cell<SessionGate>> =
     BlockingMutex::new(Cell::new(SessionGate::new()));
+static COMPONENT_FAILED: AtomicBool = AtomicBool::new(false);
 static KEYS: AtomicU32 = AtomicU32::new(0);
 static KEY_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static REPORTS: Channel<CriticalSectionRawMutex, (u32, [u8; 8]), 64> = Channel::new();
@@ -183,6 +184,21 @@ pub async fn run(spawner: Spawner, role: Role) {
     let mut config = crate::clock_config();
     config.time_interrupt_priority = Priority::P3;
     let p = embassy_nrf::init(config);
+    let mut fault_led = GpioOutput::new(p.P0_26, Level::High, OutputDrive::Standard);
+    let diagnostic = async {
+        loop {
+            let phase = Instant::now().as_millis();
+            let illuminated = if COMPONENT_FAILED.load(Ordering::Relaxed) {
+                phase / 200 % 2 == 0
+            } else if crate::ble_bonds::storage_failed() {
+                phase % 2000 < 100 || (200..300).contains(&(phase % 2000))
+            } else {
+                false
+            };
+            fault_led.set_level(if illuminated { Level::Low } else { Level::High });
+            Timer::after_millis(25).await;
+        }
+    };
     let side = if cfg!(feature = "toucan-right") {
         Side::Right
     } else {
@@ -263,7 +279,7 @@ pub async fn run(spawner: Spawner, role: Role) {
         if matrix.read().await == KEYS_MASK as u64 {
             Timer::after_secs(2).await;
             if matrix.read().await == KEYS_MASK as u64 {
-                bonds.clear().await.unwrap();
+                bonds.forget().await;
             }
         }
     }
@@ -314,7 +330,7 @@ pub async fn run(spawner: Spawner, role: Role) {
             }
         }
     };
-    let keyboard = join(runner.run_with_handler(&Discovery), application);
+    let keyboard = join3(runner.run_with_handler(&Discovery), application, diagnostic);
     #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
     let _ = join(keyboard, display).await;
     #[cfg(not(any(feature = "nice-view", feature = "prospector-display")))]
@@ -561,7 +577,7 @@ async fn receive_snapshots(
                     ConnectionEvent::PairingComplete {
                         bond: Some(bond), ..
                     } => {
-                        bonds.lock().await.save(&bond).await.unwrap();
+                        bonds.lock().await.remember(&bond).await;
                     }
                     ConnectionEvent::RequestConnectionParams(request) => {
                         let _ = request.accept(None, stack).await;
@@ -734,7 +750,7 @@ async fn gatt_events(
             GattConnectionEvent::PairingComplete {
                 bond: Some(bond), ..
             } => {
-                bonds.lock().await.save(&bond).await.unwrap();
+                bonds.lock().await.remember(&bond).await;
             }
             GattConnectionEvent::Gatt { event } => {
                 if let GattEvent::Write(ref write) = event {
@@ -886,9 +902,11 @@ async fn process_keys() {
             }
             previous = keys;
         }
+        COMPONENT_FAILED.store(component.is_none(), Ordering::Relaxed);
         #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
         {
             display_status.connected = ready;
+            display_status.pairing_unsaved = crate::ble_bonds::storage_failed();
             display_status.faulted = component.is_none();
             display_status.keyboard = Some(kb_display::KeyboardStatus {
                 active_keys: keys.count_ones() as u8,

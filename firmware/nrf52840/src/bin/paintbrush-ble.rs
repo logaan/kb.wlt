@@ -162,7 +162,7 @@ async fn main(spawner: Spawner) {
     if inputs.iter().all(|pin| pin.is_low()) {
         Timer::after_secs(2).await;
         if inputs.iter().all(|pin| pin.is_low()) {
-            bonds.clear().await.unwrap();
+            bonds.forget().await;
         }
     }
     let saved_bonds = bonds.load_all().unwrap();
@@ -262,11 +262,14 @@ async fn main(spawner: Spawner) {
             #[cfg(feature = "display")]
             {
                 let faulted = component.is_faulted();
-                let changed = display_status.faulted != faulted
+                let pairing_unsaved = kb_nrf52840::ble_bonds::storage_failed();
+                let changed = display_status.pairing_unsaved != pairing_unsaved
+                    || display_status.faulted != faulted
                     || display_status.connected != connected
                     || display_status.held != state.held
                     || display_status.chord != state.chord
                     || (update.pressed | update.released) != 0;
+                display_status.pairing_unsaved = pairing_unsaved;
                 display_status.faulted = faulted;
                 display_status.connected = connected;
                 display_status.held = state.held;
@@ -277,6 +280,9 @@ async fn main(spawner: Spawner) {
             }
             let illuminated = if component.is_faulted() {
                 Instant::now().as_millis() / 200 % 2 == 0
+            } else if kb_nrf52840::ble_bonds::storage_failed() {
+                let phase = Instant::now().as_millis() % 2000;
+                phase < 100 || (200..300).contains(&phase)
             } else {
                 update.stable != 0
             };
@@ -350,7 +356,7 @@ async fn gatt_events(
             GattConnectionEvent::PairingComplete {
                 bond: Some(bond), ..
             } => {
-                bonds.save(&bond).await.unwrap();
+                bonds.remember(&bond).await;
             }
             GattConnectionEvent::Gatt { event } => {
                 if let GattEvent::Write(ref write) = event {
