@@ -132,6 +132,30 @@ fn invalid_braille_actions_are_rejected_before_reaching_hid() {
 }
 
 #[test]
+fn braille_middleware_preserves_consumer_and_action_fields() {
+    let middleware = wat::parse_str(r#"(module
+        (import "kb:firmware/braille@0.1.0" "step" (func $step (param i32 i32 i32 i32)))
+        (import "kb:firmware/braille@0.1.0" "map-cell" (func $map (param i32) (result i32)))
+        (memory (export "memory") 1)
+        (func (export "kb:firmware/braille@0.1.0#step") (param i32 i32 i32) (result i32)
+            local.get 0 local.get 1 local.get 2 i32.const 16 call $step i32.const 16)
+        (func (export "cabi_post_kb:firmware/braille@0.1.0#step") (param i32))
+        (func (export "kb:firmware/braille@0.1.0#map-cell") (param i32) (result i32) local.get 0 call $map)
+        (func (export "cabi_post_kb:firmware/braille@0.1.0#map-cell") (param i32)))"#).unwrap();
+    let mut component = BrailleComponent::new_chain(&[&middleware, BRAILLE]).unwrap();
+    for cell in [0x150, 0x148, 0x141, 1, 0x11e] {
+        let output = component.step(BrailleState::default(), cell).unwrap();
+        assert_eq!(output.stroke(), None);
+        let output = component.step(output.state, 0).unwrap();
+        assert_eq!(output.stroke(), computer8(cell));
+        assert_eq!(
+            component.map_cell(cell).unwrap(),
+            computer8(cell).unwrap().packed()
+        );
+    }
+}
+
+#[test]
 fn guest_execution_is_fuel_limited() {
     let module = wat::parse_str(
         r#"(module

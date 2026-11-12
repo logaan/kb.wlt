@@ -59,7 +59,7 @@ pub(crate) fn connect(
                           output: i32|
                           -> Result<(), wasmi::Error> {
                         let pointer = step.call(&mut caller, (held, chord, keys))?;
-                        let result = transfer::<6>(&mut caller, memory, pointer, output);
+                        let result = transfer::<10>(&mut caller, memory, pointer, output);
                         post.call(&mut caller, pointer)?;
                         result
                     },
