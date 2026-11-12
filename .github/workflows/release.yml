@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version change
+        type: choice
+        required: true
+        default: patch
+        options: [patch, minor, major, set]
+      version:
+        description: Explicit MAJOR.MINOR.PATCH when bump is set
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: master
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          targets: thumbv7em-none-eabihf
+          components: rustfmt
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: |
+            . -> target
+            firmware/nrf52840 -> target
+            resetter -> target
+      - name: Validate and update version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          EXPLICIT_VERSION: ${{ inputs.version }}
+        run: |
+          test -z "$(git status --porcelain)"
+          release_date=$(TZ=Australia/Melbourne date +%F)
+          version_args=(--bump "$BUMP" --version "$EXPLICIT_VERSION" --date "$release_date")
+          if [[ -z "$(git tag --list 'v[0-9]*')" ]]; then
+            version_args+=(--allow-current)
+          fi
+          version=$(python3 scripts/release-version.py "${version_args[@]}" --check)
+          if git rev-parse --verify --quiet "refs/tags/v$version"; then
+            echo "Tag v$version already exists" >&2
+            exit 1
+          fi
+          python3 scripts/release-version.py "${version_args[@]}" --notes "$RUNNER_TEMP/release-notes.md"
+          cargo update --workspace
+          (cd firmware/nrf52840 && cargo update --workspace)
+          (cd resetter && cargo update --workspace)
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+      - name: Test release
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace --locked
+          cargo test --locked --manifest-path resetter/Cargo.toml --target x86_64-unknown-linux-gnu
+          python3 -m unittest discover -s resetter/tests -p 'test_*.py'
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      - name: Build firmware
+        run: bash scripts/build-artifacts.sh
+      - name: Commit and tag release
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.toml Cargo.lock firmware/nrf52840/Cargo.toml firmware/nrf52840/Cargo.lock resetter/Cargo.toml resetter/Cargo.lock CHANGELOG.md
+          git commit -m "Release v$VERSION"
+          git tag -a "v$VERSION" -m "kb.wlt v$VERSION"
+          git push --atomic origin HEAD:master "refs/tags/v$VERSION"
+      - name: Package and publish release
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "dist/bundle/kb.wlt-$VERSION"
+          git archive HEAD | tar -x -C "dist/bundle/kb.wlt-$VERSION"
+          mkdir -p "dist/bundle/kb.wlt-$VERSION/dist"
+          cp dist/release/*.uf2 "dist/bundle/kb.wlt-$VERSION/dist/"
+          tar -czf "dist/release/kb.wlt-$VERSION.tar.gz" -C dist/bundle "kb.wlt-$VERSION"
+          (cd dist/release && sha256sum -- *.uf2 *.tar.gz > SHA256SUMS)
+          gh release create "v$VERSION" dist/release/*.uf2 dist/release/*.tar.gz dist/release/SHA256SUMS --verify-tag --title "kb.wlt v$VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
