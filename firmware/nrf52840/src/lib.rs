@@ -18,3 +18,13 @@ pub fn clock_config() -> Config {
     config.lfclk_source = LfclkSource::ExternalXtal;
     config
 }
+
+#[cfg(feature = "display")]
+pub mod display;
+
+#[cfg(feature = "ble")]
+pub mod ble_bonds;
+
+
+#[cfg(not(feature = "ble"))]
+mod critical_section;

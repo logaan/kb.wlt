@@ -5,7 +5,20 @@ fn main() {
     let origin = u32::from_str_radix(origin.trim_start_matches("0x"), 16)
         .expect("KB_FLASH_ORIGIN must be a hexadecimal address");
     assert!(matches!(origin, 0x1000 | 0x26000 | 0x27000));
-    let end = 0xf4000;
+    let end = 0xf2000;
+    let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    for (key, file) in [
+        ("KB_LED_WASM", "led.core.wasm"),
+        ("KB_BRAILLE_WASM", "braille.core.wasm"),
+    ] {
+        let path = env::var_os(key)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.join("../../components/generated").join(file));
+        let path = fs::canonicalize(path).expect("WebAssembly component artifact is missing");
+        println!("cargo:rustc-env={key}={}", path.display());
+        println!("cargo:rerun-if-env-changed={key}");
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
     let memory = format!(
         "MEMORY {{\n  FLASH : ORIGIN = {origin:#x}, LENGTH = {length:#x}\n  RAM : ORIGIN = 0x20000008, LENGTH = 0x3fff0\n}}\n",
         length = end - origin

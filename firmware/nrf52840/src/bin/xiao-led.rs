@@ -14,10 +14,7 @@ async fn main(_spawner: Spawner) {
     let mut red = Output::new(p.P0_26, Level::High, OutputDrive::Standard);
     let mut green = Output::new(p.P0_30, Level::High, OutputDrive::Standard);
     let mut blue = Output::new(p.P0_06, Level::High, OutputDrive::Standard);
-    let mut component = LedComponent::new(include_bytes!(
-        "../../../../components/generated/led.core.wasm"
-    ))
-    .unwrap();
+    let mut component = LedComponent::new(include_bytes!(env!("KB_LED_WASM"))).unwrap();
     let mut state = LedState::default();
     loop {
         let output = component
