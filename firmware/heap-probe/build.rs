@@ -3,6 +3,7 @@ use std::{env, fs, path::PathBuf};
 fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     println!("cargo:rustc-link-search={}", root.display());
+    println!("cargo:rustc-link-arg=-Tlink.x");
     for (key, stage) in [
         ("KB_KEYBOARD_STAGE0_WASM", "stage0"),
         ("KB_KEYBOARD_STAGE1_WASM", "stage1"),

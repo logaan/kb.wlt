@@ -69,6 +69,55 @@ fn header_only_segment(bytes: &[u8], file_size: usize) -> Result<bool> {
     Ok(true)
 }
 
+pub fn ram_reserve(bytes: &[u8]) -> Result<usize> {
+    const RAM_START: u32 = 0x2000_0008;
+    const RAM_END: u32 = 0x2003_fff8;
+    if range(bytes, 0, 7)? != b"\x7fELF\x01\x01\x01" {
+        return reject("expected ELF32 little-endian firmware");
+    }
+    if u16_at(bytes, 16)? != 2 || u16_at(bytes, 18)? != 40 {
+        return reject("expected an ARM executable");
+    }
+    let headers = u32_at(bytes, 28)? as usize;
+    let header_size = u16_at(bytes, 42)? as usize;
+    let header_count = u16_at(bytes, 44)? as usize;
+    if header_size != 32 || header_count == 0 {
+        return reject("invalid ELF program headers");
+    }
+    let mut end = RAM_START;
+    for index in 0..header_count {
+        let offset = index
+            .checked_mul(header_size)
+            .and_then(|offset| headers.checked_add(offset))
+            .ok_or_else(|| ImageError("ELF range overflow".into()))?;
+        let header = range(bytes, offset, header_size)?;
+        if u32_at(header, 0)? != 1 {
+            continue;
+        }
+        let address = u32_at(header, 8)?;
+        let file_size = u32_at(header, 16)?;
+        let memory_size = u32_at(header, 20)?;
+        if file_size > memory_size {
+            return reject("ELF file size exceeds segment memory size");
+        }
+        if file_size != 0 {
+            range(bytes, u32_at(header, 4)? as usize, file_size as usize)?;
+        }
+        let segment_end = address
+            .checked_add(memory_size)
+            .ok_or_else(|| ImageError("ELF address overflow".into()))?;
+        if memory_size == 0 {
+            continue;
+        }
+        if address >= RAM_START && segment_end <= RAM_END {
+            end = end.max(segment_end);
+        } else if address >= FLASH_END || segment_end > FLASH_END {
+            return reject("load segment lies outside configured flash and RAM");
+        }
+    }
+    Ok((RAM_END - end) as usize)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FirmwareImage {
     pub base_address: u32,
