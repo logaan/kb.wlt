@@ -88,9 +88,44 @@ impl InputGate {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Fault<E> {
+    Trapped(E),
+    Latched,
+}
+
+pub struct FaultLatch<T> {
+    value: Option<T>,
+}
+
+impl<T> FaultLatch<T> {
+    pub fn new<E>(value: Result<T, E>) -> Self {
+        Self { value: value.ok() }
+    }
+
+    pub const fn is_faulted(&self) -> bool {
+        self.value.is_none()
+    }
+
+    pub fn call<R, E>(
+        &mut self,
+        operation: impl FnOnce(&mut T) -> Result<R, E>,
+    ) -> Result<R, Fault<E>> {
+        let value = self.value.as_mut().ok_or(Fault::Latched)?;
+        match operation(value) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                self.value = None;
+                Err(Fault::Trapped(error))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{InputGate, SessionGate};
+    use super::{Fault, FaultLatch, InputGate, SessionGate};
+    use core::cell::Cell;
 
     #[test]
     fn disconnected_output_never_becomes_valid_after_reconnect() {
@@ -173,5 +208,40 @@ mod tests {
         assert_eq!(reconnected.keys, None);
         assert!(!gate.observe(0, true, 1, false).cancel);
         assert_eq!(gate.observe(0, true, 1, false).keys, None);
+    }
+
+    #[test]
+    fn trapped_component_is_dropped_and_cannot_execute_again() {
+        struct Instance<'a>(&'a Cell<u8>);
+        impl Drop for Instance<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let drops = Cell::new(0);
+        let calls = Cell::new(0);
+        let mut latch = FaultLatch::new(Ok::<_, ()>(Instance(&drops)));
+        assert_eq!(latch.call(|_| Ok::<_, ()>(7)), Ok(7));
+        assert!(!latch.is_faulted());
+        let failure = latch.call(|_| {
+            calls.set(calls.get() + 1);
+            Err::<(), _>("fuel exhausted")
+        });
+        assert_eq!(failure, Err(Fault::Trapped("fuel exhausted")));
+        assert_eq!(drops.get(), 1);
+        assert!(latch.is_faulted());
+        let retried = latch.call(|_| {
+            calls.set(calls.get() + 1);
+            Ok::<_, &str>(())
+        });
+        assert_eq!(retried, Err(Fault::Latched));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn invalid_component_initialization_never_enters_the_input_pipeline() {
+        let mut latch = FaultLatch::new(Err::<(), _>("invalid module"));
+        assert!(latch.is_faulted());
+        assert_eq!(latch.call(|_| Ok::<_, ()>(1)), Err(Fault::Latched));
     }
 }
