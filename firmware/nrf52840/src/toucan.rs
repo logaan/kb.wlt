@@ -30,7 +30,14 @@ use kb_component_runtime::KeyboardComponent;
 use kb_component_runtime::KeyboardPipeline;
 use kb_core::Debouncer;
 use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
-use kb_core::matrix_link::{KEYS_MASK, PACKET_LEN, Receiver, Side, Snapshot};
+#[cfg(feature = "nice-view")]
+use kb_core::matrix_link::DisplayReceiver;
+use kb_core::matrix_link::{DISPLAY_PACKET_LEN, KEYS_MASK, PACKET_LEN, Receiver, Side, Snapshot};
+#[cfg(any(
+    feature = "nice-view",
+    all(feature = "toucan-dongle", feature = "prospector-display")
+))]
+use kb_core::matrix_link::{DisplayFeedback, DisplayStatus};
 #[cfg(not(feature = "keyboard-composed"))]
 use kb_core::pipeline::Bounded;
 #[cfg(feature = "keyboard-composed")]
@@ -53,6 +60,16 @@ const SERVICE_UUID: Uuid = Uuid::new_long(SERVICE_BYTES);
 const SNAPSHOT_UUID: Uuid = Uuid::new_long([
     0x44, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x22, 0x00, 0x17, 0x7a,
 ]);
+const DISPLAY_UUID: Uuid = Uuid::new_long([
+    0x45, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x22, 0x00, 0x17, 0x7a,
+]);
+const DISPLAY_CAPABILITY: u8 = 1;
+
+#[cfg(feature = "nice-view")]
+static DISPLAY_INPUT: Signal<CriticalSectionRawMutex, (DisplayFeedback, u32)> = Signal::new();
+#[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
+static DISPLAY_OUTPUT: BlockingMutex<CriticalSectionRawMutex, Cell<Option<(DisplayStatus, u32)>>> =
+    BlockingMutex::new(Cell::new(None));
 
 static BLE_SESSION: BlockingMutex<CriticalSectionRawMutex, Cell<SessionGate>> =
     BlockingMutex::new(Cell::new(SessionGate::new()));
@@ -75,6 +92,7 @@ pub enum Role {
 struct Discovered {
     address: Address,
     side: Side,
+    display_feedback: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -89,17 +107,18 @@ struct Discovery;
 impl EventHandler for Discovery {
     fn on_adv_reports(&self, mut reports: LeAdvReportsIter<'_>) {
         while let Some(Ok(report)) = reports.next() {
-            if let Some(side) = advertised_side(report.data) {
+            if let Some((side, display_feedback)) = advertised_peer(report.data) {
                 let _ = ADVERTISEMENTS.try_send(Discovered {
                     address: Address::new(report.addr_kind, report.addr),
                     side,
+                    display_feedback,
                 });
             }
         }
     }
 }
 
-fn advertised_side(mut data: &[u8]) -> Option<Side> {
+fn advertised_peer(mut data: &[u8]) -> Option<(Side, bool)> {
     let mut service = false;
     let mut side = None;
     while !data.is_empty() {
@@ -120,8 +139,8 @@ fn advertised_side(mut data: &[u8]) -> Option<Side> {
         }
         if field.len() == 9 && field[..7] == [0xff, 0xff, 0xff, b'k', b'b', b'w', 2] {
             side = match field[7] {
-                1 => Some(Side::Left),
-                2 => Some(Side::Right),
+                1 => Some((Side::Left, field[8] & DISPLAY_CAPABILITY != 0)),
+                2 => Some((Side::Right, false)),
                 _ => None,
             };
         }
@@ -141,6 +160,8 @@ mod satellite_gatt {
     pub(super) struct KeyService {
         #[characteristic(uuid = SNAPSHOT_UUID, read, notify, permissions(encrypted))]
         pub(super) snapshot: [u8; PACKET_LEN],
+        #[characteristic(uuid = DISPLAY_UUID, write_without_response, permissions(encrypted))]
+        pub(super) display: [u8; DISPLAY_PACKET_LEN],
     }
 }
 use satellite_gatt::SatelliteServer;
@@ -346,6 +367,7 @@ pub async fn run(spawner: Spawner, role: Role) {
 
 async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
     let mut peripheral = stack.peripheral();
+    let display_capable = cfg!(feature = "nice-view") && side == Side::Left;
     let server = SatelliteServer::new_with_config(GapConfig::Peripheral(PeripheralConfig {
         name: "kb.wlt Toucan half",
         appearance: &appearance::human_interface_device::KEYBOARD,
@@ -358,13 +380,28 @@ async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
             AdStructure::CompleteServiceUuids128(&[SERVICE_BYTES]),
             AdStructure::ManufacturerSpecificData {
                 company_identifier: 0xffff,
-                payload: &[b'k', b'b', b'w', 2, side as u8, 0],
+                payload: &[
+                    b'k',
+                    b'b',
+                    b'w',
+                    2,
+                    side as u8,
+                    if display_capable {
+                        DISPLAY_CAPABILITY
+                    } else {
+                        0
+                    },
+                ],
             },
         ],
         &mut advertising,
     )
     .unwrap();
     loop {
+        #[cfg(feature = "nice-view")]
+        if display_capable {
+            show_remote_display(DisplayStatus::default());
+        }
         let advertisement = peripheral
             .advertise(
                 &Default::default(),
@@ -419,17 +456,63 @@ async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
                 let _ = select(KEY_CHANGED.wait(), Timer::after_millis(100)).await;
             }
         };
-        let _ = select(
+        let connected = select(
             gatt_events(
                 &server.server,
                 crate::ble_bonds::TOUCAN_LINK_SCHEMA,
                 &connection,
                 bonds,
                 None,
+                #[cfg(feature = "nice-view")]
+                display_capable.then_some(server.keys.display.handle),
             ),
             notify,
-        )
-        .await;
+        );
+        #[cfg(feature = "nice-view")]
+        if display_capable {
+            DISPLAY_INPUT.reset();
+            let _ = select(connected, run_remote_display()).await;
+            continue;
+        }
+        let _ = connected.await;
+    }
+}
+
+#[cfg(feature = "nice-view")]
+fn show_remote_display(status: DisplayStatus) {
+    crate::nice_view::update(kb_display::Status {
+        transport: kb_display::Transport::Split,
+        connected: status.connected,
+        faulted: status.faulted,
+        pairing_unsaved: status.pairing_unsaved || crate::ble_bonds::storage_failed(),
+        last_usage: status.last_usage,
+        last_modifiers: status.last_modifiers,
+        keyboard: Some(kb_display::KeyboardStatus {
+            active_keys: status.active_keys,
+            layer: status.layer,
+        }),
+        ..Default::default()
+    });
+}
+
+#[cfg(feature = "nice-view")]
+async fn run_remote_display() {
+    let mut receiver = DisplayReceiver::default();
+    let mut previous = (DisplayStatus::default(), crate::ble_bonds::storage_failed());
+    loop {
+        if let Either::First((feedback, received_at)) =
+            select(DISPLAY_INPUT.wait(), Timer::after_millis(100)).await
+        {
+            receiver.receive(feedback, received_at);
+        }
+        let status = receiver
+            .current(Instant::now().as_millis() as u32)
+            .unwrap_or_default();
+        let next = (status, crate::ble_bonds::storage_failed());
+        if next != previous {
+            show_remote_display(status);
+            previous = next;
+        }
     }
 }
 
@@ -458,7 +541,7 @@ async fn local_snapshots(boot: u32) {
 }
 async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, slot: usize, side: Side) {
     loop {
-        let connection = {
+        let (connection, display_feedback) = {
             let _guard = CONNECT_LOCK.lock().await;
             let mut central = stack.central();
             ADVERTISEMENTS.clear();
@@ -506,12 +589,12 @@ async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, slot: usize, side: Side) {
                 },
             };
             match with_timeout(Duration::from_secs(10), central.connect(&config)).await {
-                Ok(Ok(connection)) => connection,
+                Ok(Ok(connection)) => (connection, candidate.display_feedback),
                 _ => continue,
             }
         };
         if crate::split::authenticate(&connection, stack, bonds).await {
-            receive_snapshots(stack, bonds, &connection, slot, side).await;
+            receive_snapshots(stack, bonds, &connection, slot, side, display_feedback).await;
         }
         connection.disconnect();
         EVENTS.send(LinkEvent::Close(slot)).await;
@@ -525,6 +608,7 @@ async fn receive_snapshots(
     connection: &Connection<'_, DefaultPacketPool>,
     slot: usize,
     side: Side,
+    display_feedback: bool,
 ) {
     let Ok(Ok(client)) = with_timeout(
         Duration::from_secs(5),
@@ -603,7 +687,44 @@ async fn receive_snapshots(
                 }
             }
         };
-        let _ = select(events, notifications).await;
+        let link = select(events, notifications);
+        #[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
+        if display_feedback {
+            let feedback = async {
+                let characteristic = with_timeout(
+                    Duration::from_secs(1),
+                    client
+                        .characteristic_by_uuid::<[u8; DISPLAY_PACKET_LEN]>(service, &DISPLAY_UUID),
+                )
+                .await;
+                if let Ok(Ok(characteristic)) = characteristic {
+                    let mut sequence = 0u16;
+                    loop {
+                        let now = Instant::now().as_millis() as u32;
+                        if let Some((status, published_at)) = DISPLAY_OUTPUT.lock(Cell::get) {
+                            if now.wrapping_sub(published_at) < 500 {
+                                let packet = DisplayFeedback { sequence, status }.encode();
+                                let _ = with_timeout(
+                                    Duration::from_millis(25),
+                                    client.write_characteristic_without_response(
+                                        &characteristic,
+                                        &packet,
+                                    ),
+                                )
+                                .await;
+                                sequence = sequence.wrapping_add(1);
+                            }
+                        }
+                        Timer::after_millis(100).await;
+                    }
+                }
+                core::future::pending::<()>().await;
+            };
+            let _ = select(link, feedback).await;
+            return;
+        }
+        let _ = display_feedback;
+        let _ = link.await;
     };
     let _ = select(client.task(), receive).await;
 }
@@ -751,6 +872,8 @@ async fn hid_host(stack: &Host<'_>, bonds: &Bonds) {
                     server.hid.protocol_mode.handle,
                     server.hid.control_point.handle,
                 ]),
+                #[cfg(feature = "nice-view")]
+                None,
             ),
             send,
         )
@@ -768,6 +891,7 @@ async fn gatt_events<
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     bonds: &Bonds,
     reset_handles: Option<[u16; 2]>,
+    #[cfg(feature = "nice-view")] display_handle: Option<u16>,
 ) {
     loop {
         match connection.next().await {
@@ -788,6 +912,24 @@ async fn gatt_events<
                     .restore_client_table(server, connection.raw(), schema);
             }
             GattConnectionEvent::Gatt { event } => {
+                #[cfg(feature = "nice-view")]
+                let event = match event {
+                    GattEvent::Write(write) if display_handle == Some(write.handle()) => {
+                        let feedback = write.with_data(|offset, data| {
+                            (offset == 0)
+                                .then(|| DisplayFeedback::decode(data).ok())
+                                .flatten()
+                        });
+                        if let Some(feedback) = feedback {
+                            DISPLAY_INPUT.signal((feedback, Instant::now().as_millis() as u32));
+                        }
+                        if let Ok(reply) = write.accept_unprocessed() {
+                            reply.send().await;
+                        }
+                        continue;
+                    }
+                    event => event,
+                };
                 let changed = matches!(&event, GattEvent::Write(_));
                 if let GattEvent::Write(ref write) = event {
                     if reset_handles.is_some_and(|handles| handles.contains(&write.handle())) {
@@ -875,6 +1017,11 @@ async fn process_keys() {
             wake_at = None;
             previous = 0;
             REPORTS.clear();
+            #[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
+            {
+                display_status.last_usage = 0;
+                display_status.last_modifiers = 0;
+            }
             if ready {
                 REPORTS.send((session.generation(), [0; 8])).await;
             }
@@ -965,9 +1112,25 @@ async fn process_keys() {
             display_status.connected = ready;
             display_status.pairing_unsaved = crate::ble_bonds::storage_failed();
             display_status.faulted = component.is_none();
-            display_status.keyboard = Some(kb_display::KeyboardStatus {
+            let keyboard = kb_display::KeyboardStatus {
                 active_keys: keys.count_ones() as u8,
                 layer: u8::from(keys & (1u64 << 41) != 0),
+            };
+            display_status.keyboard = Some(keyboard);
+            #[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
+            DISPLAY_OUTPUT.lock(|output| {
+                output.set(Some((
+                    DisplayStatus {
+                        connected: ready && receivers.iter().all(Receiver::connected),
+                        faulted: display_status.faulted,
+                        pairing_unsaved: display_status.pairing_unsaved,
+                        active_keys: keyboard.active_keys,
+                        layer: keyboard.layer,
+                        last_usage: display_status.last_usage,
+                        last_modifiers: display_status.last_modifiers,
+                    },
+                    now,
+                )));
             });
             if display_status != previous_display {
                 #[cfg(feature = "nice-view")]

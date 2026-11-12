@@ -1,4 +1,8 @@
+use crate::split::sequence_is_newer;
+
 pub const PACKET_LEN: usize = 24;
+pub const DISPLAY_PACKET_LEN: usize = 10;
+pub const DISPLAY_TIMEOUT_MS: u32 = 600;
 pub const KEYS_MASK: u32 = (1 << 21) - 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +74,7 @@ pub enum PacketError {
     Side,
     Keys,
     Checksum,
+    Status,
 }
 
 impl Snapshot {
@@ -130,6 +135,93 @@ fn checksum(bytes: &[u8]) -> u16 {
     crc
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisplayStatus {
+    pub connected: bool,
+    pub faulted: bool,
+    pub pairing_unsaved: bool,
+    pub active_keys: u8,
+    pub layer: u8,
+    pub last_usage: u8,
+    pub last_modifiers: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DisplayFeedback {
+    pub sequence: u16,
+    pub status: DisplayStatus,
+}
+
+impl DisplayFeedback {
+    pub fn encode(self) -> [u8; DISPLAY_PACKET_LEN] {
+        let status = self.status;
+        let mut bytes = [0; DISPLAY_PACKET_LEN];
+        bytes[0] = 1;
+        bytes[1] = u8::from(status.connected)
+            | u8::from(status.faulted) << 1
+            | u8::from(status.pairing_unsaved) << 2;
+        bytes[2..4].copy_from_slice(&self.sequence.to_le_bytes());
+        bytes[4..8].copy_from_slice(&[
+            status.active_keys,
+            status.layer,
+            status.last_usage,
+            status.last_modifiers,
+        ]);
+        let crc = checksum(&bytes[..8]);
+        bytes[8..].copy_from_slice(&crc.to_le_bytes());
+        bytes
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, PacketError> {
+        if bytes.len() != DISPLAY_PACKET_LEN {
+            return Err(PacketError::Length);
+        }
+        if bytes[0] != 1 {
+            return Err(PacketError::Version);
+        }
+        if checksum(&bytes[..8]) != u16::from_le_bytes([bytes[8], bytes[9]]) {
+            return Err(PacketError::Checksum);
+        }
+        let flags = bytes[1];
+        if flags & !0b111 != 0 || bytes[4] > 42 {
+            return Err(PacketError::Status);
+        }
+        Ok(Self {
+            sequence: u16::from_le_bytes([bytes[2], bytes[3]]),
+            status: DisplayStatus {
+                connected: flags & 1 != 0,
+                faulted: flags & 2 != 0,
+                pairing_unsaved: flags & 4 != 0,
+                active_keys: bytes[4],
+                layer: bytes[5],
+                last_usage: bytes[6],
+                last_modifiers: bytes[7],
+            },
+        })
+    }
+}
+
+#[derive(Default)]
+pub struct DisplayReceiver {
+    last: Option<(DisplayFeedback, u32)>,
+}
+
+impl DisplayReceiver {
+    pub fn receive(&mut self, feedback: DisplayFeedback, now_ms: u32) {
+        if self
+            .last
+            .is_none_or(|(previous, _)| sequence_is_newer(feedback.sequence, previous.sequence))
+        {
+            self.last = Some((feedback, now_ms));
+        }
+    }
+
+    pub fn current(&self, now_ms: u32) -> Option<DisplayStatus> {
+        let (feedback, received_at) = self.last?;
+        (now_ms.wrapping_sub(received_at) < DISPLAY_TIMEOUT_MS).then_some(feedback.status)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Receiver {
     snapshot: Option<Snapshot>,
@@ -180,8 +272,7 @@ impl Receiver {
                 return Err(PacketError::Side);
             }
             if previous.boot == snapshot.boot {
-                let advance = snapshot.sequence.wrapping_sub(previous.sequence);
-                if advance == 0 || advance >= 0x8000 {
+                if !sequence_is_newer(snapshot.sequence, previous.sequence) {
                     return Ok(false);
                 }
             } else {

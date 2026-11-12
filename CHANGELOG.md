@@ -30,6 +30,8 @@
 
 ### Fixed
 
+- Toucan 2 retains its left nice!view display when Prospector handles the keymap and USB. The display receives split link, key, layer, HID, and fault status over Bluetooth.
+
 - Split keyboard link loss discards pending contractions and HID reports even when the disconnected keyboard has released its keys.
 
 - USB suspend, reset, and disconnect cancel pending keyboard report writes. The next USB session starts with a neutral report.

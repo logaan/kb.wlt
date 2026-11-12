@@ -1,4 +1,7 @@
-use kb_core::matrix_link::{KEYS_MASK, Receiver, Side, Snapshot};
+use kb_core::matrix_link::{
+    DISPLAY_TIMEOUT_MS, DisplayFeedback, DisplayReceiver, DisplayStatus, KEYS_MASK, PacketError,
+    Receiver, Side, Snapshot,
+};
 use kb_core::pipeline::{Action, Key};
 use kb_core::report_state::ReportState;
 
@@ -35,6 +38,84 @@ fn matrix_packets_round_trip_and_detect_corruption() {
         bytes[index] ^= 1;
         assert!(Snapshot::decode(&bytes).is_err());
     }
+}
+
+#[test]
+fn display_feedback_round_trips_and_rejects_invalid_packets() {
+    let feedback = DisplayFeedback {
+        sequence: u16::MAX,
+        status: DisplayStatus {
+            connected: true,
+            faulted: true,
+            pairing_unsaved: true,
+            active_keys: 42,
+            layer: 1,
+            last_usage: 4,
+            last_modifiers: 2,
+        },
+    };
+    let packet = feedback.encode();
+    assert_eq!(DisplayFeedback::decode(&packet), Ok(feedback));
+    for index in 0..packet.len() {
+        let mut corrupt = packet;
+        corrupt[index] ^= 1;
+        assert!(DisplayFeedback::decode(&corrupt).is_err());
+    }
+    assert_eq!(
+        DisplayFeedback::decode(&packet[..9]),
+        Err(PacketError::Length)
+    );
+    let invalid = DisplayFeedback {
+        status: DisplayStatus {
+            active_keys: 43,
+            ..feedback.status
+        },
+        ..feedback
+    };
+    assert_eq!(
+        DisplayFeedback::decode(&invalid.encode()),
+        Err(PacketError::Status)
+    );
+}
+
+#[test]
+fn display_feedback_expires_and_duplicates_do_not_extend_its_lifetime() {
+    let mut receiver = DisplayReceiver::default();
+    let feedback = DisplayFeedback {
+        sequence: u16::MAX,
+        status: DisplayStatus {
+            connected: true,
+            last_usage: 4,
+            ..Default::default()
+        },
+    };
+    let start = u32::MAX - 100;
+    assert_eq!(receiver.current(start), None);
+    receiver.receive(feedback, start);
+    receiver.receive(feedback, 20);
+    assert_eq!(
+        receiver.current(start.wrapping_add(DISPLAY_TIMEOUT_MS - 1)),
+        Some(feedback.status)
+    );
+    assert_eq!(
+        receiver.current(start.wrapping_add(DISPLAY_TIMEOUT_MS)),
+        None
+    );
+    receiver.receive(feedback, 600);
+    assert_eq!(receiver.current(600), None);
+
+    let newer = DisplayFeedback {
+        sequence: 0,
+        status: DisplayStatus::default(),
+    };
+    receiver.receive(newer, 601);
+    receiver.receive(feedback, 602);
+    assert_eq!(receiver.current(602), Some(newer.status));
+
+    let mut reconnected = DisplayReceiver::default();
+    assert_eq!(reconnected.current(603), None);
+    reconnected.receive(newer, 604);
+    assert_eq!(reconnected.current(604), Some(newer.status));
 }
 
 #[test]
