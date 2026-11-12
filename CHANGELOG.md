@@ -20,6 +20,8 @@
 
 ### Fixed
 
+- Reference mapping discovery yields to USB and Bluetooth tasks while loading custom modules.
+
 - USB and Bluetooth HID descriptors cover the full encoded keyboard usage range, including F13–F24 from custom Wavelet keymaps.
 
 - Paintbrush component traps release typing state and keep USB or Bluetooth alive; failed keyboard and LED components signal a latched fault until firmware is replaced.

@@ -202,3 +202,59 @@ fn reference_capture_suppresses_real_component_output_for_every_cell() {
         assert!(outputs.is_empty(), "reference leaked cell {cell:#05x}");
     }
 }
+
+#[test]
+fn reserved_namespace_and_literal_lookup_capture_custom_mapped_commands() {
+    use kb_core::reference::{Catalog, LEADER, REFERENCE, State};
+    let bytes = wat::parse_str(r#"(module
+        (memory (export "memory") 1)
+        (func (export "kb:firmware/braille@0.1.0#map-cell") (param i32) (result i32) i32.const 4)
+        (func (export "cabi_post_kb:firmware/braille@0.1.0#map-cell") (param i32))
+        (func (export "kb:firmware/braille@0.1.0#step") (param $held i32) (param $chord i32) (param $keys i32) (result i32)
+            i32.const 0 local.get $keys i32.store16
+            i32.const 2 local.get $keys i32.eqz
+            if (result i32) i32.const 0 else local.get $chord local.get $keys i32.or end i32.store16
+            i32.const 4 local.get $keys i32.eqz
+            if (result i32) i32.const 4 else i32.const 0 end i32.store8
+            i32.const 0)
+        (func (export "cabi_post_kb:firmware/braille@0.1.0#step") (param i32)))"#).unwrap();
+    let mut component = BrailleComponent::new(&bytes).unwrap();
+    let catalog = Catalog::try_from_fn(|cell| component.map_cell(cell)).unwrap();
+    assert_eq!(catalog.len(), 511);
+    assert!(catalog.find(LEADER).is_some());
+    let mut reference = State::new();
+    let mut state = BrailleState::default();
+    let mut time = 0;
+    let mut outputs = Vec::new();
+    let mut keys = |keys| {
+        time += 1;
+        let transition = reference.step(keys, time);
+        reference = transition.state;
+        if transition.reset_braille {
+            state = BrailleState::default();
+        }
+        if transition.forward && state.held != keys {
+            let output = component.step(state, keys).unwrap();
+            state = output.state;
+            if output.usage != 0 {
+                outputs.push(output.usage);
+            }
+        }
+    };
+    for cell in [LEADER, REFERENCE] {
+        keys(cell);
+        keys(0);
+    }
+    for cell in 1..=511 {
+        keys(0x10b);
+        keys(0);
+        keys(cell);
+        keys(0);
+    }
+    keys(0x103);
+    keys(0);
+    keys(0);
+    keys(1);
+    keys(0);
+    assert_eq!(outputs, [4]);
+}

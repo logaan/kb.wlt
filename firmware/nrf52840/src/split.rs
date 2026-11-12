@@ -709,9 +709,24 @@ async fn process_keys() {
     let mut fault_generation = None;
     let mut state = BrailleState::default();
     #[cfg(feature = "prospector-display")]
-    let catalog = component
-        .call(|component| kb_core::reference::Catalog::try_from_fn(|cell| component.map_cell(cell)))
-        .ok();
+    let catalog = {
+        let mut catalog = kb_core::reference::Catalog::new();
+        let mut failed = false;
+        for cell in 1..=511 {
+            let result = component.call(|component| {
+                let packed = component.map_cell(cell)?;
+                catalog
+                    .append(cell, packed)
+                    .map_err(|_| kb_component_runtime::Error::InvalidReturn)
+            });
+            if result.is_err() {
+                failed = true;
+                break;
+            }
+            embassy_futures::yield_now().await;
+        }
+        if failed { None } else { Some(catalog) }
+    };
     #[cfg(feature = "prospector-display")]
     let mut reference = kb_core::reference::State::new();
     #[cfg(feature = "prospector-display")]

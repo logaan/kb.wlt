@@ -271,3 +271,58 @@ fn six_and_eight_dot_cells_keep_space_separate() {
         .has_space()
     );
 }
+
+#[test]
+fn rolled_leader_presses_and_partial_releases_keep_space_between_segments() {
+    let mut host = Host::default();
+    for keys in [
+        0x100, 0x101, 0x103, 0x107, 0x10f, 0x11f, 0x11e, 0x11c, 0x118, 0x110,
+    ] {
+        assert_eq!(host.keys(keys), Action::None);
+    }
+    assert_eq!(host.keys(SPACE), Action::Namespace);
+    for keys in [0x101, 0x103, 0x107, 0x117, 0x116, 0x114, 0x110] {
+        assert_eq!(host.keys(keys), Action::None);
+    }
+    assert_eq!(host.keys(SPACE), Action::Enter);
+    assert_eq!(host.controller.mode, Mode::Reference);
+    assert!(host.output.is_empty());
+}
+
+#[test]
+fn disconnect_before_the_leader_completes_cancels_pending_host_state() {
+    let mut host = Host::default();
+    host.keys(SPACE);
+    host.keys(0x107);
+    let transition = host.controller.cancel(0x107);
+    host.controller = transition.state;
+    host.chord = 0;
+    host.keys(0x103);
+    host.keys(0x101);
+    host.keys(SPACE);
+    host.keys(0);
+    host.chord(1);
+    assert_eq!(host.output, [computer8(1).unwrap().packed()]);
+}
+
+#[test]
+fn incremental_catalog_matches_synchronous_catalog_and_rejects_invalid_order() {
+    let expected = catalog();
+    let mut actual = Catalog::new();
+    assert_eq!(actual.append(0, 4), Err(CatalogError::InvalidCell));
+    assert_eq!(actual.append(512, 4), Err(CatalogError::InvalidCell));
+    for cell in 1..=511 {
+        actual
+            .append(cell, computer8(cell).map_or(0, |stroke| stroke.packed()))
+            .unwrap();
+    }
+    assert_eq!(actual.entries(), expected.entries());
+    assert_eq!(actual.append(1, 4), Err(CatalogError::OutOfOrder));
+    assert_eq!(actual.entries(), expected.entries());
+    let mut full = Catalog::new();
+    for cell in 1..=511 {
+        full.append(cell, 4).unwrap();
+    }
+    assert_eq!(full.len(), 511);
+    assert_eq!(full.append(511, 4), Err(CatalogError::OutOfOrder));
+}

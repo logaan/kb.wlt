@@ -191,7 +191,45 @@ pub struct Catalog {
     len: u16,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatalogError {
+    InvalidCell,
+    OutOfOrder,
+    Full,
+}
+
+impl Default for Catalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Catalog {
+    pub const fn new() -> Self {
+        Self {
+            entries: [Entry { cell: 0, packed: 0 }; 511],
+            len: 0,
+        }
+    }
+
+    pub fn append(&mut self, cell: u16, packed: u32) -> Result<(), CatalogError> {
+        if cell == 0 || cell > 511 {
+            return Err(CatalogError::InvalidCell);
+        }
+        if self.len != 0 && self.entries[usize::from(self.len - 1)].cell >= cell {
+            return Err(CatalogError::OutOfOrder);
+        }
+        if packed == 0 {
+            return Ok(());
+        }
+        if usize::from(self.len) >= self.entries.len() {
+            return Err(CatalogError::Full);
+        }
+        self.entries[usize::from(self.len)] = Entry { cell, packed };
+        self.len += 1;
+        Ok(())
+    }
+
     pub fn try_from_fn<E>(mut map: impl FnMut(u16) -> Result<u32, E>) -> Result<Self, E> {
         let mut catalog = Self {
             entries: [Entry::default(); 511],
