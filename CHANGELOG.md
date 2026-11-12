@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- Preferences retry transient flash failures, and unchanged Bluetooth subscriptions retry a failed pairing save.
+
 - Bonded Bluetooth notification subscriptions survive firmware restarts and remain isolated by peer identity and server schema.
 
 - Pairing flash failures preserve active keyboards and volatile bonds, with a separate warning on displays and a distinct blink pattern on headless boards.

@@ -1,5 +1,6 @@
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
@@ -95,14 +96,31 @@ pub(crate) async fn radio_changed(epoch: u32) {
 
 pub(crate) async fn run_saves(bonds: &crate::split::Bonds) {
     loop {
-        let blob = SAVES.wait().await;
-        let failed = bonds
-            .lock()
-            .await
-            .save_config(blob.as_slice())
-            .await
-            .is_err();
-        SAVE_STATE.lock(|state| state.set(state.get().completed(blob.revision, !failed)));
+        let mut blob = SAVES.wait().await;
+        let mut attempts = 0;
+        loop {
+            let failed = bonds
+                .lock()
+                .await
+                .save_config(blob.as_slice())
+                .await
+                .is_err();
+            SAVE_STATE.lock(|state| state.set(state.get().completed(blob.revision, !failed)));
+            if !failed {
+                break;
+            }
+            attempts += 1;
+            if attempts >= 3 {
+                break;
+            }
+            match select(SAVES.wait(), Timer::after_millis(250)).await {
+                Either::First(newer) => {
+                    blob = newer;
+                    attempts = 0;
+                }
+                Either::Second(_) => {}
+            }
+        }
     }
 }
 

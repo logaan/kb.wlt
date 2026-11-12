@@ -164,6 +164,7 @@ impl<'d> BondStore<'d> {
         let mut pending = self.records.clone();
         match pending.set_client(identity, schema, data) {
             Ok(true) => self.persist_best_effort(pending).await,
+            Ok(false) if storage_failed() => self.persist_best_effort(pending).await,
             Ok(false) => {}
             Err(_) => STORAGE_FAILED.store(true, Ordering::Relaxed),
         }
