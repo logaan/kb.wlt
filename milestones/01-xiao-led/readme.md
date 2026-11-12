@@ -12,5 +12,8 @@ The firmware cross-compiles and the Wavelet component passes host tests. The che
 - [ ] Disconnect and reconnect USB; confirm the cycle restarts.
 - [ ] Change the `1000` period in `led.wlt` to `250`, rebuild, flash, and confirm the cycle is faster. This verifies that the behavior comes from your Wavelet component.
 - [ ] Restore the period if desired.
+- [ ] Run `./milestones/01-xiao-led/build-composed.sh` and flash `dist/xiao-led-composed.uf2` with `./scripts/flash-uf2.sh dist/xiao-led-composed.uf2 /Volumes/ACTUAL_VOLUME`.
+- [ ] Confirm the same cycle appears dimmer. This build composes `led-dim.wlt` around `led.wlt`, with both components running on the controller.
+- [ ] Change the brightness divisor in `led-dim.wlt`, rebuild and flash the composed image, and confirm the brightness changes.
 
 There is no button-speed requirement. The built-in button remains RESET and retains its bootloader role.

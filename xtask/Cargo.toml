@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 kb-component-build = { path = "../crates/component-build" }
+kb-component-runtime = { path = "../crates/component-runtime" }
+kb-core = { path = "../crates/keyboard-core" }
 
 [dev-dependencies]
 wit-parser = "0.251.0"

@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+pub mod targets;
+
 pub const NRF52840_FAMILY: u32 = 0xada5_2840;
 pub const FLASH_END: u32 = 0x000f_2000;
 pub const STOCK_APPLICATION_START: u32 = 0x0002_6000;
