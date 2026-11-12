@@ -1,4 +1,4 @@
-use kb_core::storage::{COMMIT_LEN, MAX_ENCODED_LEN, MAX_PAYLOAD_LEN, encode, select_newest};
+use kb_core::storage::{COMMIT_LEN, MAX_ENCODED_LEN, MAX_PAYLOAD_LEN, encode};
 use nrf_mpsl::{Flash, FlashError};
 use trouble_host::prelude::BondInformation;
 
@@ -44,34 +44,20 @@ impl<'d> BondStore<'d> {
         let mut pages = [[0; MAX_ENCODED_LEN]; 2];
         self.flash.read(PAGES[0], &mut pages[0])?;
         self.flash.read(PAGES[1], &mut pages[1])?;
-        let Some(selected) = select_newest(&pages[0], &pages[1]) else {
+        let Some(selected) = kb_bond_storage::decode_pages(&pages[0], &pages[1]) else {
             return Ok(self.bonds.clone());
         };
-        self.bonds = postcard::from_bytes(selected.envelope.payload)
-            .or_else(|_| {
-                postcard::from_bytes::<BondInformation>(selected.envelope.payload)
-                    .map(|bond| [Some(bond), None, None, None])
-            })
-            .map_err(|_| Error::Serialization)?;
+        self.bonds = selected.bonds;
         self.slot = Some(selected.slot);
-        self.generation = selected.envelope.generation;
+        self.generation = selected.generation;
         Ok(self.bonds.clone())
     }
 
     pub async fn save(&mut self, bond: &BondInformation) -> Result<(), Error> {
-        let mut bonds = self.bonds.clone();
-        let index = bonds
-            .iter()
-            .position(|entry| {
-                entry
-                    .as_ref()
-                    .is_some_and(|old| old.identity == bond.identity)
-            })
-            .or_else(|| bonds.iter().position(Option::is_none))
-            .unwrap_or(0);
-        bonds[index] = Some(bond.clone());
+        let bonds = kb_bond_storage::inserting(&self.bonds, bond);
         let mut payload = [0; MAX_PAYLOAD_LEN];
-        let payload = postcard::to_slice(&bonds, &mut payload).map_err(|_| Error::Serialization)?;
+        let payload =
+            kb_bond_storage::encode(&bonds, &mut payload).map_err(|_| Error::Serialization)?;
         let generation = self.generation.wrapping_add(1);
         let mut encoded = AlignedBuffer([0; MAX_ENCODED_LEN]);
         let len = encode(payload, generation, &mut encoded.0).map_err(|_| Error::Serialization)?;

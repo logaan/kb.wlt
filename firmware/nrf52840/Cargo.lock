@@ -1014,6 +1014,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kb-bond-storage"
+version = "0.1.0"
+dependencies = [
+ "kb-core",
+ "postcard",
+ "trouble-host",
+]
+
+[[package]]
 name = "kb-component-runtime"
 version = "0.1.0"
 dependencies = [
@@ -1048,13 +1057,13 @@ dependencies = [
  "embassy-usb",
  "embedded-alloc",
  "embedded-storage",
+ "kb-bond-storage",
  "kb-component-runtime",
  "kb-core",
  "kb-display",
  "nrf-mpsl",
  "nrf-sdc",
  "panic-halt",
- "postcard",
  "static_cell",
  "trouble-host",
 ]

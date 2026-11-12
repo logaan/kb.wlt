@@ -16,6 +16,8 @@
 
 ### Fixed
 
+- Pairing records reject truncated, trailing, or unsupported payloads and fall back to the previous valid flash journal entry.
+
 - Split links reconnect after stalled GATT discovery or missing key heartbeats, and Bluetooth advertising failures retry without halting firmware.
 
 - Bluetooth HID suspend and protocol changes cancel pending chords, reconnect starts with released keys, and saved host pairings are restored together.
