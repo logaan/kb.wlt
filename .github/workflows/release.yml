@@ -1,6 +1,12 @@
 name: Release
 
 on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release-version.py
+      - scripts/tests/test_release_version.py
   workflow_dispatch:
     inputs:
       bump:
@@ -22,8 +28,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
   release:
-    if: github.ref == 'refs/heads/master'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
