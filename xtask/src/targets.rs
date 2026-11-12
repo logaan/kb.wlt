@@ -182,6 +182,13 @@ pub const TARGETS: &[Target] = &[
         XIAO,
     ),
     Target::new(
+        "toucan-left-satellite-display",
+        "toucan-satellite",
+        "toucan,nice-view",
+        Some(Contract::Keyboard),
+        XIAO,
+    ),
+    Target::new(
         "toucan-prospector",
         "toucan-dongle",
         "toucan-dongle,usb,prospector-display",

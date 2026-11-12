@@ -11,7 +11,7 @@ These are implementation candidates verified with host tests and nRF52840 cross-
 - [ ] [7. Two Paintbrushes through Prospector, including braille reference](07-paintbrush-split-prospector/readme.md)
 - [ ] [8. Toucan 2: Bluetooth keyboard](08-toucan-bluetooth/readme.md)
 - [ ] [9. Toucan 2: nice!view display](09-toucan-display/readme.md)
-- [ ] [10. Toucan 2 through Prospector](10-toucan-prospector/readme.md)
+- [ ] [10. Toucan 2 with nice!view and Prospector](10-toucan-prospector/readme.md)
 - [ ] [Third XIAO reset controller: wiring and independent bootloader entry](../resetter/README.md)
 
 Build commands compile the folder's Wavelet example and embed it into the firmware. Release bundles also contain ready-made UF2 files in `dist/`. Identify each board's bootloader volume before copying an image, especially when several controllers are connected at once.
