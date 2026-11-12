@@ -30,6 +30,8 @@
 
 ### Fixed
 
+- Prospector displays dot 8 and Space separately in the live braille status view.
+
 - Toucan keeps a shared HID key pressed until all physical keys that map to it have been released.
 
 - Toucan discards expired key snapshots after USB or Bluetooth report backpressure and requires neutral keys when a split link resumes.

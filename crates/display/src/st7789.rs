@@ -145,17 +145,23 @@ pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; PANEL_
             let dy = y as i32 - center_y;
             let distance = dx * dx + dy * dy;
             if !status.faulted && status.keyboard.is_none() && distance <= 100 {
-                let active = if dot == 8 {
-                    status.held & 0x100 != 0
-                } else {
-                    status.chord & (1 << (dot - 1)) != 0
-                };
-                if active {
-                    color = if dot == 8 { 0xffe0 } else { 0x07e0 };
+                if status.chord & (1 << (dot - 1)) != 0 {
+                    color = 0x07e0;
                 } else if distance >= 64 {
                     color = 0x632c;
                 }
             }
+        }
+        if !status.faulted
+            && status.keyboard.is_none()
+            && (92..=148).contains(&x)
+            && (243..=247).contains(&y)
+        {
+            color = if status.held & kb_core::reference::SPACE != 0 {
+                0xffe0
+            } else {
+                0x2104
+            };
         }
         row[2 * x..2 * x + 2].copy_from_slice(&color.to_be_bytes());
     }

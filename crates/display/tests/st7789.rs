@@ -53,20 +53,29 @@ fn uses_portrait_240_by_280_with_twenty_row_offset_and_rgb565() {
 }
 
 #[test]
-fn colors_distinguish_accumulated_dots_and_space() {
-    let status = Status {
-        connected: true,
-        transport: Transport::Split,
-        held: 0x100,
-        chord: 1,
-        ..Status::default()
-    };
-    let frame = render(status);
+fn colors_distinguish_accumulated_dot_eight_from_held_space() {
     let mut row = [0; 480];
-    render_row(&frame, status, 134, &mut row);
-    assert_eq!(&row[184..186], &0x07e0u16.to_be_bytes());
-    render_row(&frame, status, 230, &mut row);
-    assert_eq!(&row[296..298], &0xffe0u16.to_be_bytes());
+    for (held, chord, dot_eight, space) in [
+        (0x100, 1, 0x0000u16, 0xffe0u16),
+        (0x80, 0x81, 0x07e0, 0x2104),
+        (0, 0x81, 0x07e0, 0x2104),
+        (0x180, 0x181, 0x07e0, 0xffe0),
+    ] {
+        let status = Status {
+            connected: true,
+            transport: Transport::Split,
+            held,
+            chord,
+            ..Status::default()
+        };
+        let frame = render(status);
+        render_row(&frame, status, 134, &mut row);
+        assert_eq!(&row[184..186], &0x07e0u16.to_be_bytes());
+        render_row(&frame, status, 230, &mut row);
+        assert_eq!(&row[296..298], &dot_eight.to_be_bytes());
+        render_row(&frame, status, 245, &mut row);
+        assert_eq!(&row[240..242], &space.to_be_bytes());
+    }
 }
 
 #[test]
