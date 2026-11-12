@@ -3,3 +3,5 @@
 /firmware/nrf52840/target/
 /resetter/target/
 .DS_Store
+__pycache__/
+*.pyc
