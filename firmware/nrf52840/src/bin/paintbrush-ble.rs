@@ -4,15 +4,18 @@
 use core::cell::Cell;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_futures::select::select;
+use embassy_futures::select::{Either, select};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::{bind_interrupts, pac, peripherals, rng};
 use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_sync::channel::Channel;
+use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
-use kb_component_runtime::{BrailleComponent, BrailleState};
-use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
+use kb_component_runtime::{BrailleComponent, BrailleTyping};
+use kb_core::braille_hid::{Report, stroke_reports};
+use kb_core::hid::BRAILLE_BLE_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
+use kb_core::preferences::{Output as StrokeBatch, Settings};
 use kb_core::transport::FaultLatch;
 use kb_core::transport::SessionGate;
 use kb_core::{Debouncer, KeyStroke};
@@ -37,6 +40,7 @@ bind_interrupts!(struct DisplayIrqs {
 
 static SESSION: Mutex<CriticalSectionRawMutex, Cell<SessionGate>> =
     Mutex::new(Cell::new(SessionGate::new()));
+static SESSION_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
 const DOTS: [u16; 8] = [64, 4, 2, 1, 8, 16, 32, 256];
 
@@ -51,7 +55,7 @@ struct HidService {
     #[characteristic(uuid = "2a4a", read, value = [0x11, 0x01, 0x00, 0x02], permissions(encrypted))]
     information: [u8; 4],
     #[characteristic(uuid = "2a4b", read, value = REPORT_DESCRIPTOR, permissions(encrypted))]
-    report_map: [u8; 65],
+    report_map: [u8; REPORT_DESCRIPTOR.len()],
     #[characteristic(
         uuid = "2a4e",
         read,
@@ -62,10 +66,10 @@ struct HidService {
     protocol_mode: u8,
     #[characteristic(uuid = "2a4c", write_without_response, permissions(encrypted))]
     control_point: u8,
-    #[descriptor(uuid = "2908", read, value = [0u8, 1u8])]
+    #[descriptor(uuid = "2908", read, value = [1u8, 1u8])]
     #[characteristic(uuid = "2a4d", read, notify, permissions(encrypted))]
     input_report: [u8; 8],
-    #[descriptor(uuid = "2908", read, value = [0u8, 2u8])]
+    #[descriptor(uuid = "2908", read, value = [1u8, 2u8])]
     #[characteristic(
         uuid = "2a4d",
         read,
@@ -74,6 +78,9 @@ struct HidService {
         permissions(encrypted)
     )]
     output_report: [u8; 1],
+    #[descriptor(uuid = "2908", read, value = [2u8, 1u8])]
+    #[characteristic(uuid = "2a4d", read, notify, permissions(encrypted))]
+    consumer_report: [u8; 2],
     #[characteristic(uuid = "2a22", read, notify, permissions(encrypted))]
     boot_input: [u8; 8],
     #[characteristic(
@@ -199,7 +206,10 @@ async fn main(spawner: Spawner) {
     .unwrap();
     let scan = async {
         let mut debounce = Debouncer::<8>::new(5);
-        let mut state = BrailleState::default();
+        let mut typing = BrailleTyping::new(false);
+        let settings = Settings::default();
+        let mut pending = StrokeBatch::default();
+        let mut fault_seen = false;
         let mut armed = false;
         let mut generation = 0;
         #[cfg(feature = "display")]
@@ -212,19 +222,21 @@ async fn main(spawner: Spawner) {
                 .iter()
                 .enumerate()
                 .fold(0, |mask, (i, pin)| mask | (u64::from(pin.is_low()) << i));
-            let (next, update) = debounce.sample(raw, Instant::now().as_millis() as u32);
+            let now = Instant::now().as_millis() as u32;
+            let (next, update) = debounce.sample(raw, now);
             debounce = next;
             let session = SESSION.lock(Cell::get);
             let connected = session.ready();
             if !connected || generation != session.generation() {
                 STROKES.clear();
                 generation = session.generation();
-                state = BrailleState::default();
+                typing.cancel();
+                pending = StrokeBatch::default();
                 armed = false;
             } else if update.stable == 0 {
                 armed = true;
             }
-            if armed && !component.is_faulted() && (update.pressed | update.released) != 0 {
+            if armed && !component.is_faulted() && pending.is_empty() {
                 let mut dots = 0;
                 for position in 0..8 {
                     if update.stable & (1 << position) != 0 {
@@ -236,28 +248,31 @@ async fn main(spawner: Spawner) {
                         dots |= DOTS[dot_index];
                     }
                 }
-                match component.call(|component| component.step(state, dots)) {
-                    Ok(output) => {
-                        state = output.state;
-                        if output.usage != 0 {
-                            let _ = STROKES.try_send((
-                                generation,
-                                KeyStroke::new(output.usage, output.modifiers),
-                            ));
-                            #[cfg(feature = "display")]
-                            {
-                                display_status.last_usage = output.usage;
-                                display_status.last_modifiers = output.modifiers;
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        state = BrailleState::default();
-                        armed = false;
-                        STROKES.clear();
-                        let _ = STROKES.try_send((generation, KeyStroke::new(0, 0)));
-                    }
+                pending = typing.step(&mut component, &settings, dots, now);
+            }
+            if !fault_seen && component.is_faulted() {
+                fault_seen = true;
+                armed = false;
+                pending = StrokeBatch::default();
+                STROKES.clear();
+                generation = update_session(SessionGate::invalidate).generation();
+            }
+            let mut sent = 0;
+            for &stroke in pending.as_slice() {
+                if STROKES.try_send((generation, stroke)).is_err() {
+                    break;
                 }
+                sent += 1;
+                #[cfg(feature = "display")]
+                {
+                    display_status.last_usage = stroke.usage;
+                    display_status.last_modifiers = stroke.modifiers;
+                }
+            }
+            if sent != 0 {
+                pending =
+                    StrokeBatch::from_slice(&pending.as_slice()[sent..], KeyStroke::default())
+                        .unwrap();
             }
             #[cfg(feature = "display")]
             {
@@ -266,14 +281,15 @@ async fn main(spawner: Spawner) {
                 let changed = display_status.pairing_unsaved != pairing_unsaved
                     || display_status.faulted != faulted
                     || display_status.connected != connected
-                    || display_status.held != state.held
-                    || display_status.chord != state.chord
+                    || display_status.held != typing.held()
+                    || display_status.chord != typing.chord()
+                    || sent != 0
                     || (update.pressed | update.released) != 0;
                 display_status.pairing_unsaved = pairing_unsaved;
                 display_status.faulted = faulted;
                 display_status.connected = connected;
-                display_status.held = state.held;
-                display_status.chord = state.chord;
+                display_status.held = typing.held();
+                display_status.chord = typing.chord();
                 if changed {
                     kb_nrf52840::display::update(display_status);
                 }
@@ -302,7 +318,7 @@ async fn main(spawner: Spawner) {
         )
         .unwrap();
         loop {
-            SESSION.lock(|state| state.set(state.get().reset()));
+            update_session(SessionGate::reset);
             STROKES.clear();
             let advertiser = peripheral
                 .advertise(
@@ -328,6 +344,9 @@ async fn main(spawner: Spawner) {
             connection.set(&server.hid.control_point, &1).unwrap();
             connection.set(&server.hid.input_report, &[0; 8]).unwrap();
             connection.set(&server.hid.boot_input, &[0; 8]).unwrap();
+            connection
+                .set(&server.hid.consumer_report, &[0; 2])
+                .unwrap();
             let _ = select(
                 gatt_events(&server, &connection, &mut bonds),
                 send_reports(&server, &connection),
@@ -361,7 +380,7 @@ async fn gatt_events(
                     .remember_client_table(
                         &server.server,
                         connection.raw(),
-                        kb_nrf52840::ble_bonds::HID_SCHEMA,
+                        kb_nrf52840::ble_bonds::BRAILLE_HID_SCHEMA,
                     )
                     .await;
             }
@@ -369,20 +388,31 @@ async fn gatt_events(
                 bonds.restore_client_table(
                     &server.server,
                     connection.raw(),
-                    kb_nrf52840::ble_bonds::HID_SCHEMA,
+                    kb_nrf52840::ble_bonds::BRAILLE_HID_SCHEMA,
                 );
             }
             GattConnectionEvent::Gatt { event } => {
                 let changed = matches!(&event, GattEvent::Write(_));
-                if let GattEvent::Write(ref write) = event {
-                    if write.handle() == server.hid.protocol_mode.handle
-                        || write.handle() == server.hid.control_point.handle
-                    {
-                        SESSION.lock(|state| state.set(state.get().reset()));
+                let reset = if let GattEvent::Write(ref write) = event {
+                    let handle = write.handle();
+                    handle == server.hid.protocol_mode.handle
+                        || handle == server.hid.control_point.handle
+                        || [
+                            server.hid.input_report.cccd_handle(),
+                            server.hid.boot_input.cccd_handle(),
+                            server.hid.consumer_report.cccd_handle(),
+                        ]
+                        .iter()
+                        .flatten()
+                        .any(|cccd| cccd.handle() == handle)
+                } else {
+                    false
+                };
+                if let Ok(reply) = event.accept() {
+                    if reset {
+                        update_session(SessionGate::reset);
                         STROKES.clear();
                     }
-                }
-                if let Ok(reply) = event.accept() {
                     reply.send().await;
                 }
                 if changed {
@@ -390,7 +420,7 @@ async fn gatt_events(
                         .remember_client_table(
                             &server.server,
                             connection.raw(),
-                            kb_nrf52840::ble_bonds::HID_SCHEMA,
+                            kb_nrf52840::ble_bonds::BRAILLE_HID_SCHEMA,
                         )
                         .await;
                 }
@@ -400,53 +430,105 @@ async fn gatt_events(
     }
 }
 
+fn update_session(update: impl FnOnce(SessionGate) -> SessionGate) -> SessionGate {
+    let (previous, next) = SESSION.lock(|state| {
+        let previous = state.get();
+        let next = update(previous);
+        state.set(next);
+        (previous, next)
+    });
+    if previous != next {
+        SESSION_CHANGED.signal(());
+    }
+    next
+}
+
+async fn session_changed(generation: u32) {
+    while SESSION.lock(Cell::get).generation() == generation {
+        SESSION_CHANGED.wait().await;
+    }
+}
+
 async fn send_reports(server: &Server<'_>, connection: &GattConnection<'_, '_, DefaultPacketPool>) {
     let mut generation = None;
+    let mut previous_consumer = [0; 2];
     loop {
         let boot = connection.get(&server.hid.protocol_mode).unwrap_or(1) == 0;
-        let report = if boot {
+        let keyboard = if boot {
             server.hid.boot_input
         } else {
             server.hid.input_report
         };
-        let ready = connection
+        let consumer = server.hid.consumer_report;
+        let encrypted = connection
             .raw()
             .security_level()
             .map(|level| level.encrypted())
-            .unwrap_or(false)
+            .unwrap_or(false);
+        let ready = encrypted
             && connection.get(&server.hid.control_point).unwrap_or(1) != 0
-            && report.should_notify(connection);
-        let session = SESSION.lock(|state| {
-            let next = state.get().set_ready(ready);
-            state.set(next);
-            next
-        });
+            && keyboard.should_notify(connection);
+        let session = update_session(|state| state.set_ready(ready));
+        let token = session.generation();
+        if generation != Some(token) {
+            generation = Some(token);
+            previous_consumer = [0; 2];
+            let release = async {
+                for characteristic in [server.hid.boot_input, server.hid.input_report] {
+                    connection.set(&characteristic, &[0; 8])?;
+                    if encrypted && characteristic.should_notify(connection) {
+                        characteristic.notify(connection, &[0; 8], true).await?;
+                    }
+                }
+                connection.set(&consumer, &[0; 2])?;
+                if encrypted && consumer.should_notify(connection) {
+                    consumer.notify(connection, &[0; 2], true).await?;
+                }
+                Ok::<(), trouble_host::Error>(())
+            };
+            match select(session_changed(token), release).await {
+                Either::First(()) => continue,
+                Either::Second(Err(_)) => return,
+                Either::Second(Ok(())) => {}
+            }
+        }
         if !ready {
             STROKES.clear();
-            Timer::after_millis(10).await;
+            let _ = select(session_changed(token), Timer::after_millis(10)).await;
             continue;
         }
-        if generation != session.token() {
-            generation = session.token();
-            if report.notify(connection, &[0; 8], true).await.is_err() {
-                return;
-            }
-        }
-        if let Ok((token, stroke)) = STROKES.try_receive() {
-            if !SESSION.lock(Cell::get).accepts(token) {
+        if let Ok((queued, stroke)) = STROKES.try_receive() {
+            if queued != token {
                 continue;
             }
-            if report
-                .notify(connection, &stroke.report(), true)
-                .await
-                .is_err()
-            {
-                return;
-            }
-            if report.notify(connection, &[0; 8], true).await.is_err() {
-                return;
+            let consumer_ready = !boot && consumer.should_notify(connection);
+            let send = async {
+                for report in stroke_reports(previous_consumer, stroke)
+                    .into_iter()
+                    .flatten()
+                {
+                    match report {
+                        Report::Keyboard(value)
+                            if value == [0; 8] || stroke.consumer == 0 || consumer_ready =>
+                        {
+                            keyboard.notify(connection, &value, true).await?
+                        }
+                        Report::Keyboard(_) => {}
+                        Report::Consumer(value) if consumer_ready => {
+                            consumer.notify(connection, &value, true).await?;
+                            previous_consumer = value;
+                        }
+                        Report::Consumer(_) => {}
+                    }
+                }
+                Ok::<(), trouble_host::Error>(())
+            };
+            match select(session_changed(token), send).await {
+                Either::First(()) => continue,
+                Either::Second(Err(_)) => return,
+                Either::Second(Ok(())) => {}
             }
         }
-        Timer::after_millis(1).await;
+        let _ = select(session_changed(token), Timer::after_millis(1)).await;
     }
 }

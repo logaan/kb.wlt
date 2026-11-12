@@ -19,7 +19,7 @@ use embassy_usb::class::hid::{
 use embassy_usb::{Builder, Config};
 use kb_component_runtime::{BrailleComponent, BrailleTyping};
 use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
-use kb_core::preferences::{MAX_TEXT, MAX_TRIGGER, Settings};
+use kb_core::preferences::{MAX_OUTPUT, Settings};
 use kb_core::split::{Layout, PACKET_LEN, Receiver, Session, Snapshot};
 use kb_core::transport::{FaultLatch, InputGate};
 use kb_core::{Debouncer, KeyStroke};
@@ -771,7 +771,7 @@ async fn receive_snapshots(
 
 async fn process_keys() {
     const PENDING_CAPACITY: usize = 128;
-    const BATCH_CAPACITY: usize = MAX_TRIGGER * MAX_TEXT;
+    const BATCH_CAPACITY: usize = MAX_OUTPUT;
     let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(env!(
         "KB_BRAILLE_WASM"
     ))));
@@ -1113,6 +1113,8 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
     let mut msos = [0; 64];
     let mut control = [0; 64];
     let mut state = State::new();
+    let mut consumer_state = State::new();
+    let mut consumer_control = crate::usb_hid::ConsumerControl;
     let mut control_handler = crate::usb_hid::KeyboardControl::default();
     let mut handler = crate::usb_hid::ConnectionState::default();
     let mut builder = Builder::new(
@@ -1136,7 +1138,9 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
             hid_boot_protocol: HidBootProtocol::Keyboard,
         },
     );
+    let mut consumer =
+        crate::usb_hid::consumer_writer(&mut builder, &mut consumer_state, &mut consumer_control);
     let mut usb = builder.build();
-    let reports = crate::usb_hid::send_strokes(&mut writer, &STROKES);
+    let reports = crate::usb_hid::send_strokes(&mut writer, &mut consumer, &STROKES);
     join(usb.run(), reports).await;
 }

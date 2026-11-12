@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod braille;
+pub mod braille_hid;
 pub mod chord;
 pub mod debounce;
 pub mod hid;

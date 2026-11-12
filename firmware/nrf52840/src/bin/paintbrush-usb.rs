@@ -13,8 +13,9 @@ use embassy_usb::class::hid::{
     Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, State,
 };
 use embassy_usb::{Builder, Config};
-use kb_component_runtime::{BrailleComponent, BrailleState};
+use kb_component_runtime::{BrailleComponent, BrailleTyping};
 use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
+use kb_core::preferences::{Output as StrokeBatch, Settings};
 use kb_core::transport::FaultLatch;
 use kb_core::{Debouncer, KeyStroke};
 use panic_halt as _;
@@ -75,6 +76,8 @@ async fn main(_spawner: Spawner) {
     let mut msos_descriptor = [0; 64];
     let mut control_buffer = [0; 64];
     let mut hid_state = State::new();
+    let mut consumer_state = State::new();
+    let mut consumer_control = kb_nrf52840::usb_hid::ConsumerControl;
     let mut control_handler = kb_nrf52840::usb_hid::KeyboardControl::default();
     let mut usb_state = kb_nrf52840::usb_hid::ConnectionState::default();
     let mut builder = Builder::new(
@@ -98,10 +101,18 @@ async fn main(_spawner: Spawner) {
             hid_boot_protocol: HidBootProtocol::Keyboard,
         },
     );
+    let mut consumer = kb_nrf52840::usb_hid::consumer_writer(
+        &mut builder,
+        &mut consumer_state,
+        &mut consumer_control,
+    );
     let mut usb = builder.build();
     let scan = async {
         let mut debounce = Debouncer::<8>::new(5);
-        let mut state = BrailleState::default();
+        let mut typing = BrailleTyping::new(false);
+        let settings = Settings::default();
+        let mut pending = StrokeBatch::default();
+        let mut fault_seen = false;
         let mut armed = false;
         let mut generation = 0;
         #[cfg(feature = "display")]
@@ -111,19 +122,21 @@ async fn main(_spawner: Spawner) {
                 .iter()
                 .enumerate()
                 .fold(0, |mask, (i, pin)| mask | (u64::from(pin.is_low()) << i));
-            let (next, update) = debounce.sample(raw, Instant::now().as_millis() as u32);
+            let now = Instant::now().as_millis() as u32;
+            let (next, update) = debounce.sample(raw, now);
             debounce = next;
             let session = kb_nrf52840::usb_hid::connection();
             let configured = session.ready();
             if !configured || generation != session.generation() {
                 STROKES.clear();
                 generation = session.generation();
-                state = BrailleState::default();
+                typing.cancel();
+                pending = StrokeBatch::default();
                 armed = false;
             } else if update.stable == 0 {
                 armed = true;
             }
-            if armed && !component.is_faulted() && (update.pressed | update.released) != 0 {
+            if armed && !component.is_faulted() && pending.is_empty() {
                 let mut dots = 0;
                 for position in 0..8 {
                     if update.stable & (1 << position) == 0 {
@@ -136,41 +149,45 @@ async fn main(_spawner: Spawner) {
                     };
                     dots |= DOTS[dot_index];
                 }
-                match component.call(|component| component.step(state, dots)) {
-                    Ok(output) => {
-                        state = output.state;
-                        if output.usage != 0 {
-                            let _ = STROKES.try_send((
-                                generation,
-                                KeyStroke::new(output.usage, output.modifiers),
-                            ));
-                            #[cfg(feature = "display")]
-                            {
-                                display_status.last_usage = output.usage;
-                                display_status.last_modifiers = output.modifiers;
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        state = BrailleState::default();
-                        armed = false;
-                        STROKES.clear();
-                        let _ = STROKES.try_send((generation, KeyStroke::new(0, 0)));
-                    }
+                pending = typing.step(&mut component, &settings, dots, now);
+            }
+            if !fault_seen && component.is_faulted() {
+                fault_seen = true;
+                armed = false;
+                pending = StrokeBatch::default();
+                STROKES.clear();
+                generation = kb_nrf52840::usb_hid::invalidate_pending_reports();
+            }
+            let mut sent = 0;
+            for &stroke in pending.as_slice() {
+                if STROKES.try_send((generation, stroke)).is_err() {
+                    break;
                 }
+                sent += 1;
+                #[cfg(feature = "display")]
+                {
+                    display_status.last_usage = stroke.usage;
+                    display_status.last_modifiers = stroke.modifiers;
+                }
+            }
+            if sent != 0 {
+                pending =
+                    StrokeBatch::from_slice(&pending.as_slice()[sent..], KeyStroke::default())
+                        .unwrap();
             }
             #[cfg(feature = "display")]
             {
                 let faulted = component.is_faulted();
                 let changed = display_status.faulted != faulted
                     || display_status.connected != configured
-                    || display_status.held != state.held
-                    || display_status.chord != state.chord
+                    || display_status.held != typing.held()
+                    || display_status.chord != typing.chord()
+                    || sent != 0
                     || (update.pressed | update.released) != 0;
                 display_status.faulted = faulted;
                 display_status.connected = configured;
-                display_status.held = state.held;
-                display_status.chord = state.chord;
+                display_status.held = typing.held();
+                display_status.chord = typing.chord();
                 if changed {
                     kb_nrf52840::display::update(display_status);
                 }
@@ -184,7 +201,7 @@ async fn main(_spawner: Spawner) {
             Timer::after_millis(1).await;
         }
     };
-    let send = kb_nrf52840::usb_hid::send_strokes(&mut writer, &STROKES);
+    let send = kb_nrf52840::usb_hid::send_strokes(&mut writer, &mut consumer, &STROKES);
     let keyboard = join3(usb.run(), scan, send);
     #[cfg(feature = "display")]
     embassy_futures::join::join(keyboard, kb_nrf52840::display::run(display_bus)).await;
