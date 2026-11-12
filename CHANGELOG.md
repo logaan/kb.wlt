@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- Interrupted Bluetooth saves preserve newly learned pairings in memory, and clearing saved pairings commits an empty journal record before erasing the previous page.
+
 - Preferences retry transient flash failures, and unchanged Bluetooth subscriptions retry a failed pairing save.
 
 - Bonded Bluetooth notification subscriptions survive firmware restarts and remain isolated by peer identity and server schema.

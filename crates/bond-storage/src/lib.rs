@@ -333,6 +333,26 @@ mod tests {
         assert_eq!(decode_pages(&first, &second).unwrap().bonds, expected);
     }
 
+    #[test]
+    fn committed_empty_record_clears_bonds_before_old_page_is_erased() {
+        let mut payload = [0; 512];
+        let mut first = [0xff; 528];
+        let mut second = [0xff; 528];
+        let records = Records::default().inserting(&bond(1));
+        let encoded = encode_records(&records, &mut payload).unwrap();
+        kb_core::storage::encode(encoded, 7, &mut first).unwrap();
+        let cleared = Records::default();
+        let encoded = encode_records(&cleared, &mut payload).unwrap();
+        kb_core::storage::encode(encoded, 8, &mut second).unwrap();
+
+        let selected = decode_pages(&first, &second).unwrap();
+        assert_eq!(selected.bonds, cleared.bonds);
+        assert_eq!(selected.clients, cleared.clients);
+
+        second[..kb_core::storage::COMMIT_LEN].fill(0xff);
+        assert_eq!(decode_pages(&first, &second).unwrap().bonds, records.bonds);
+    }
+
     fn client_table() -> trouble_host::prelude::ClientAttTable {
         let mut builder = trouble_host::prelude::ClientAttTable::builder();
         for handle in [10, 20, 30, 40] {

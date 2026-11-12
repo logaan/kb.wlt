@@ -40,6 +40,7 @@ pub struct BondStore<'d> {
     slot: Option<usize>,
     generation: u32,
     records: Records,
+    records_loaded: bool,
     config_slot: Option<usize>,
     config_generation: u32,
 }
@@ -51,6 +52,7 @@ impl<'d> BondStore<'d> {
             slot: None,
             generation: 0,
             records: Records::default(),
+            records_loaded: false,
             config_slot: None,
             config_generation: 0,
         }
@@ -61,18 +63,20 @@ impl<'d> BondStore<'d> {
     }
 
     pub fn load_all(&mut self) -> Result<[Option<BondInformation>; 4], Error> {
-        let mut pages = [[0; MAX_ENCODED_LEN]; 2];
-        self.flash.read(PAGES[0], &mut pages[0])?;
-        self.flash.read(PAGES[1], &mut pages[1])?;
-        let Some(selected) = kb_bond_storage::decode_pages(&pages[0], &pages[1]) else {
-            return Ok(self.records.bonds.clone());
-        };
-        self.records = Records {
-            bonds: selected.bonds,
-            clients: selected.clients,
-        };
-        self.slot = Some(selected.slot);
-        self.generation = selected.generation;
+        if !self.records_loaded {
+            let mut pages = [[0; MAX_ENCODED_LEN]; 2];
+            self.flash.read(PAGES[0], &mut pages[0])?;
+            self.flash.read(PAGES[1], &mut pages[1])?;
+            if let Some(selected) = kb_bond_storage::decode_pages(&pages[0], &pages[1]) {
+                self.records = Records {
+                    bonds: selected.bonds,
+                    clients: selected.clients,
+                };
+                self.slot = Some(selected.slot);
+                self.generation = selected.generation;
+            }
+            self.records_loaded = true;
+        }
         Ok(self.records.bonds.clone())
     }
 
@@ -171,19 +175,25 @@ impl<'d> BondStore<'d> {
     }
 
     async fn persist_best_effort(&mut self, pending: Records) {
-        let failed = self.persist(&pending).await.is_err();
         self.records = pending;
+        STORAGE_FAILED.store(true, Ordering::Relaxed);
+        let failed = self.persist().await.is_err();
         STORAGE_FAILED.store(failed, Ordering::Relaxed);
     }
 
     pub async fn forget(&mut self) {
-        STORAGE_FAILED.store(self.clear().await.is_err(), Ordering::Relaxed);
+        let loaded = self.load_all().is_ok();
         self.records = Records::default();
+        self.records_loaded = true;
+        STORAGE_FAILED.store(true, Ordering::Relaxed);
+        if loaded {
+            STORAGE_FAILED.store(self.clear().await.is_err(), Ordering::Relaxed);
+        }
     }
 
-    async fn persist(&mut self, records: &Records) -> Result<(), Error> {
+    async fn persist(&mut self) -> Result<(), Error> {
         let mut payload = [0; MAX_PAYLOAD_LEN];
-        let payload = kb_bond_storage::encode_records(records, &mut payload)
+        let payload = kb_bond_storage::encode_records(&self.records, &mut payload)
             .map_err(|_| Error::Serialization)?;
         let generation = self.generation.wrapping_add(1);
         let mut encoded = AlignedBuffer([0; MAX_ENCODED_LEN]);
@@ -201,13 +211,10 @@ impl<'d> BondStore<'d> {
         Ok(())
     }
 
-    pub async fn clear(&mut self) -> Result<(), Error> {
-        for page in PAGES {
-            self.flash.erase(page, page + 4096).await?;
-        }
-        self.slot = None;
-        self.generation = 0;
-        self.records = Records::default();
+    async fn clear(&mut self) -> Result<(), Error> {
+        let stale = PAGES[self.slot.unwrap_or(1)];
+        self.persist().await?;
+        self.flash.erase(stale, stale + 4096).await?;
         Ok(())
     }
 }
