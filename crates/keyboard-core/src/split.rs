@@ -1,8 +1,8 @@
 pub const PACKET_LEN: usize = 20;
 pub const PROTOCOL_VERSION: u8 = 1;
 pub const SINGLE_PAINTBRUSH: [u16; 8] = [0x40, 0x04, 0x02, 0x01, 0x08, 0x10, 0x20, 0x100];
-pub const LEFT_PAINTBRUSH: [u16; 8] = [0x40, 0x04, 0x02, 0x01, 0, 0, 0, 0];
-pub const RIGHT_PAINTBRUSH: [u16; 8] = [0x08, 0x10, 0x20, 0x100, 0, 0, 0, 0];
+pub const LEFT_PAINTBRUSH: [u16; 8] = [0x40, 0x04, 0x02, 0x01, 0, 0, 0, 0x100];
+pub const RIGHT_PAINTBRUSH: [u16; 8] = [0x08, 0x10, 0x20, 0x80, 0x100, 0, 0, 0];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]

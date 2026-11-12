@@ -24,6 +24,10 @@
 - Automated host tests and nRF52840 firmware builds on pushes and pull requests to `master`.
 - Manual versioned releases with changelog notes, tagged source, UF2 firmware, source/example bundles, and checksums.
 
+### Changed
+
+- Split Paintbrush layouts now assign all eight braille dots to the top rows and braille Space to each inner bottom key.
+
 ### Fixed
 
 - Split keyboard link loss discards pending contractions and HID reports even when the disconnected keyboard has released its keys.

@@ -5,9 +5,9 @@ The left board receives the right board over Bluetooth, runs the Wavelet braille
 | Top row, viewed left to right | First | Second | Third | Fourth |
 | --- | --- | --- | --- | --- |
 | Left Paintbrush | dot 7 | dot 3 | dot 2 | dot 1 |
-| Right Paintbrush | dot 4 | dot 5 | dot 6 | braille Space |
+| Right Paintbrush | dot 4 | dot 5 | dot 6 | dot 8 |
 
-Bottom-row keys are unassigned in this initial split layout. The eighth logical key is Space, as in the single-board layout; Space+7 produces Return.
+The inner bottom key on each half is braille Space. Use the fourth bottom key from the left on the left half, or the first bottom key on the right half. The other bottom keys are unassigned.
 
 - [ ] Run `./milestones/06-paintbrush-split/build.sh`.
 - [ ] Enter both bootloaders, then run `./milestones/06-paintbrush-split/flash.sh /Volumes/LEFT_NICENANO /Volumes/RIGHT_NICENANO` using the actual volumes. First is the USB central; second is the right satellite.
@@ -18,8 +18,9 @@ Bottom-row keys are unassigned in this initial split layout. The eighth logical 
 - [ ] Chord dot 1 on the left with dot 4 on the right: `c` appears once after both release.
 - [ ] Repeat the cross-board chord with each possible release order; verify no partial letters.
 - [ ] Chord dot 7 on the left with dot 1: uppercase `A` appears.
-- [ ] Press Space on the right, then Space on the right with dot 7 on the left; verify Space and Return.
-- [ ] Confirm bottom-row keys produce no characters.
+- [ ] Press dot 8 on the right and verify Return. Press each bottom Space key on its own and with dot 7, verifying Space and Return respectively.
+- [ ] Press both Space keys and release them one at a time. Verify one Space appears only after both release. Repeat with the other release order.
+- [ ] Confirm the other bottom-row keys produce no characters.
 - [ ] Disconnect the right board during a chord; reconnect it and release all keys. Confirm no phantom output and that fresh cross-board chords work.
 - [ ] Reset both boards and confirm they reconnect without manual pairing.
 

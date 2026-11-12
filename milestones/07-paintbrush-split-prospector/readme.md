@@ -1,8 +1,8 @@
 # Milestone 7: Two Paintbrush halves through Prospector
 
-Both Paintbrushes send their top-row keys to a Prospector over Bluetooth. The dongle combines their snapshots, runs this folder's Wavelet braille component, displays status, and sends USB HID to the computer. Three firmware images cross-compile; radio behavior remains to be confirmed on hardware.
+Both Paintbrushes send key snapshots to a Prospector over Bluetooth. The dongle combines their snapshots, runs this folder's Wavelet braille component, displays status, and sends USB HID to the computer. Three firmware images cross-compile. Radio behavior remains to be confirmed on hardware.
 
-- [ ] Confirm the top-row layout in [milestone 6](../06-paintbrush-split/readme.md).
+- [ ] Confirm the [milestone 6 layout](../06-paintbrush-split/readme.md) has eight dots across the top rows and Space on the inner bottom key of each half.
 - [ ] Run `./milestones/07-paintbrush-split-prospector/build.sh`.
 - [ ] Enter all three bootloaders. Run `./milestones/07-paintbrush-split-prospector/flash.sh /Volumes/LEFT_NICENANO /Volumes/RIGHT_NICENANO /Volumes/XIAO` using the real volume names in that order.
 - [ ] Keep Prospector on USB to the computer. Supply USB or battery power to both Paintbrushes.
@@ -10,7 +10,8 @@ Both Paintbrushes send their top-row keys to a Prospector over Bluetooth. The do
 - [ ] Confirm **kb.wlt Split Receiver** appears as a USB keyboard and the LCD renders status.
 - [ ] Type `a` on the left, then dot 4 alone on the right, and verify both boards affect the display/output.
 - [ ] Chord dots 1+4 across the boards and confirm `c` appears only after both release.
-- [ ] Test uppercase `A`, Space, Space+7 Return, and dot-7 Backspace.
+- [ ] In Computer 8 mode, test uppercase `A`, dot-8 Return, and dot-7 Backspace. Verify each bottom Space key types Space alone and Return with dot 7.
+- [ ] Hold both Space keys and release them one at a time. Verify Space appears only after both release. Repeat with the other release order.
 - [ ] Repeat cross-board chords quickly with different release orders; verify no duplicates or stuck keys.
 - [ ] Turn off either satellite during a chord. Reconnect and release all keys; confirm the interrupted chord is discarded and subsequent chords work.
 - [ ] Power-cycle all three boards and verify both links recover.

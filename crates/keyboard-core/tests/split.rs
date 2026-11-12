@@ -1,4 +1,7 @@
-use kb_core::split::{Layout, PACKET_LEN, PacketError, ReceiveError, Receiver, Snapshot};
+use kb_core::{
+    KeyStroke, computer8,
+    split::{Layout, PACKET_LEN, PacketError, ReceiveError, Receiver, Snapshot},
+};
 
 fn snapshot(node: u64, layout: Layout, sequence: u16, keys: u8) -> Snapshot {
     Snapshot {
@@ -27,16 +30,27 @@ fn snapshots_fit_a_default_att_payload_and_detect_corruption() {
 }
 
 #[test]
-fn layout_maps_single_and_split_top_rows_to_the_same_braille_cells() {
-    assert_eq!(Layout::Single.map(0xff), 0x17f);
-    assert_eq!(Layout::Left.map(0xff), 0x47);
-    assert_eq!(Layout::Right.map(0xff), 0x138);
-    assert_eq!(
-        Layout::Left.map(0x0f) | Layout::Right.map(0x0f),
-        Layout::Single.map(0xff)
-    );
-    assert_eq!(Layout::Single.map(0x80), 0x100);
-    assert_eq!(Layout::Right.map(0x08), 0x100);
+fn split_top_rows_have_all_eight_dots_and_bottom_rows_have_inner_space() {
+    for (layout, expected) in [
+        (Layout::Left, [0x40, 4, 2, 1, 0, 0, 0, 0x100]),
+        (Layout::Right, [8, 0x10, 0x20, 0x80, 0x100, 0, 0, 0]),
+        (Layout::Single, [0x40, 4, 2, 1, 8, 0x10, 0x20, 0x100]),
+    ] {
+        assert_eq!(core::array::from_fn(|key| layout.map(1 << key)), expected);
+    }
+    assert_eq!(Layout::Left.map(0x0f) | Layout::Right.map(0x0f), 0xff);
+}
+
+#[test]
+fn split_dot_eight_and_space_dot_seven_produce_return() {
+    let dot_seven = Layout::Left.map(0x01);
+    let dot_eight = Layout::Right.map(0x08);
+    let return_key = Some(KeyStroke::new(40, 0));
+    assert_eq!(computer8(dot_eight), return_key);
+    for space in [Layout::Left.map(0x80), Layout::Right.map(0x10)] {
+        assert_eq!(computer8(space), Some(KeyStroke::new(44, 0)));
+        assert_eq!(computer8(space | dot_seven), return_key);
+    }
 }
 
 #[test]
@@ -93,31 +107,37 @@ fn independent_halves_union_keys_and_full_snapshots_repair_lost_edges() {
 }
 
 #[test]
-fn duplicate_bindings_do_not_release_until_both_physical_sources_release() {
-    let (receiver, first, _) = Receiver::<2>::new(500)
-        .connect(0, 10, Layout::Single, 0)
+fn space_remains_held_until_both_split_space_keys_release() {
+    let (receiver, left, _) = Receiver::<2>::new(500)
+        .connect(0, 10, Layout::Left, 0)
         .unwrap();
-    let (receiver, second, _) = receiver.connect(1, 20, Layout::Single, 0).unwrap();
+    let (receiver, right, _) = receiver.connect(1, 20, Layout::Right, 0).unwrap();
     let (receiver, _) = receiver
-        .receive(first, snapshot(10, Layout::Single, 1, 0), 0)
-        .unwrap();
-    let (receiver, _) = receiver
-        .receive(second, snapshot(20, Layout::Single, 1, 0), 0)
+        .receive(left, snapshot(10, Layout::Left, 1, 0), 0)
         .unwrap();
     let (receiver, _) = receiver
-        .receive(first, snapshot(10, Layout::Single, 2, 8), 1)
-        .unwrap();
-    let (receiver, _) = receiver
-        .receive(second, snapshot(20, Layout::Single, 2, 8), 1)
+        .receive(right, snapshot(20, Layout::Right, 1, 0), 0)
         .unwrap();
     let (receiver, update) = receiver
-        .receive(first, snapshot(10, Layout::Single, 3, 0), 2)
+        .receive(left, snapshot(10, Layout::Left, 2, 0x80), 1)
         .unwrap();
-    assert_eq!(update.released, 0);
-    let (_, update) = receiver
-        .receive(second, snapshot(20, Layout::Single, 3, 0), 3)
+    assert_eq!((update.keys, update.pressed), (0x100, 0x100));
+    let (receiver, update) = receiver
+        .receive(right, snapshot(20, Layout::Right, 2, 0x10), 1)
         .unwrap();
-    assert_eq!(update.released, 1);
+    assert_eq!((update.keys, update.pressed), (0x100, 0));
+    let releases = [
+        (left, snapshot(10, Layout::Left, 3, 0)),
+        (right, snapshot(20, Layout::Right, 3, 0)),
+    ];
+    for first in 0..releases.len() {
+        let (session, packet) = releases[first];
+        let (receiver, update) = receiver.receive(session, packet, 2).unwrap();
+        assert_eq!((update.keys, update.released), (0x100, 0));
+        let (session, packet) = releases[1 - first];
+        let (_, update) = receiver.receive(session, packet, 3).unwrap();
+        assert_eq!((update.keys, update.released), (0, 0x100));
+    }
 }
 
 #[test]
