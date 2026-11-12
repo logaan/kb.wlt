@@ -18,6 +18,7 @@ pub const PAINTBRUSH_LINK_SCHEMA: u32 = 0x5042_0001;
 pub const TOUCAN_LINK_SCHEMA: u32 = 0x5443_0001;
 
 const PAGES: [u32; 2] = [0xf2000, 0xf3000];
+const CONFIG_PAGES: [u32; 2] = [0xf0000, 0xf1000];
 
 #[repr(align(4))]
 struct AlignedBuffer([u8; MAX_ENCODED_LEN]);
@@ -39,6 +40,8 @@ pub struct BondStore<'d> {
     slot: Option<usize>,
     generation: u32,
     records: Records,
+    config_slot: Option<usize>,
+    config_generation: u32,
 }
 
 impl<'d> BondStore<'d> {
@@ -48,6 +51,8 @@ impl<'d> BondStore<'d> {
             slot: None,
             generation: 0,
             records: Records::default(),
+            config_slot: None,
+            config_generation: 0,
         }
     }
 
@@ -69,6 +74,45 @@ impl<'d> BondStore<'d> {
         self.slot = Some(selected.slot);
         self.generation = selected.generation;
         Ok(self.records.bonds.clone())
+    }
+
+    pub fn load_config(&mut self, output: &mut [u8]) -> Result<Option<usize>, Error> {
+        let mut pages = [[0; MAX_ENCODED_LEN]; 2];
+        self.flash.read(CONFIG_PAGES[0], &mut pages[0])?;
+        self.flash.read(CONFIG_PAGES[1], &mut pages[1])?;
+        let Some(selected) = kb_core::storage::select_newest(&pages[0], &pages[1]) else {
+            return Ok(None);
+        };
+        let payload = selected.envelope.payload;
+        if output.len() < payload.len() {
+            return Err(Error::Serialization);
+        }
+        output[..payload.len()].copy_from_slice(payload);
+        self.config_slot = Some(selected.slot);
+        self.config_generation = selected.envelope.generation;
+        Ok(Some(payload.len()))
+    }
+
+    pub async fn save_config(&mut self, payload: &[u8]) -> Result<(), Error> {
+        let generation = self.config_generation.wrapping_add(1);
+        let mut encoded = AlignedBuffer([0; MAX_ENCODED_LEN]);
+        let len = encode(payload, generation, &mut encoded.0).map_err(|_| Error::Serialization)?;
+        let slot = self.config_slot.map_or(0, |slot| slot ^ 1);
+        self.flash
+            .erase(CONFIG_PAGES[slot], CONFIG_PAGES[slot] + 4096)
+            .await?;
+        self.flash
+            .write(
+                CONFIG_PAGES[slot] + COMMIT_LEN as u32,
+                &encoded.0[COMMIT_LEN..len],
+            )
+            .await?;
+        self.flash
+            .write(CONFIG_PAGES[slot], &encoded.0[..COMMIT_LEN])
+            .await?;
+        self.config_slot = Some(slot);
+        self.config_generation = generation;
+        Ok(())
     }
 
     pub async fn remember(&mut self, bond: &BondInformation) {
@@ -133,6 +177,7 @@ impl<'d> BondStore<'d> {
 
     pub async fn forget(&mut self) {
         STORAGE_FAILED.store(self.clear().await.is_err(), Ordering::Relaxed);
+        self.records = Records::default();
     }
 
     async fn persist(&mut self, records: &Records) -> Result<(), Error> {

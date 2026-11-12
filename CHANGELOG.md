@@ -4,6 +4,8 @@
 
 ### Added
 
+- A separate atomic flash journal for keyboard preferences, asynchronous saves, and menu-safe Bluetooth link restart and pairing reset commands.
+
 - Build-time component heap probes, a shared firmware target catalog, and hardware checklists for all ten milestones, including a two-component LED example.
 
 - Prospector braille reference mode enumerates the active Wavelet module, renders six- and eight-dot cells with separate Space labels, and captures namespace, browsing, and lookup input without sending it to the host.

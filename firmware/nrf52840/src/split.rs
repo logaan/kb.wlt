@@ -383,10 +383,22 @@ pub async fn satellite(spawner: Spawner) {
                         } => {
                             let mut bonds = bonds.lock().await;
                             bonds.remember(&bond).await;
-                            bonds.remember_client_table(&server.server, connection.raw(), crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA).await;
+                            bonds
+                                .remember_client_table(
+                                    &server.server,
+                                    connection.raw(),
+                                    crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA,
+                                )
+                                .await;
                         }
-                        GattConnectionEvent::Encrypted { security_level, .. } if security_level.encrypted() => {
-                            bonds.lock().await.restore_client_table(&server.server, connection.raw(), crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA);
+                        GattConnectionEvent::Encrypted { security_level, .. }
+                            if security_level.encrypted() =>
+                        {
+                            bonds.lock().await.restore_client_table(
+                                &server.server,
+                                connection.raw(),
+                                crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA,
+                            );
                         }
                         GattConnectionEvent::Gatt { event } => {
                             let changed = matches!(&event, GattEvent::Write(_));
@@ -394,7 +406,15 @@ pub async fn satellite(spawner: Spawner) {
                                 reply.send().await;
                             }
                             if changed {
-                                bonds.lock().await.remember_client_table(&server.server, connection.raw(), crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA).await;
+                                bonds
+                                    .lock()
+                                    .await
+                                    .remember_client_table(
+                                        &server.server,
+                                        connection.raw(),
+                                        crate::ble_bonds::PAINTBRUSH_LINK_SCHEMA,
+                                    )
+                                    .await;
                             }
                         }
                         _ => {}
@@ -462,6 +482,10 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
         }
     }
     let saved = bonds.load_all().unwrap();
+    let mut config_bytes = [0; 512];
+    if let Ok(Some(length)) = bonds.load_config(&mut config_bytes) {
+        crate::settings::initialize(Some(&config_bytes[..length]));
+    }
     let mut resources: HostResources<DefaultPacketPool, 2, 6> = HostResources::new();
     let stack = trouble_host::new(controller, &mut resources)
         .set_random_address(address())
@@ -496,7 +520,15 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
         }
     };
     let application = join3(process_keys(), run_usb(p.USBD), scanner);
-    let keyboard = join3(runner.run_with_handler(&Discovery), links, application);
+    let settings = join(
+        crate::settings::run_saves(&bonds),
+        crate::settings::run_controls(&stack, &bonds),
+    );
+    let keyboard = join3(
+        runner.run_with_handler(&Discovery),
+        links,
+        join(application, settings),
+    );
     #[cfg(feature = "prospector-display")]
     let _ = join(keyboard, display).await;
     #[cfg(not(feature = "prospector-display"))]
@@ -529,61 +561,74 @@ async fn local_snapshots(boot: u32) {
 
 async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, slot: usize, layout: Layout) {
     loop {
-        let connection = {
-            let _guard = CONNECT_LOCK.lock().await;
-            let mut central = stack.central();
-            ADVERTISEMENTS.clear();
-            let candidate = {
-                let mut scanner = Scanner::new(&mut central);
-                let config = ScanConfig {
-                    active: false,
-                    interval: Duration::from_millis(100),
-                    window: Duration::from_millis(100),
-                    ..Default::default()
-                };
-                let Ok(_scan) = scanner.scan(&config).await else {
-                    Timer::after_millis(100).await;
-                    continue;
-                };
-                let discovery = async {
-                    loop {
-                        let candidate = ADVERTISEMENTS.receive().await;
-                        if candidate.layout == layout {
-                            break candidate;
+        while !crate::settings::bluetooth_enabled() {
+            Timer::after_millis(50).await;
+        }
+        let epoch = crate::settings::radio_epoch();
+        let connect = async {
+            loop {
+                let _guard = CONNECT_LOCK.lock().await;
+                let mut central = stack.central();
+                ADVERTISEMENTS.clear();
+                let candidate = {
+                    let mut scanner = Scanner::new(&mut central);
+                    let config = ScanConfig {
+                        active: false,
+                        interval: Duration::from_millis(100),
+                        window: Duration::from_millis(100),
+                        ..Default::default()
+                    };
+                    let Ok(_scan) = scanner.scan(&config).await else {
+                        Timer::after_millis(100).await;
+                        continue;
+                    };
+                    let discovery = async {
+                        loop {
+                            let candidate = ADVERTISEMENTS.receive().await;
+                            if candidate.layout == layout {
+                                break candidate;
+                            }
                         }
+                    };
+                    match with_timeout(Duration::from_secs(1), discovery).await {
+                        Ok(candidate) => candidate,
+                        Err(_) => continue,
                     }
                 };
-                match with_timeout(Duration::from_secs(1), discovery).await {
-                    Ok(candidate) => candidate,
-                    Err(_) => continue,
+                Timer::after_millis(20).await;
+                let filter = [candidate.address];
+                let config = ConnectConfig {
+                    scan_config: ScanConfig {
+                        filter_accept_list: &filter,
+                        interval: Duration::from_millis(30),
+                        window: Duration::from_millis(30),
+                        ..Default::default()
+                    },
+                    connect_params: RequestedConnParams {
+                        min_connection_interval: Duration::from_micros(7500),
+                        max_connection_interval: Duration::from_millis(15),
+                        max_latency: 0,
+                        min_event_length: Duration::from_millis(0),
+                        max_event_length: Duration::from_millis(0),
+                        supervision_timeout: Duration::from_secs(2),
+                    },
+                };
+                match with_timeout(Duration::from_secs(10), central.connect(&config)).await {
+                    Ok(Ok(connection)) => break connection,
+                    _ => continue,
                 }
-            };
-            Timer::after_millis(20).await;
-            let filter = [candidate.address];
-            let config = ConnectConfig {
-                scan_config: ScanConfig {
-                    filter_accept_list: &filter,
-                    interval: Duration::from_millis(30),
-                    window: Duration::from_millis(30),
-                    ..Default::default()
-                },
-                connect_params: RequestedConnParams {
-                    min_connection_interval: Duration::from_micros(7500),
-                    max_connection_interval: Duration::from_millis(15),
-                    max_latency: 0,
-                    min_event_length: Duration::from_millis(0),
-                    max_event_length: Duration::from_millis(0),
-                    supervision_timeout: Duration::from_secs(2),
-                },
-            };
-            match with_timeout(Duration::from_secs(10), central.connect(&config)).await {
-                Ok(Ok(connection)) => connection,
-                _ => continue,
             }
         };
-        if authenticate(&connection, stack, bonds).await {
-            receive_snapshots(stack, bonds, &connection, slot, layout).await;
-        }
+        let connection = match select(connect, crate::settings::radio_changed(epoch)).await {
+            Either::First(connection) => connection,
+            Either::Second(_) => continue,
+        };
+        let connected = async {
+            if authenticate(&connection, stack, bonds).await {
+                receive_snapshots(stack, bonds, &connection, slot, layout).await;
+            }
+        };
+        let _ = select(connected, crate::settings::radio_changed(epoch)).await;
         connection.disconnect();
         EVENTS.send(LinkEvent::Close(slot)).await;
         Timer::after_millis(100).await;

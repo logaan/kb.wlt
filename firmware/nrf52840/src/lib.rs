@@ -45,3 +45,6 @@ pub mod nice_view;
 
 #[cfg(feature = "toucan")]
 pub mod toucan;
+
+#[cfg(feature = "split")]
+pub mod settings;

@@ -8,7 +8,7 @@ fn main() {
     let origin = u32::from_str_radix(origin.trim_start_matches("0x"), 16)
         .expect("KB_FLASH_ORIGIN must be a hexadecimal address");
     assert!(matches!(origin, 0x1000 | 0x26000 | 0x27000));
-    let end = 0xf2000;
+    let end = 0xf0000;
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let mut artifacts = vec![
         ("KB_LED_WASM", "led.core.wasm"),

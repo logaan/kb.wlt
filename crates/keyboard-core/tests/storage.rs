@@ -110,3 +110,21 @@ fn oversized_or_short_buffers_fail_before_mutation() {
         );
     }
 }
+
+#[test]
+fn completing_an_older_save_does_not_mark_newer_settings_persisted() {
+    let (state, first) = kb_core::storage::SaveState::new().requested();
+    let (state, second) = state.requested();
+    let state = state.completed(first, true);
+    assert!(state.unsaved());
+    assert!(!state.completed(second, true).unsaved());
+}
+
+#[test]
+fn a_later_successful_save_recovers_from_failed_flash_storage() {
+    let (state, first) = kb_core::storage::SaveState::new().requested();
+    let state = state.completed(first, false);
+    assert!(state.unsaved());
+    let (state, replacement) = state.requested();
+    assert!(!state.completed(replacement, true).unsaved());
+}

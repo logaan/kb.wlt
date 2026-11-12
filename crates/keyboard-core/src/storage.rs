@@ -117,3 +117,37 @@ fn crc32(parts: &[&[u8]]) -> u32 {
     }
     !crc
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SaveState {
+    revision: u32,
+    persisted: u32,
+    failed: bool,
+}
+
+impl SaveState {
+    pub const fn new() -> Self {
+        Self {
+            revision: 0,
+            persisted: 0,
+            failed: false,
+        }
+    }
+
+    pub fn requested(self) -> (Self, u32) {
+        let revision = self.revision.wrapping_add(1);
+        (Self { revision, ..self }, revision)
+    }
+
+    pub fn completed(self, revision: u32, success: bool) -> Self {
+        Self {
+            persisted: if success { revision } else { self.persisted },
+            failed: !success,
+            ..self
+        }
+    }
+
+    pub const fn unsaved(self) -> bool {
+        self.failed || self.revision != self.persisted
+    }
+}
