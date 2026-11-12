@@ -1,5 +1,5 @@
 use crate::ble_bonds::BondStore;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
 use embassy_futures::select::{Either, select};
@@ -16,7 +16,7 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embassy_usb::class::hid::{
     Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, State,
 };
-use embassy_usb::{Builder, Config, Handler};
+use embassy_usb::{Builder, Config};
 use kb_component_runtime::{BrailleComponent, BrailleState};
 use kb_core::split::{Layout, PACKET_LEN, Receiver, Session, Snapshot};
 use kb_core::{Debouncer, KeyStroke};
@@ -52,10 +52,9 @@ const REPORT_DESCRIPTOR: &[u8] = &[
     0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91, 0x01, 0x95, 0x06,
     0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xc0,
 ];
-static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static KEYS: AtomicU8 = AtomicU8::new(0);
 static KEY_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-static STROKES: Channel<CriticalSectionRawMutex, KeyStroke, 32> = Channel::new();
+static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
 static EVENTS: Channel<CriticalSectionRawMutex, LinkEvent, 64> = Channel::new();
 static ADVERTISEMENTS: Channel<CriticalSectionRawMutex, Discovered, 16> = Channel::new();
 static CONNECT_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
@@ -685,6 +684,7 @@ async fn process_keys() {
     let mut receiver = Receiver::<2>::new(500);
     let mut sessions: [Option<Session>; 2] = [None; 2];
     let mut armed = false;
+    let mut generation = 0;
     #[cfg(feature = "prospector-display")]
     let mut display_status = kb_display::Status {
         transport: kb_display::Transport::Split,
@@ -739,7 +739,10 @@ async fn process_keys() {
                 receiver = next;
             }
         }
-        if !CONFIGURED.load(Ordering::Relaxed) || update.cancel_chord {
+        let session = crate::usb_hid::connection();
+        if !session.ready() || generation != session.generation() || update.cancel_chord {
+            STROKES.clear();
+            generation = session.generation();
             state = BrailleState::default();
             armed = false;
         } else if update.keys == 0 {
@@ -749,7 +752,8 @@ async fn process_keys() {
             let output = component.step(state, update.keys).unwrap();
             state = output.state;
             if output.usage != 0 {
-                let _ = STROKES.try_send(KeyStroke::new(output.usage, output.modifiers));
+                let _ =
+                    STROKES.try_send((generation, KeyStroke::new(output.usage, output.modifiers)));
                 #[cfg(feature = "prospector-display")]
                 {
                     display_status.last_usage = output.usage;
@@ -759,8 +763,8 @@ async fn process_keys() {
         }
         #[cfg(feature = "prospector-display")]
         {
-            let connected = CONFIGURED.load(Ordering::Relaxed)
-                && (receiver.is_connected(0) || receiver.is_connected(1));
+            let connected =
+                session.ready() && (receiver.is_connected(0) || receiver.is_connected(1));
             let changed = display_status.connected != connected
                 || display_status.held != state.held
                 || display_status.chord != state.chord
@@ -771,26 +775,6 @@ async fn process_keys() {
             if changed {
                 crate::prospector::update(display_status);
             }
-        }
-    }
-}
-
-struct UsbState;
-impl Handler for UsbState {
-    fn configured(&mut self, configured: bool) {
-        CONFIGURED.store(configured, Ordering::Relaxed);
-        if !configured {
-            STROKES.clear();
-        }
-    }
-    fn reset(&mut self) {
-        CONFIGURED.store(false, Ordering::Relaxed);
-        STROKES.clear();
-    }
-    fn enabled(&mut self, enabled: bool) {
-        if !enabled {
-            CONFIGURED.store(false, Ordering::Relaxed);
-            STROKES.clear();
         }
     }
 }
@@ -809,7 +793,7 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
     let mut control = [0; 64];
     let mut state = State::new();
     let mut control_handler = crate::usb_hid::KeyboardControl::default();
-    let mut handler = UsbState;
+    let mut handler = crate::usb_hid::ConnectionState::default();
     let mut builder = Builder::new(
         driver,
         config,
@@ -838,9 +822,12 @@ async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
             if writer.write(&[0; 8]).await.is_ok() {
                 crate::usb_hid::report_sent([0; 8]);
             }
-            if let Either::First(stroke) =
+            if let Either::First((generation, stroke)) =
                 select(STROKES.receive(), crate::usb_hid::idle_timeout()).await
             {
+                if !crate::usb_hid::connection().accepts(generation) {
+                    continue;
+                }
                 if writer.write(&stroke.report()).await.is_ok() {
                     crate::usb_hid::report_sent(stroke.report());
                     if writer.write(&[0; 8]).await.is_ok() {

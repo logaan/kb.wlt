@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::join::join3;
 use embassy_futures::select::{Either, select};
@@ -14,7 +13,7 @@ use embassy_time::{Instant, Timer};
 use embassy_usb::class::hid::{
     Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, State,
 };
-use embassy_usb::{Builder, Config, Handler};
+use embassy_usb::{Builder, Config};
 use kb_component_runtime::{BrailleComponent, BrailleState};
 use kb_core::{Debouncer, KeyStroke};
 use panic_halt as _;
@@ -29,8 +28,7 @@ bind_interrupts!(struct DisplayIrqs {
     TWISPI0 => embassy_nrf::twim::InterruptHandler<peripherals::TWISPI0>;
 });
 
-static CONFIGURED: AtomicBool = AtomicBool::new(false);
-static STROKES: Channel<CriticalSectionRawMutex, KeyStroke, 32> = Channel::new();
+static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
 const DOTS: [u16; 8] = [64, 4, 2, 1, 8, 16, 32, 256];
 const REPORT_DESCRIPTOR: &[u8] = &[
     0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x05, 0x07, 0x19, 0xe0, 0x29, 0xe7, 0x15, 0x00, 0x25, 0x01,
@@ -38,29 +36,6 @@ const REPORT_DESCRIPTOR: &[u8] = &[
     0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91, 0x01, 0x95, 0x06,
     0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xc0,
 ];
-
-struct UsbState;
-
-impl Handler for UsbState {
-    fn configured(&mut self, configured: bool) {
-        CONFIGURED.store(configured, Ordering::Relaxed);
-        if !configured {
-            STROKES.clear();
-        }
-    }
-
-    fn reset(&mut self) {
-        CONFIGURED.store(false, Ordering::Relaxed);
-        STROKES.clear();
-    }
-
-    fn enabled(&mut self, enabled: bool) {
-        if !enabled {
-            CONFIGURED.store(false, Ordering::Relaxed);
-            STROKES.clear();
-        }
-    }
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -104,7 +79,7 @@ async fn main(_spawner: Spawner) {
     let mut control_buffer = [0; 64];
     let mut hid_state = State::new();
     let mut control_handler = kb_nrf52840::usb_hid::KeyboardControl::default();
-    let mut usb_state = UsbState;
+    let mut usb_state = kb_nrf52840::usb_hid::ConnectionState::default();
     let mut builder = Builder::new(
         driver,
         config,
@@ -131,6 +106,7 @@ async fn main(_spawner: Spawner) {
         let mut debounce = Debouncer::<8>::new(5);
         let mut state = BrailleState::default();
         let mut armed = false;
+        let mut generation = 0;
         #[cfg(feature = "display")]
         let mut display_status = kb_display::Status::default();
         loop {
@@ -140,8 +116,11 @@ async fn main(_spawner: Spawner) {
                 .fold(0, |mask, (i, pin)| mask | (u64::from(pin.is_low()) << i));
             let (next, update) = debounce.sample(raw, Instant::now().as_millis() as u32);
             debounce = next;
-            let configured = CONFIGURED.load(Ordering::Relaxed);
-            if !configured {
+            let session = kb_nrf52840::usb_hid::connection();
+            let configured = session.ready();
+            if !configured || generation != session.generation() {
+                STROKES.clear();
+                generation = session.generation();
                 state = BrailleState::default();
                 armed = false;
             } else if update.stable == 0 {
@@ -163,7 +142,8 @@ async fn main(_spawner: Spawner) {
                 let output = component.step(state, dots).unwrap();
                 state = output.state;
                 if output.usage != 0 {
-                    let _ = STROKES.try_send(KeyStroke::new(output.usage, output.modifiers));
+                    let _ = STROKES
+                        .try_send((generation, KeyStroke::new(output.usage, output.modifiers)));
                     #[cfg(feature = "display")]
                     {
                         display_status.last_usage = output.usage;
@@ -198,9 +178,12 @@ async fn main(_spawner: Spawner) {
             if writer.write(&[0; 8]).await.is_ok() {
                 kb_nrf52840::usb_hid::report_sent([0; 8]);
             }
-            if let Either::First(stroke) =
+            if let Either::First((generation, stroke)) =
                 select(STROKES.receive(), kb_nrf52840::usb_hid::idle_timeout()).await
             {
+                if !kb_nrf52840::usb_hid::connection().accepts(generation) {
+                    continue;
+                }
                 if writer.write(&stroke.report()).await.is_ok() {
                     kb_nrf52840::usb_hid::report_sent(stroke.report());
                     if writer.write(&[0; 8]).await.is_ok() {

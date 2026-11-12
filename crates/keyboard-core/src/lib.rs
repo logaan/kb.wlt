@@ -12,3 +12,5 @@ pub use braille::computer8;
 pub use chord::{ChordError, ChordState, DotEvent, PhysicalKey};
 pub use debounce::{DebounceUpdate, Debouncer};
 pub use hid::{KeyStroke, QueueFull, ReportQueue};
+
+pub mod transport;
