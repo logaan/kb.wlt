@@ -61,12 +61,7 @@ fn every_braille_cell_matches_the_reference_keyboard() {
         let output = component.step(BrailleState::default(), cell).unwrap();
         assert_eq!((output.usage, output.modifiers), (0, 0));
         let output = component.step(output.state, 0).unwrap();
-        let expected = computer8(cell).unwrap_or_default();
-        assert_eq!(
-            (output.usage, output.modifiers),
-            (expected.usage, expected.modifiers),
-            "cell {cell:#05x}"
-        );
+        assert_eq!(output.stroke(), computer8(cell), "cell {cell:#05x}");
         assert_eq!(output.state, BrailleState::default());
         let output = component.step(output.state, 0).unwrap();
         assert_eq!(output.usage, 0);
@@ -104,6 +99,36 @@ fn component_state_can_be_replayed_independently() {
     let first = component.step(state, 3).unwrap();
     component.step(BrailleState::default(), 0x100).unwrap();
     assert_eq!(first, component.step(state, 3).unwrap());
+}
+
+#[test]
+fn invalid_braille_actions_are_rejected_before_reaching_hid() {
+    for (kind, usage, modifiers, consumer) in [
+        (3, 4, 0, 0),
+        (0, 4, 0, 0),
+        (1, 1, 0, 0),
+        (1, 0, 0, 0),
+        (1, 4, 0, 0x4000),
+        (2, 4, 2, 0),
+        (2, 0, 0, 0),
+    ] {
+        let bytes = wat::parse_str(format!(r#"(module
+            (memory (export "memory") 1)
+            (func (export "kb:firmware/braille@0.1.0#map-cell") (param i32) (result i32) i32.const 0)
+            (func (export "cabi_post_kb:firmware/braille@0.1.0#map-cell") (param i32))
+            (func (export "kb:firmware/braille@0.1.0#step") (param i32 i32 i32) (result i32)
+                i32.const 4 i32.const {usage} i32.store8
+                i32.const 5 i32.const {modifiers} i32.store8
+                i32.const 6 i32.const {consumer} i32.store16
+                i32.const 8 i32.const {kind} i32.store8
+                i32.const 0)
+            (func (export "cabi_post_kb:firmware/braille@0.1.0#step") (param i32)))"#)).unwrap();
+        let mut component = BrailleComponent::new(&bytes).unwrap();
+        assert!(matches!(
+            component.step(BrailleState::default(), 0),
+            Err(kb_component_runtime::Error::InvalidReturn)
+        ));
+    }
 }
 
 #[test]
@@ -216,6 +241,7 @@ fn reserved_namespace_and_literal_lookup_capture_custom_mapped_commands() {
             if (result i32) i32.const 0 else local.get $chord local.get $keys i32.or end i32.store16
             i32.const 4 local.get $keys i32.eqz
             if (result i32) i32.const 4 else i32.const 0 end i32.store8
+            i32.const 8 local.get $keys i32.eqz i32.store8
             i32.const 0)
         (func (export "cabi_post_kb:firmware/braille@0.1.0#step") (param i32)))"#).unwrap();
     let mut component = BrailleComponent::new(&bytes).unwrap();

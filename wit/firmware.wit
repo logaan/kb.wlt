@@ -63,6 +63,12 @@ world led-module {
 }
 
 interface braille {
+    enum action-kind {
+        idle,
+        tap,
+        sticky,
+    }
+
     record state {
         held: u16,
         chord: u16,
@@ -72,6 +78,8 @@ interface braille {
         state: state,
         usage: u8,
         modifiers: u8,
+        consumer: u16,
+        kind: action-kind,
     }
 
     step: func(state: state, keys: u16) -> output;

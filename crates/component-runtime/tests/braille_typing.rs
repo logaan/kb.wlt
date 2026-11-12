@@ -17,6 +17,7 @@ fn component() -> FaultLatch<BrailleComponent> {
                 i32.const 0 local.get $keys i32.store16
                 i32.const 4 local.get $keys i32.eqz
                 if (result i32) i32.const 5 else i32.const 4 end i32.store8
+                i32.const 8 i32.const 1 i32.store8
                 i32.const 0)
             (func (export "cabi_post_kb:firmware/braille@0.1.0#step") (param i32)))"#,
     )
@@ -150,5 +151,74 @@ fn link_or_host_session_change_discards_the_chord_and_contraction_prefix() {
                 .as_slice(),
             strokes(&[4, 5]),
         );
+    }
+}
+
+#[test]
+fn wavelet_sticky_commands_arm_modify_and_release_in_both_braille_modes() {
+    use kb_core::preferences::BrailleMode;
+    for buffered in [false, true] {
+        for mode in [BrailleMode::Computer8, BrailleMode::Ueb1] {
+            for (cell, armed) in [
+                (0x148, KeyStroke::new(0, 2)),
+                (0x144, KeyStroke::new(0, 1)),
+                (0x142, KeyStroke::new(0, 4)),
+                (0x141, KeyStroke::new(0, 8)),
+                (0x150, KeyStroke::new(0, 0).with_consumer(0x029d)),
+            ] {
+                let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(
+                    "../../../components/generated/braille.core.wasm"
+                )));
+                let settings = Settings {
+                    mode,
+                    ..Settings::default()
+                };
+                let mut typing = BrailleTyping::new(buffered);
+                assert!(typing.step(&mut component, &settings, cell, 0).is_empty());
+                assert_eq!(
+                    typing.step(&mut component, &settings, 0, 1).as_slice(),
+                    &[armed.held()]
+                );
+                assert!(typing.step(&mut component, &settings, 0x11e, 2).is_empty());
+                assert_eq!(
+                    typing.step(&mut component, &settings, 0, 3).as_slice(),
+                    &[KeyStroke::new(43, armed.modifiers).with_consumer(armed.consumer)],
+                );
+                assert!(typing.step(&mut component, &settings, 0x11e, 4).is_empty());
+                assert_eq!(
+                    typing.step(&mut component, &settings, 0, 5).as_slice(),
+                    &[KeyStroke::new(43, 0)]
+                );
+                assert!(typing.step(&mut component, &settings, 0, 1500).is_empty());
+                assert!(!component.is_faulted());
+            }
+        }
+    }
+}
+
+#[test]
+fn wavelet_sticky_state_expires_while_idle_and_cancels_on_capture() {
+    for buffered in [false, true] {
+        let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(
+            "../../../components/generated/braille.core.wasm"
+        )));
+        let mut typing = BrailleTyping::new(buffered);
+        let settings = Settings::default();
+        typing.step(&mut component, &settings, 0x150, 0);
+        typing.step(&mut component, &settings, 0, 1);
+        assert!(typing.step(&mut component, &settings, 0, 1000).is_empty());
+        assert_eq!(
+            typing.step(&mut component, &settings, 0, 1001).as_slice(),
+            &[KeyStroke::default().held()]
+        );
+        typing.step(&mut component, &settings, 0x148, 1002);
+        typing.step(&mut component, &settings, 0, 1003);
+        typing.cancel();
+        typing.step(&mut component, &settings, 1, 1004);
+        assert_eq!(
+            typing.step(&mut component, &settings, 0, 1005).as_slice(),
+            &[KeyStroke::new(4, 0)]
+        );
+        assert!(typing.step(&mut component, &settings, 0, 3000).is_empty());
     }
 }

@@ -1,7 +1,8 @@
 Package "kb:computer-braille@0.1.0"
 
 DefType state {held: u16 chord: u16}
-DefType output {state: state usage: u8 modifiers: u8}
+DefType action-kind [idle tap sticky]
+DefType output {state: state usage: u8 modifiers: u8 consumer: u16 kind: action-kind}
 
 Export {iface: "kb:firmware/braille@0.1.0" name: map-cell params: {cell: u16} result: u32}
 Def map-cell Fn {cell: u16}
@@ -117,6 +118,11 @@ Def map-cell Fn {cell: u16}
     (313 78)
     (286 43)
     (259 41)
+    (328 2147484160)
+    (324 2147483904)
+    (322 2147484672)
+    (321 2147485696)
+    (336 2191327232)
     (unknown 0)]
 
 Def union-bit Fn {a: u16 b: u16 bit: s64}
@@ -133,6 +139,8 @@ Def step Fn {state: state keys: u16}
       If eq(keys 0)
         Let {packed: If eq(held 0) The u32 0 map-cell(chord)}
           {state: {held: The u16 0 chord: The u16 0}
-           usage: to-u8(rem(packed 256)) modifiers: to-u8(div(packed 256))}
+           usage: to-u8(rem(packed 256)) modifiers: to-u8(rem(div(packed 256) 256))
+           consumer: to-u16(rem(div(packed 65536) 16384))
+           kind: If eq(packed 0) idle If ge(packed 2147483648) sticky tap}
         {state: {held: keys chord: If eq(held 0) keys union(chord keys)}
-         usage: The u8 0 modifiers: The u8 0})]
+         usage: The u8 0 modifiers: The u8 0 consumer: The u16 0 kind: idle})]

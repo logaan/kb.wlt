@@ -198,10 +198,32 @@ pub struct BrailleState {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BrailleActionKind {
+    #[default]
+    None,
+    Tap,
+    Sticky,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BrailleOutput {
     pub state: BrailleState,
     pub usage: u8,
     pub modifiers: u8,
+    pub consumer: u16,
+    pub kind: BrailleActionKind,
+}
+
+impl BrailleOutput {
+    pub fn stroke(self) -> Option<kb_core::KeyStroke> {
+        let stroke =
+            kb_core::KeyStroke::new(self.usage, self.modifiers).with_consumer(self.consumer);
+        match self.kind {
+            BrailleActionKind::None => None,
+            BrailleActionKind::Tap => Some(stroke),
+            BrailleActionKind::Sticky => Some(stroke.sticky()),
+        }
+    }
 }
 
 pub struct BrailleComponent {
@@ -256,9 +278,26 @@ impl BrailleComponent {
             &mut self.runtime.store,
             (state.held as i32, state.chord as i32, keys as i32),
         )?;
-        let bytes = self.runtime.read::<6>(pointer);
+        let bytes = self.runtime.read::<10>(pointer);
         self.post_return.call(&mut self.runtime.store, pointer)?;
         let bytes = bytes?;
+        let consumer = u16::from_le_bytes([bytes[6], bytes[7]]);
+        let kind = match bytes[8] {
+            0 if bytes[4..8] == [0; 4] => BrailleActionKind::None,
+            1 | 2 => {
+                let packed = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]])
+                    | if bytes[8] == 2 { 1 << 31 } else { 0 };
+                if consumer > 0x3fff || kb_core::KeyStroke::from_packed(packed).is_none() {
+                    return Err(Error::InvalidReturn);
+                }
+                if bytes[8] == 2 {
+                    BrailleActionKind::Sticky
+                } else {
+                    BrailleActionKind::Tap
+                }
+            }
+            _ => return Err(Error::InvalidReturn),
+        };
         Ok(BrailleOutput {
             state: BrailleState {
                 held: u16::from_le_bytes([bytes[0], bytes[1]]),
@@ -266,6 +305,8 @@ impl BrailleComponent {
             },
             usage: bytes[4],
             modifiers: bytes[5],
+            consumer,
+            kind,
         })
     }
 }
