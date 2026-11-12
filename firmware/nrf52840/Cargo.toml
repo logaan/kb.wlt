@@ -11,6 +11,7 @@ default = ["usb"]
 usb = []
 ble = ["dep:nrf-sdc", "dep:nrf-mpsl", "dep:trouble-host", "dep:static_cell", "dep:postcard"]
 paintbrush-left = []
+composed = []
 display = ["dep:kb-display"]
 
 [dependencies]

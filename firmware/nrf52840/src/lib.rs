@@ -8,6 +8,9 @@ static HEAP: LlffHeap = LlffHeap::empty();
 
 pub fn init_heap() {
     unsafe {
+        #[cfg(feature = "composed")]
+        embedded_alloc::init!(HEAP, 208 * 1024);
+        #[cfg(not(feature = "composed"))]
         embedded_alloc::init!(HEAP, 160 * 1024);
     }
 }

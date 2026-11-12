@@ -7,10 +7,14 @@ fn main() {
     assert!(matches!(origin, 0x1000 | 0x26000 | 0x27000));
     let end = 0xf2000;
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    for (key, file) in [
+    let mut artifacts = vec![
         ("KB_LED_WASM", "led.core.wasm"),
         ("KB_BRAILLE_WASM", "braille.core.wasm"),
-    ] {
+    ];
+    if env::var_os("CARGO_FEATURE_COMPOSED").is_some() {
+        artifacts.push(("KB_LED_WRAPPER_WASM", "led-dim/stage0/led.core.wasm"));
+    }
+    for (key, file) in artifacts {
         let path = env::var_os(key)
             .map(PathBuf::from)
             .unwrap_or_else(|| root.join("../../components/generated").join(file));
