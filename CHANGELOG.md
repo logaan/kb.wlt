@@ -20,6 +20,8 @@
 
 ### Fixed
 
+- Firmware and resetter builds apply their Cortex-M linker script even when invoked from the repository root with `--manifest-path`.
+
 - Displays distinguish unsaved Bluetooth pairing records from connection state and fatal component errors.
 
 - Reference mapping discovery yields to USB and Bluetooth tasks while loading custom modules.

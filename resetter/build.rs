@@ -17,4 +17,5 @@ fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out.join("memory.x"), memory).unwrap();
     println!("cargo:rustc-link-search={}", out.display());
+    println!("cargo:rustc-link-arg=-Tlink.x");
 }
