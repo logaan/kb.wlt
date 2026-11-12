@@ -1894,6 +1894,9 @@ impl State {
 }
 
 pub fn map_cell(cell: u16) -> u32 {
+    if let Some(command) = crate::braille::one_shot(cell) {
+        return command.packed();
+    }
     State::default()
         .accept(cell)
         .as_slice()

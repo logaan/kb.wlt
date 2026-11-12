@@ -13,6 +13,7 @@ use embedded_graphics::{
 };
 use kb_core::{
     KeyStroke,
+    braille::GLOBE_USAGE,
     reference::{Entry, Mode, Page},
 };
 
@@ -80,6 +81,33 @@ pub(crate) fn escaped(bytes: &[u8]) -> Label {
 pub fn label(entry: Entry) -> Label {
     let mut output = Label::new();
     let stroke = entry.stroke();
+    if stroke.is_sticky() {
+        for (mask, name) in [
+            (0x11, "Control"),
+            (0x22, "Shift"),
+            (0x44, "Alt"),
+            (0x88, "Command"),
+        ] {
+            if stroke.modifiers & mask != 0 {
+                if !output.as_str().is_empty() {
+                    let _ = output.write_str("+");
+                }
+                let _ = output.write_str(name);
+            }
+        }
+        if stroke.consumer != 0 {
+            if !output.as_str().is_empty() {
+                let _ = output.write_str("+");
+            }
+            if stroke.consumer == GLOBE_USAGE {
+                let _ = output.write_str("Globe");
+            } else {
+                let _ = write!(output, "Consumer {:04X}", stroke.consumer);
+            }
+        }
+        let _ = output.write_str(" one-shot");
+        return output;
+    }
     if entry.packed > 0xffff {
         let _ = write!(output, "Raw {:08X}", entry.packed);
         return output;

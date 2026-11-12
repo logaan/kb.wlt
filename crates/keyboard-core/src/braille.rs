@@ -1,4 +1,6 @@
-use crate::hid::KeyStroke;
+use crate::hid::{KeyStroke, LEFT_ALT, LEFT_CONTROL, LEFT_GUI, LEFT_SHIFT};
+
+pub const GLOBE_USAGE: u16 = 0x029d;
 
 pub const COMPUTER8_ASCII_CELLS: [u8; 94] = [
     0x2e, 0x10, 0x3c, 0x2b, 0x29, 0x2f, 0x04, 0x37, 0x3e, 0x21, 0x2c, 0x20, 0x24, 0x28, 0x0c, 0x34,
@@ -20,6 +22,9 @@ pub const fn ascii_cell(ascii: u8) -> Option<u16> {
 }
 
 pub const fn computer8(cell: u16) -> Option<KeyStroke> {
+    if let Some(command) = one_shot(cell) {
+        return Some(command);
+    }
     let mut index = 0;
     while index < COMPUTER8_ASCII_CELLS.len() {
         if cell == COMPUTER8_ASCII_CELLS[index] as u16 {
@@ -44,4 +49,16 @@ pub const fn computer8(cell: u16) -> Option<KeyStroke> {
         _ => return None,
     };
     Some(KeyStroke::new(usage, 0))
+}
+
+pub const fn one_shot(cell: u16) -> Option<KeyStroke> {
+    let stroke = match cell {
+        0x148 => KeyStroke::new(0, LEFT_SHIFT),
+        0x144 => KeyStroke::new(0, LEFT_CONTROL),
+        0x142 => KeyStroke::new(0, LEFT_ALT),
+        0x141 => KeyStroke::new(0, LEFT_GUI),
+        0x150 => KeyStroke::new(0, 0).with_consumer(GLOBE_USAGE),
+        _ => return None,
+    };
+    Some(stroke.sticky())
 }

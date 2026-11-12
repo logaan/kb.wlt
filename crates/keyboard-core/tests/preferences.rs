@@ -1,6 +1,10 @@
 use kb_core::{
     KeyStroke,
-    preferences::{BrailleMode, ENCODED_LEN, Engine, Error, PREFIX_TIMEOUT_MS, Settings},
+    braille::GLOBE_USAGE,
+    preferences::{
+        BrailleMode, ENCODED_LEN, Engine, Error, MAX_OUTPUT, ONE_SHOT_TIMEOUT_MS,
+        PREFIX_TIMEOUT_MS, Settings,
+    },
 };
 
 fn ascii(text: &str) -> Vec<KeyStroke> {
@@ -11,6 +15,10 @@ fn ascii(text: &str) -> Vec<KeyStroke> {
 
 fn normal(cell: u16) -> Option<KeyStroke> {
     kb_core::computer8(cell)
+}
+
+fn held(modifiers: u8, consumer: u16) -> KeyStroke {
+    KeyStroke::new(0, modifiers).with_consumer(consumer).held()
 }
 
 #[test]
@@ -218,6 +226,10 @@ fn a_failed_long_prefix_preserves_four_maximum_expansions() {
         .collect::<Vec<_>>();
     assert_eq!(output.as_slice(), expected);
 
+    assert_eq!(
+        engine.accept(&settings, 0x148, normal(0x148), 9).as_slice(),
+        [held(2, 0)]
+    );
     for cell in 1..=3 {
         assert!(
             engine
@@ -226,7 +238,9 @@ fn a_failed_long_prefix_preserves_four_maximum_expansions() {
         );
     }
     let expired = engine.accept(&settings, 4, normal(4), 13 + PREFIX_TIMEOUT_MS);
-    assert_eq!(expired.as_slice(), expected);
+    assert_eq!(expired.len(), MAX_OUTPUT);
+    assert_eq!(expired.as_slice()[0], held(0, 0));
+    assert_eq!(expired.as_slice()[1..], expected);
 }
 
 #[test]
@@ -264,5 +278,214 @@ fn ueb_context_is_evaluated_after_binding_prefixes_resolve() {
     assert_eq!(
         engine.accept(&settings, 9, normal(9), 3).as_slice(),
         ascii("c")
+    );
+}
+
+#[test]
+fn one_shots_report_immediately_and_stack_until_the_first_host_key() {
+    let settings = Settings::default();
+    let mut engine = Engine::default();
+    for (now, cell, modifiers, consumer) in [
+        (0, 0x148, 2, 0),
+        (1, 0x144, 3, 0),
+        (2, 0x142, 7, 0),
+        (3, 0x141, 15, 0),
+        (4, 0x150, 15, GLOBE_USAGE),
+    ] {
+        assert_eq!(
+            engine.accept(&settings, cell, normal(cell), now).as_slice(),
+            [held(modifiers, consumer)]
+        );
+    }
+    assert_eq!(
+        engine.accept(&settings, 1, normal(1), 5).as_slice(),
+        [KeyStroke::new(4, 15).with_consumer(GLOBE_USAGE)]
+    );
+    assert_eq!(
+        engine.accept(&settings, 1, normal(1), 6).as_slice(),
+        ascii("a")
+    );
+    assert!(engine.poll(&settings, ONE_SHOT_TIMEOUT_MS + 10).is_empty());
+}
+
+#[test]
+fn one_shot_can_modify_navigation_tab_and_ueb_letters() {
+    let mut engine = Engine::default();
+    let settings = Settings::default();
+    for (now, cell, key) in [(0, 0x101, 80), (2, 0x11e, 43)] {
+        engine.accept(&settings, 0x144, normal(0x144), now);
+        assert_eq!(
+            engine
+                .accept(&settings, cell, normal(cell), now + 1)
+                .as_slice(),
+            [KeyStroke::new(key, 1)]
+        );
+    }
+    let settings = Settings {
+        mode: BrailleMode::Ueb1,
+        ..settings
+    };
+    assert_eq!(
+        engine.accept(&settings, 0x148, None, 4).as_slice(),
+        [held(2, 0)]
+    );
+    assert!(engine.accept(&settings, 32, None, 5).is_empty());
+    assert_eq!(engine.accept(&settings, 1, None, 6).as_slice(), ascii("A"));
+    assert_eq!(engine.accept(&settings, 1, None, 7).as_slice(), ascii("a"));
+}
+
+#[test]
+fn one_shots_expire_independently_at_the_boundary_and_rearm_across_wrap() {
+    let settings = Settings::default();
+    let mut engine = Engine::default();
+    let start = u32::MAX - 50;
+    engine.accept(&settings, 0x148, normal(0x148), start);
+    engine.accept(&settings, 0x144, normal(0x144), start.wrapping_add(100));
+    engine.accept(&settings, 0x150, normal(0x150), start.wrapping_add(100));
+    assert_eq!(
+        engine
+            .accept(&settings, 0x148, normal(0x148), start.wrapping_add(500))
+            .as_slice(),
+        [held(3, GLOBE_USAGE)]
+    );
+    assert!(
+        engine
+            .poll(&settings, start.wrapping_add(ONE_SHOT_TIMEOUT_MS + 99))
+            .is_empty()
+    );
+    assert_eq!(
+        engine
+            .poll(&settings, start.wrapping_add(ONE_SHOT_TIMEOUT_MS + 100))
+            .as_slice(),
+        [held(2, 0)]
+    );
+    assert!(
+        engine
+            .poll(&settings, start.wrapping_add(ONE_SHOT_TIMEOUT_MS + 499))
+            .is_empty()
+    );
+    assert_eq!(
+        engine
+            .poll(&settings, start.wrapping_add(ONE_SHOT_TIMEOUT_MS + 500))
+            .as_slice(),
+        [held(0, 0)]
+    );
+    assert!(
+        engine
+            .poll(&settings, start.wrapping_add(ONE_SHOT_TIMEOUT_MS + 501))
+            .is_empty()
+    );
+}
+
+#[test]
+fn one_shot_resets_on_menu_cancellation_or_braille_mode_change() {
+    use kb_core::reference::{LEADER, State};
+
+    let mut settings = Settings::default();
+    let mut engine = Engine::default();
+    engine.accept(&settings, 0x148, normal(0x148), 0);
+    let pressed = State::new().step(LEADER, 1);
+    let captured = pressed.state.step(0, 2);
+    assert!(captured.reset_braille);
+    engine.reset();
+    assert_eq!(
+        engine.accept(&settings, 1, normal(1), 3).as_slice(),
+        ascii("a")
+    );
+    engine.accept(&settings, 0x150, normal(0x150), 4);
+    settings.mode = BrailleMode::Ueb1;
+    assert_eq!(
+        engine.accept(&settings, 1, None, 5).as_slice(),
+        [held(0, 0), KeyStroke::new(4, 0)]
+    );
+}
+
+#[test]
+fn one_shot_decorates_only_the_first_expanded_character_and_respects_overrides() {
+    let mut settings = Settings::default();
+    settings.set_binding(0, &[0x148], b"xy").unwrap();
+    let mut engine = Engine::default();
+    for mode in [BrailleMode::Computer8, BrailleMode::Ueb1] {
+        settings.mode = mode;
+        assert_eq!(
+            engine.accept(&settings, 0x148, normal(0x148), 0).as_slice(),
+            ascii("xy")
+        );
+        engine.accept(&settings, 0x144, normal(0x144), 1);
+        assert_eq!(
+            engine.accept(&settings, 0x148, normal(0x148), 2).as_slice(),
+            [KeyStroke::new(27, 1), KeyStroke::new(28, 0)]
+        );
+    }
+}
+
+#[test]
+fn timed_out_custom_prefix_replays_the_one_shot_before_the_new_key() {
+    let mut settings = Settings::default();
+    settings.set_binding(0, &[0x148, 9], b"override").unwrap();
+    let mut engine = Engine::default();
+    assert!(engine.accept(&settings, 0x148, normal(0x148), 0).is_empty());
+    assert_eq!(
+        engine
+            .accept(&settings, 1, normal(1), PREFIX_TIMEOUT_MS)
+            .as_slice(),
+        [held(2, 0), KeyStroke::new(4, 2)]
+    );
+    assert_eq!(
+        engine
+            .accept(&settings, 1, normal(1), PREFIX_TIMEOUT_MS + 1)
+            .as_slice(),
+        ascii("a")
+    );
+}
+
+#[test]
+fn explicit_modifier_only_taps_remain_taps() {
+    let settings = Settings::default();
+    let mut engine = Engine::default();
+    let modifier_tap = KeyStroke::new(0, 4);
+    assert_eq!(
+        engine
+            .accept(&settings, 1, Some(modifier_tap), 0)
+            .as_slice(),
+        [modifier_tap]
+    );
+    assert_eq!(
+        engine.accept(&settings, 1, normal(1), 1).as_slice(),
+        ascii("a")
+    );
+    engine.accept(&settings, 0x144, normal(0x144), 2);
+    assert_eq!(
+        engine
+            .accept(&settings, 1, Some(modifier_tap), 3)
+            .as_slice(),
+        [KeyStroke::new(0, 5)]
+    );
+    assert_eq!(
+        engine.accept(&settings, 1, normal(1), 4).as_slice(),
+        ascii("a")
+    );
+}
+
+#[test]
+fn immediate_component_actions_share_the_one_shot_state_with_completed_chords() {
+    let settings = Settings::default();
+    let mut engine = Engine::default();
+    assert_eq!(
+        engine
+            .accept_action(&settings, normal(0x148).unwrap(), 0)
+            .as_slice(),
+        [held(2, 0)]
+    );
+    assert_eq!(
+        engine.accept(&settings, 1, normal(1), 1).as_slice(),
+        ascii("A")
+    );
+    engine.accept(&settings, 0x144, normal(0x144), 2);
+    assert_eq!(
+        engine
+            .accept_action(&settings, KeyStroke::new(4, 0), 3)
+            .as_slice(),
+        [KeyStroke::new(4, 1)]
     );
 }

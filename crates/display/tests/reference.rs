@@ -2,6 +2,7 @@ use core::convert::Infallible;
 use core::fmt::Write;
 use kb_core::{
     KeyStroke, computer8,
+    preferences::{BrailleMode, Settings},
     reference::{Catalog, Cursor, Entry, Mode, Page},
     ueb1::RULES,
 };
@@ -51,6 +52,30 @@ fn labels_cover_printable_ascii_commands_and_unknown_custom_outputs() {
         "Raw 12345678"
     );
     assert_eq!(label(entry(1, 0, 1)).as_str(), "Ctrl+Modifiers");
+}
+
+#[test]
+fn reference_lists_one_shot_commands_in_both_braille_modes() {
+    let base = Catalog::try_from_fn(|cell| {
+        Ok::<_, Infallible>(computer8(cell).map_or(0, KeyStroke::packed))
+    })
+    .unwrap();
+    for mode in [BrailleMode::Computer8, BrailleMode::Ueb1] {
+        let catalog = base.for_settings(&Settings {
+            mode,
+            ..Settings::default()
+        });
+        for (cell, name) in [
+            (0x148, "Shift one-shot"),
+            (0x144, "Control one-shot"),
+            (0x142, "Alt one-shot"),
+            (0x141, "Command one-shot"),
+            (0x150, "Globe one-shot"),
+        ] {
+            let index = usize::from(catalog.find(cell).unwrap());
+            assert_eq!(label(catalog.entries()[index]).as_str(), name);
+        }
+    }
 }
 
 #[test]

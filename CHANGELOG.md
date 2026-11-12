@@ -30,6 +30,8 @@
 
 ### Fixed
 
+- Paintbrush supports one-shot Shift, Control, Alt, Command, and Globe chords. Armed modifiers apply to the next key and expire after one second.
+
 - Prospector displays dot 8 and Space separately in the live braille status view.
 
 - Toucan keeps a shared HID key pressed until all physical keys that map to it have been released.

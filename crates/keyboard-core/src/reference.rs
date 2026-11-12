@@ -232,7 +232,10 @@ pub struct Entry {
 
 impl Entry {
     pub const fn stroke(self) -> KeyStroke {
-        KeyStroke::new(self.packed as u8, (self.packed >> 8) as u8)
+        match KeyStroke::from_packed(self.packed) {
+            Some(stroke) => stroke,
+            None => KeyStroke::new(self.packed as u8, (self.packed >> 8) as u8),
+        }
     }
 
     pub const fn dot_rows(self) -> usize {

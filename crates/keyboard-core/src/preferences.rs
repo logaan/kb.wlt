@@ -5,6 +5,7 @@ pub const MAX_TRIGGER: usize = 4;
 pub const MAX_TEXT: usize = 24;
 pub const ENCODED_LEN: usize = 6 + BINDING_COUNT * (2 + MAX_TRIGGER * 2 + MAX_TEXT);
 pub const PREFIX_TIMEOUT_MS: u32 = 1_200;
+pub const ONE_SHOT_TIMEOUT_MS: u32 = 1_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
@@ -189,7 +190,8 @@ impl Settings {
     }
 }
 
-pub type Output = Bounded<KeyStroke, { MAX_TRIGGER * MAX_TEXT }>;
+pub const MAX_OUTPUT: usize = MAX_TRIGGER * MAX_TEXT + 1;
+pub type Output = Bounded<KeyStroke, MAX_OUTPUT>;
 pub type Fallback = Bounded<KeyStroke, MAX_TEXT>;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -199,12 +201,77 @@ struct Pending {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
+struct OneShot {
+    modifiers: [Option<u32>; 8],
+    consumer: Option<(u16, u32)>,
+}
+
+impl OneShot {
+    const NEUTRAL: KeyStroke = KeyStroke::new(0, 0).held();
+
+    fn report(&self) -> KeyStroke {
+        let modifiers = self
+            .modifiers
+            .iter()
+            .enumerate()
+            .fold(0, |mask, (bit, since)| {
+                mask | (u8::from(since.is_some()) << bit)
+            });
+        KeyStroke::new(0, modifiers)
+            .with_consumer(self.consumer.map_or(0, |(usage, _)| usage))
+            .held()
+    }
+
+    fn expire(&mut self, now: u32) -> Option<KeyStroke> {
+        let before = self.report();
+        for since in &mut self.modifiers {
+            if since.is_some_and(|since| now.wrapping_sub(since) >= ONE_SHOT_TIMEOUT_MS) {
+                *since = None;
+            }
+        }
+        if self
+            .consumer
+            .is_some_and(|(_, since)| now.wrapping_sub(since) >= ONE_SHOT_TIMEOUT_MS)
+        {
+            self.consumer = None;
+        }
+        let after = self.report();
+        (after != before).then_some(after)
+    }
+
+    fn apply(&mut self, mut stroke: KeyStroke, now: u32) -> KeyStroke {
+        if stroke.is_sticky() {
+            for (bit, since) in self.modifiers.iter_mut().enumerate() {
+                if stroke.modifiers & (1 << bit) != 0 {
+                    *since = Some(now);
+                }
+            }
+            if stroke.consumer != 0 {
+                self.consumer = Some((stroke.consumer, now));
+            }
+            return self.report();
+        }
+        if stroke.is_held() || stroke == KeyStroke::default() {
+            return stroke;
+        }
+        let armed = self.report();
+        *self = Self::default();
+        stroke.modifiers |= armed.modifiers;
+        if stroke.consumer == 0 {
+            stroke.consumer = armed.consumer;
+        }
+        stroke
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Engine {
     mode: BrailleMode,
     ueb: crate::ueb1::State,
     pending: [Pending; MAX_TRIGGER],
     len: usize,
     updated_ms: u32,
+    one_shot: OneShot,
 }
 
 impl Engine {
@@ -244,18 +311,29 @@ impl Engine {
         self.pending[self.len] = Pending { cell, fallback };
         self.len += 1;
         self.updated_ms = now_ms;
-        self.resolve(settings, false, &mut output);
+        self.resolve(settings, false, now_ms, &mut output);
+        output
+    }
+
+    pub fn accept_action(&mut self, settings: &Settings, action: KeyStroke, now_ms: u32) -> Output {
+        let mut output = self.poll(settings, now_ms);
+        let _ = output.push(self.one_shot.apply(action, now_ms));
         output
     }
 
     pub fn poll(&mut self, settings: &Settings, now_ms: u32) -> Output {
+        let mut output = Output::default();
         if self.mode != settings.mode {
+            if self.one_shot.report() != OneShot::NEUTRAL {
+                let _ = output.push(OneShot::NEUTRAL);
+            }
             self.reset();
             self.mode = settings.mode;
+        } else if let Some(report) = self.one_shot.expire(now_ms) {
+            let _ = output.push(report);
         }
-        let mut output = Output::default();
         if self.len != 0 && now_ms.wrapping_sub(self.updated_ms) >= PREFIX_TIMEOUT_MS {
-            self.resolve(settings, true, &mut output);
+            self.resolve(settings, true, now_ms, &mut output);
         }
         output
     }
@@ -265,7 +343,7 @@ impl Engine {
         self.len -= count;
     }
 
-    fn resolve(&mut self, settings: &Settings, force: bool, output: &mut Output) {
+    fn resolve(&mut self, settings: &Settings, force: bool, now: u32, output: &mut Output) {
         while self.len != 0 {
             let mut longest: Option<&Binding> = None;
             let mut longer = false;
@@ -294,7 +372,7 @@ impl Engine {
             if let Some(binding) = longest {
                 for byte in binding.text() {
                     if let Some(stroke) = KeyStroke::from_ascii(*byte) {
-                        let _ = output.push(stroke);
+                        let _ = output.push(self.one_shot.apply(stroke, now));
                     }
                 }
                 self.ueb.after_text(binding.text());
@@ -304,10 +382,18 @@ impl Engine {
                 self.remove(1);
                 match self.mode {
                     BrailleMode::Computer8 => {
-                        let _ = output.extend_from_slice(pending.fallback.as_slice());
+                        for stroke in pending.fallback.as_slice() {
+                            let _ = output.push(self.one_shot.apply(*stroke, now));
+                        }
                     }
                     BrailleMode::Ueb1 => {
-                        let _ = output.extend_from_slice(self.ueb.accept(pending.cell).as_slice());
+                        if let Some(command) = crate::braille::one_shot(pending.cell) {
+                            let _ = output.push(self.one_shot.apply(command, now));
+                        } else {
+                            for stroke in self.ueb.accept(pending.cell).as_slice() {
+                                let _ = output.push(self.one_shot.apply(*stroke, now));
+                            }
+                        }
                     }
                 }
             }

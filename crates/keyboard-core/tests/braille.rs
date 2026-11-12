@@ -1,4 +1,4 @@
-use kb_core::braille::{COMPUTER8_ASCII_CELLS, ascii_cell};
+use kb_core::braille::{COMPUTER8_ASCII_CELLS, GLOBE_USAGE, ascii_cell};
 use kb_core::hid::LEFT_SHIFT;
 use kb_core::{KeyStroke, computer8};
 
@@ -52,6 +52,24 @@ fn eight_key_commands_and_reserved_cells_are_distinct() {
     assert_eq!(computer8(0), None);
     assert_eq!(computer8(0x200), None);
     assert_eq!(computer8(u16::MAX), None);
+}
+
+#[test]
+fn one_shot_commands_have_tagged_keyboard_or_consumer_usage() {
+    for (cell, modifiers, consumer) in [
+        (0x148, 2, 0),
+        (0x144, 1, 0),
+        (0x142, 4, 0),
+        (0x141, 8, 0),
+        (0x150, 0, GLOBE_USAGE),
+    ] {
+        let stroke = KeyStroke::new(0, modifiers)
+            .with_consumer(consumer)
+            .sticky();
+        assert_eq!(computer8(cell), Some(stroke));
+        assert_eq!(kb_core::ueb1::map_cell(cell), stroke.packed());
+        assert_eq!(KeyStroke::from_packed(stroke.packed()), Some(stroke));
+    }
 }
 
 #[test]
