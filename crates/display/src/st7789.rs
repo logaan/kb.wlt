@@ -99,6 +99,8 @@ pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; PANEL_
     for x in 0..PANEL_WIDTH {
         let mut color: u16 = if status.faulted {
             0x7800
+        } else if status.pairing_unsaved {
+            0x6200
         } else if status.connected {
             0x0184
         } else {

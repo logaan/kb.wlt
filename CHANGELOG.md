@@ -20,6 +20,8 @@
 
 ### Fixed
 
+- Displays distinguish unsaved Bluetooth pairing records from connection state and fatal component errors.
+
 - Reference mapping discovery yields to USB and Bluetooth tasks while loading custom modules.
 
 - USB and Bluetooth HID descriptors cover the full encoded keyboard usage range, including F13–F24 from custom Wavelet keymaps.

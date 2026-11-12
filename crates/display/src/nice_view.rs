@@ -84,8 +84,22 @@ pub fn render(status: Status) -> Frame {
         Transport::Split => "Split",
     };
     for (text, y) in [
-        ("kb.wlt", 12),
-        (transport, 28),
+        (
+            if status.pairing_unsaved {
+                "PAIRING"
+            } else {
+                "kb.wlt"
+            },
+            12,
+        ),
+        (
+            if status.pairing_unsaved {
+                "UNSAVED"
+            } else {
+                transport
+            },
+            28,
+        ),
         (
             if status.connected {
                 "Connected"

@@ -248,7 +248,13 @@ async fn scan(inputs: [Input<'static>; 8], mut indicator: Output<'static>) {
         if update.pressed | update.released != 0 {
             KEY_CHANGED.signal(());
         }
-        indicator.set_level(if keys != 0 { Level::High } else { Level::Low });
+        let illuminated = if crate::ble_bonds::storage_failed() {
+            let phase = Instant::now().as_millis() % 2000;
+            phase < 100 || (200..300).contains(&phase)
+        } else {
+            keys != 0
+        };
+        indicator.set_level(if illuminated { Level::High } else { Level::Low });
         Timer::after_millis(1).await;
     }
 }
@@ -276,7 +282,7 @@ pub async fn satellite(spawner: Spawner) {
     if inputs.iter().all(Input::is_low) {
         Timer::after_secs(2).await;
         if inputs.iter().all(Input::is_low) {
-            bonds.clear().await.unwrap();
+            bonds.forget().await;
         }
     }
     let saved = bonds.load_all().unwrap();
@@ -375,7 +381,7 @@ pub async fn satellite(spawner: Spawner) {
                         GattConnectionEvent::PairingComplete {
                             bond: Some(bond), ..
                         } => {
-                            bonds.lock().await.save(&bond).await.unwrap();
+                            bonds.lock().await.remember(&bond).await;
                         }
                         GattConnectionEvent::Gatt { event } => {
                             if let Ok(reply) = event.accept() {
@@ -442,7 +448,7 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
         if inputs.iter().all(Input::is_low) {
             Timer::after_secs(2).await;
             if inputs.iter().all(Input::is_low) {
-                bonds.clear().await.unwrap();
+                bonds.forget().await;
             }
         }
     }
@@ -594,7 +600,7 @@ pub(crate) async fn authenticate(
                     bond,
                 } => {
                     if let Some(bond) = bond {
-                        bonds.lock().await.save(&bond).await.unwrap();
+                        bonds.lock().await.remember(&bond).await;
                     }
                     return security_level.encrypted();
                 }
@@ -688,7 +694,7 @@ async fn receive_snapshots(
                     ConnectionEvent::PairingComplete {
                         bond: Some(bond), ..
                     } => {
-                        bonds.lock().await.save(&bond).await.unwrap();
+                        bonds.lock().await.remember(&bond).await;
                     }
                     ConnectionEvent::RequestConnectionParams(request) => {
                         let _ = request.accept(None, stack).await;
@@ -854,13 +860,16 @@ async fn process_keys() {
         {
             let connected =
                 session.ready() && (receiver.is_connected(0) || receiver.is_connected(1));
-            let changed = display_status.faulted != component.is_faulted()
+            let pairing_unsaved = crate::ble_bonds::storage_failed();
+            let changed = display_status.pairing_unsaved != pairing_unsaved
+                || display_status.faulted != component.is_faulted()
                 || display_status.connected != connected
                 || display_status.held != state.held
                 || display_status.chord != state.chord
                 || update.pressed | update.released != 0;
             display_status.connected = connected;
             display_status.faulted = component.is_faulted();
+            display_status.pairing_unsaved = pairing_unsaved;
             display_status.held = state.held;
             display_status.chord = state.chord;
             if matches!(

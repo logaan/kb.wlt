@@ -86,6 +86,7 @@ pub struct Status {
     pub transport: Transport,
     pub connected: bool,
     pub faulted: bool,
+    pub pairing_unsaved: bool,
     pub held: u16,
     pub chord: u16,
     pub last_usage: u8,
@@ -106,13 +107,17 @@ pub fn render(status: Status) -> Frame {
         }
         return frame;
     }
-    let title = match (status.transport, status.connected) {
-        (Transport::Usb, true) => "kb.wlt USB",
-        (Transport::Usb, false) => "USB waiting",
-        (Transport::Bluetooth, true) => "kb.wlt BLE",
-        (Transport::Bluetooth, false) => "BLE pairing",
-        (Transport::Split, true) => "kb.wlt SPLIT",
-        (Transport::Split, false) => "SPLIT waiting",
+    let title = if status.pairing_unsaved {
+        "PAIRING UNSAVED"
+    } else {
+        match (status.transport, status.connected) {
+            (Transport::Usb, true) => "kb.wlt USB",
+            (Transport::Usb, false) => "USB waiting",
+            (Transport::Bluetooth, true) => "kb.wlt BLE",
+            (Transport::Bluetooth, false) => "BLE pairing",
+            (Transport::Split, true) => "kb.wlt SPLIT",
+            (Transport::Split, false) => "SPLIT waiting",
+        }
     };
     let _ = Text::new(title, Point::new(0, 8), style).draw(&mut frame);
     let mut labels = *b"....... _";
