@@ -2,9 +2,11 @@
 
 extern crate alloc;
 
+mod braille;
 mod keyboard;
 mod link;
 
+pub use braille::BrailleTyping;
 pub use keyboard::{KeyboardComponent, KeyboardPipeline};
 
 use wasmi::{

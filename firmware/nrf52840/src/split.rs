@@ -17,11 +17,9 @@ use embassy_usb::class::hid::{
     Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, State,
 };
 use embassy_usb::{Builder, Config};
-use kb_component_runtime::{BrailleComponent, BrailleState};
+use kb_component_runtime::{BrailleComponent, BrailleTyping};
 use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
-use kb_core::preferences::{
-    Engine, Fallback, MAX_TEXT, MAX_TRIGGER, Output as StrokeBatch, Settings,
-};
+use kb_core::preferences::{MAX_TEXT, MAX_TRIGGER, Settings};
 use kb_core::split::{Layout, PACKET_LEN, Receiver, Session, Snapshot};
 use kb_core::transport::{FaultLatch, InputGate};
 use kb_core::{Debouncer, KeyStroke};
@@ -771,60 +769,6 @@ async fn receive_snapshots(
     let _ = select(client.task(), receive).await;
 }
 
-#[derive(Default)]
-struct Typing {
-    component: BrailleState,
-    held: u16,
-    chord: u16,
-    tentative: Fallback,
-}
-
-impl Typing {
-    fn step(
-        &mut self,
-        component: &mut FaultLatch<BrailleComponent>,
-        engine: &mut Engine,
-        settings: &Settings,
-        keys: u16,
-        now: u32,
-    ) -> StrokeBatch {
-        if keys == self.held {
-            return engine.poll(settings, now);
-        }
-        self.held = keys;
-        self.chord |= keys;
-        let result = component.call(|component| -> Result<_, kb_component_runtime::Error> {
-            let output = component.step(self.component, keys)?;
-            self.component = output.state;
-            let fallback =
-                (output.usage != 0).then_some(KeyStroke::new(output.usage, output.modifiers));
-            if cfg!(feature = "prospector-display") {
-                if let Some(stroke) = fallback {
-                    self.tentative
-                        .push(stroke)
-                        .map_err(|_| kb_component_runtime::Error::InvalidReturn)?;
-                }
-                Ok(None)
-            } else {
-                Ok(fallback)
-            }
-        });
-        match result {
-            Ok(fallback) if keys == 0 => {
-                let cell = core::mem::take(&mut self.chord);
-                if cfg!(feature = "prospector-display") {
-                    engine.accept_batch(settings, cell, core::mem::take(&mut self.tentative), now)
-                } else {
-                    engine.accept(settings, cell, fallback, now)
-                }
-            }
-            Ok(Some(stroke)) => StrokeBatch::from_slice(&[stroke], KeyStroke::default()).unwrap(),
-            Ok(None) => engine.poll(settings, now),
-            Err(_) => StrokeBatch::default(),
-        }
-    }
-}
-
 async fn process_keys() {
     const PENDING_CAPACITY: usize = 128;
     const BATCH_CAPACITY: usize = MAX_TRIGGER * MAX_TEXT;
@@ -837,9 +781,8 @@ async fn process_keys() {
         .unwrap_or_default();
     #[cfg(feature = "prospector-display")]
     let mut settings = settings;
-    let mut engine = Engine::default();
     let mut pending = kb_core::pipeline::Bounded::<KeyStroke, PENDING_CAPACITY>::default();
-    let mut typing = Typing::default();
+    let mut typing = BrailleTyping::new(cfg!(feature = "prospector-display"));
     #[cfg(feature = "prospector-display")]
     let base_catalog = {
         let mut catalog = kb_core::reference::Catalog::new();
@@ -943,7 +886,6 @@ async fn process_keys() {
         if input_update.cancel {
             STROKES.clear();
             pending = Default::default();
-            engine.reset();
             if update.cancel_chord {
                 generation = crate::usb_hid::invalidate_pending_reports();
                 input.acknowledge_generation(generation);
@@ -953,7 +895,7 @@ async fn process_keys() {
                 reference = reference.cancel(update.keys).state;
                 menu = Default::default();
             }
-            typing = Typing::default();
+            typing.cancel();
         }
         #[cfg(feature = "prospector-display")]
         let forward = if input_update.keys.is_some() {
@@ -997,7 +939,7 @@ async fn process_keys() {
                 }
             }
             if settings_changed {
-                engine.reset();
+                typing.cancel();
                 let mut bytes = [0; kb_core::preferences::ENCODED_LEN];
                 if settings.encode(&mut bytes).is_err() || !crate::settings::request_save(&bytes) {
                     menu.notice = kb_core::menu::Notice::Busy;
@@ -1028,9 +970,8 @@ async fn process_keys() {
                 reference.mode = kb_core::reference::Mode::Diagnostics;
             }
             if transition.reset_braille && previous_mode == kb_core::reference::Mode::Typing {
-                typing = Typing::default();
+                typing.cancel();
                 pending = Default::default();
-                engine.reset();
                 STROKES.clear();
                 generation = crate::usb_hid::invalidate_pending_reports();
                 input.acknowledge_generation(generation);
@@ -1047,15 +988,13 @@ async fn process_keys() {
             && !component.is_faulted()
             && PENDING_CAPACITY - pending.len() >= BATCH_CAPACITY
         {
-            let output_batch =
-                typing.step(&mut component, &mut engine, &settings, update.keys, now);
+            let output_batch = typing.step(&mut component, &settings, update.keys, now);
             pending.extend_from_slice(output_batch.as_slice()).unwrap();
         }
         if !fault_seen && component.is_faulted() {
             fault_seen = true;
-            typing = Typing::default();
+            typing.cancel();
             pending = Default::default();
-            engine.reset();
             STROKES.clear();
             generation = crate::usb_hid::invalidate_pending_reports();
             input.acknowledge_generation(generation);
@@ -1092,14 +1031,14 @@ async fn process_keys() {
                 || display_status.pairing_unsaved != pairing_unsaved
                 || display_status.faulted != component.is_faulted()
                 || display_status.connected != connected
-                || display_status.held != typing.held
-                || display_status.chord != typing.chord
+                || display_status.held != typing.held()
+                || display_status.chord != typing.chord()
                 || update.pressed | update.released != 0;
             display_status.connected = connected;
             display_status.faulted = component.is_faulted();
             display_status.pairing_unsaved = pairing_unsaved;
-            display_status.held = typing.held;
-            display_status.chord = typing.chord;
+            display_status.held = typing.held();
+            display_status.chord = typing.chord();
             if matches!(
                 reference.mode,
                 kb_core::reference::Mode::Namespace
