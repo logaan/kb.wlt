@@ -471,7 +471,7 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
             Output::new(p.P1_14, Level::High, OutputDrive::Standard),
             Output::new(p.P1_12, Level::High, OutputDrive::Standard),
             Output::new(p.P0_29, Level::High, OutputDrive::Standard),
-            Output::new(p.P1_11, Level::High, OutputDrive::Standard),
+            Output::new(p.P1_11, Level::Low, OutputDrive::Standard),
         )
     };
     let (controller, mut bonds, boot) = radio(

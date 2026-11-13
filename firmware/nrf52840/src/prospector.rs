@@ -84,7 +84,7 @@ pub async fn run<'a>(
         ..Status::default()
     });
     loop {
-        backlight.set_high();
+        backlight.set_low();
         if !matches!(
             with_timeout(Duration::from_secs(2), panel.initialize()).await,
             Ok(Ok(()))
@@ -92,7 +92,7 @@ pub async fn run<'a>(
             Timer::after_secs(1).await;
             continue;
         }
-        backlight.set_low();
+        backlight.set_high();
         loop {
             if let Some(next) = VIEW.try_take() {
                 view = next;

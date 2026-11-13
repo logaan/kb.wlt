@@ -296,7 +296,7 @@ pub async fn run(spawner: Spawner, role: Role) {
             GpioOutput::new(p.P1_14, Level::High, OutputDrive::Standard),
             GpioOutput::new(p.P1_12, Level::High, OutputDrive::Standard),
             GpioOutput::new(p.P0_29, Level::High, OutputDrive::Standard),
-            GpioOutput::new(p.P1_11, Level::High, OutputDrive::Standard),
+            GpioOutput::new(p.P1_11, Level::Low, OutputDrive::Standard),
         )
     };
     let (central_count, peripheral_count) = match role {
