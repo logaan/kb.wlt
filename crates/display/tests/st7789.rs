@@ -45,10 +45,35 @@ fn uses_portrait_240_by_280_with_twenty_row_offset_and_rgb565() {
         let bus = panel.into_inner();
         assert_eq!(bus.resets, 1);
         assert_eq!(bus.waits, [150, 120, 20]);
-        assert!(bus.commands.contains(&(0x3a, vec![0x55])));
+        assert!(bus.commands.contains(&(0x3a, vec![0x05])));
         assert!(bus.commands.contains(&(0x2a, vec![0, 0, 0, 239])));
         assert!(bus.commands.contains(&(0x2b, vec![0, 20, 1, 43])));
         assert_eq!(bus.pixels.len(), 240 * 280 * 2);
+    });
+}
+
+#[test]
+fn unlocks_extended_registers_and_configures_panel_before_sleep_out() {
+    futures::executor::block_on(async {
+        let mut panel = St7789::new(Bus::default());
+        panel.initialize().await.unwrap();
+        let bus = panel.into_inner();
+        assert_eq!(bus.commands[0], (0x01, vec![]));
+        assert_eq!(bus.commands[1], (0x28, vec![]));
+        assert_eq!(bus.commands[2], (0xdf, vec![0x5a, 0x69, 0x02, 0x01]));
+        for command in [
+            (0xba, vec![0x00]),
+            (0x26, vec![0x01]),
+            (0xb0, vec![0x00, 0xf0]),
+            (0xb1, vec![0xcd, 0x08, 0x14]),
+        ] {
+            assert!(bus.commands[3..bus.commands.len() - 3].contains(&command));
+        }
+        assert_eq!(
+            &bus.commands[bus.commands.len() - 3..],
+            &[(0x11, vec![]), (0x13, vec![]), (0x29, vec![])]
+        );
+        assert_eq!(bus.waits, [150, 120, 20]);
     });
 }
 

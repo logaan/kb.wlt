@@ -25,11 +25,11 @@ impl<B: PanelBus> St7789<B> {
         self.bus.reset().await;
         self.bus.command(0x01, &[]).await?;
         self.bus.delay_ms(150).await;
-        self.bus.command(0x11, &[]).await?;
-        self.bus.delay_ms(120).await;
         for (command, data) in [
-            (0x36, &[0x00][..]),
-            (0x3a, &[0x55]),
+            (0x28, &[][..]),
+            (0xdf, &[0x5a, 0x69, 0x02, 0x01]),
+            (0x36, &[0x00]),
+            (0x3a, &[0x05]),
             (0xb2, &[0x0c, 0x0c, 0x00, 0x33, 0x33]),
             (0xb7, &[0x35]),
             (0xbb, &[0x19]),
@@ -37,7 +37,9 @@ impl<B: PanelBus> St7789<B> {
             (0xc2, &[0x01]),
             (0xc3, &[0x12]),
             (0xc4, &[0x20]),
+            (0xba, &[0x00]),
             (0xc6, &[0x0f]),
+            (0x26, &[0x01]),
             (0xd0, &[0xa4, 0xa1]),
             (
                 0xe0,
@@ -53,11 +55,16 @@ impl<B: PanelBus> St7789<B> {
                     0x23,
                 ],
             ),
+            (0xb0, &[0x00, 0xf0]),
+            (0xb1, &[0xcd, 0x08, 0x14]),
             (0x21, &[]),
-            (0x29, &[]),
         ] {
             self.bus.command(command, data).await?;
         }
+        self.bus.command(0x11, &[]).await?;
+        self.bus.delay_ms(120).await;
+        self.bus.command(0x13, &[]).await?;
+        self.bus.command(0x29, &[]).await?;
         self.bus.delay_ms(20).await;
         Ok(())
     }
