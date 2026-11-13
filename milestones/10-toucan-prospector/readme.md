@@ -28,8 +28,9 @@ hardware confirmation.
 
 - [x] Confirm the computer sees **kb.wlt Toucan Receiver** as a USB keyboard.
 
-- [ ] Confirm the Prospector LCD displays connection, held-key count, and HID
-  status.
+- [ ] Confirm the Prospector LCD displays an upright 280×240 landscape
+  dashboard with connection, held-key count, active layer, and HID status.
+  Check all four edges for clipping; the broad portrait border is removed.
 
 - [ ] Confirm the left Toucan's MIP display also shows the receiver's keyboard
   status, including keys pressed on the right half.

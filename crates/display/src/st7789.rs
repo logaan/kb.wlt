@@ -14,15 +14,17 @@ pub trait PanelBus {
 
 pub struct St7789<B> {
     bus: B,
+    landscape: bool,
 }
 
 impl<B: PanelBus> St7789<B> {
     pub fn new(bus: B) -> Self {
-        Self { bus }
+        Self { bus, landscape: false }
     }
 
     pub async fn initialize(&mut self) -> Result<(), B::Error> {
         self.bus.reset().await;
+        self.landscape = false;
         self.bus.command(0x01, &[]).await?;
         self.bus.delay_ms(150).await;
         for (command, data) in [
@@ -79,6 +81,19 @@ impl<B: PanelBus> St7789<B> {
     }
 
     pub async fn present(&mut self, status: Status) -> Result<(), B::Error> {
+        if status.keyboard.is_some() {
+            self.orientation(true).await?;
+            let frame = crate::keyboard::render(status);
+            self.bus.command(0x2a, &[0, 20, 1, 43]).await?;
+            self.bus.command(0x2b, &[0, 0, 0, 239]).await?;
+            self.bus.command(0x2c, &[]).await?;
+            let mut row = [0; crate::keyboard::WIDTH * 2];
+            for y in 0..crate::keyboard::HEIGHT {
+                crate::keyboard::render_row(&frame, status, y, &mut row);
+                self.bus.data(&row).await?;
+            }
+            return Ok(());
+        }
         let frame = render(status);
         self.present_rows(|y, row| render_row(&frame, status, y, row))
             .await
@@ -97,10 +112,19 @@ impl<B: PanelBus> St7789<B> {
             .await
     }
 
+    async fn orientation(&mut self, landscape: bool) -> Result<(), B::Error> {
+        if self.landscape != landscape {
+            self.bus.command(0x36, &[if landscape { 0x60 } else { 0x00 }]).await?;
+            self.landscape = landscape;
+        }
+        Ok(())
+    }
+
     async fn present_rows(
         &mut self,
         render: impl Fn(usize, &mut [u8; PANEL_WIDTH * 2]),
     ) -> Result<(), B::Error> {
+        self.orientation(false).await?;
         self.bus.command(0x2a, &[0, 0, 0, 239]).await?;
         self.bus.command(0x2b, &[0, 20, 1, 43]).await?;
         self.bus.command(0x2c, &[]).await?;

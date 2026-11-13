@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod keyboard;
 pub mod menu;
 pub mod nice_view;
 pub mod reference;

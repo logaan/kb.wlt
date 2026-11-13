@@ -28,6 +28,8 @@
 
 ### Changed
 
+- Toucan Prospector status now uses a clockwise-rotated 280×240 landscape dashboard with larger key/layer values and HID details instead of the inset portrait display.
+
 - Prospector LCD transfers use SPI2 at 4 MHz instead of SPI3 at 16 MHz while retaining the same display pins and initialization.
 
 - Milestone 10 uses the personal two-layer Toucan bindings, with a held left-thumb layer and inactive braille placeholders; braille runtime behavior is unchanged.

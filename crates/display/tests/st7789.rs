@@ -130,6 +130,30 @@ fn diagnostic_fill_writes_every_pixel_in_big_endian_rgb565() {
 }
 
 #[test]
+fn keyboard_uses_clockwise_landscape_and_restores_portrait_for_other_views() {
+    futures::executor::block_on(async {
+        let mut panel = St7789::new(Bus::default());
+        panel.present(Status {
+            keyboard: Some(kb_display::KeyboardStatus::default()),
+            ..Status::default()
+        }).await.unwrap();
+        panel.present(Status::default()).await.unwrap();
+        let bus = panel.into_inner();
+        assert_eq!(bus.commands, [
+            (0x36, vec![0x60]),
+            (0x2a, vec![0, 20, 1, 43]),
+            (0x2b, vec![0, 0, 0, 239]),
+            (0x2c, vec![]),
+            (0x36, vec![0x00]),
+            (0x2a, vec![0, 0, 0, 239]),
+            (0x2b, vec![0, 20, 1, 43]),
+            (0x2c, vec![]),
+        ]);
+        assert_eq!(bus.pixels.len(), 2 * 240 * 280 * 2);
+    });
+}
+
+#[test]
 fn bus_errors_are_propagated() {
     futures::executor::block_on(async {
         let mut panel = St7789::new(Bus {
