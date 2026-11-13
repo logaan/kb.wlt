@@ -3,7 +3,16 @@
 Both Toucan halves become Bluetooth matrix satellites. Prospector combines their keys, runs this folder's Wavelet component, displays status, and sends USB HID to the computer. The left Toucan's MIP display remains active and receives keyboard status from Prospector. Radio and display behavior still require hardware confirmation.
 
 - [ ] Run `./milestones/10-toucan-prospector/build.sh`.
-- [ ] Enter the left, right, and Prospector bootloaders. Run `./milestones/10-toucan-prospector/flash.sh /Volumes/LEFT_XIAO /Volumes/RIGHT_XIAO /Volumes/PROSPECTOR` with their actual volume paths, in that order.
+Flash one board at a time: each XIAO bootloader mounts at
+`/Volumes/XIAO-SENSE`. Disconnect the flashed board before connecting the next.
+Run these commands from the repository root.
+
+- [ ] Connect the left Toucan and enter its bootloader. Run
+  `./scripts/flash-uf2.sh dist/toucan-left-satellite-display.uf2 /Volumes/XIAO-SENSE`.
+- [ ] Connect the right Toucan and enter its bootloader. Run
+  `./scripts/flash-uf2.sh dist/toucan-right-satellite.uf2 /Volumes/XIAO-SENSE`.
+- [ ] Connect Prospector and enter its bootloader. Run
+  `./scripts/flash-uf2.sh dist/toucan-prospector.uf2 /Volumes/XIAO-SENSE`.
 - [ ] Keep Prospector connected to the computer by USB; power both keyboard halves from USB or batteries.
 - [ ] Wait for both halves to connect automatically. Do not pair the satellites through the computer's Bluetooth settings.
 - [ ] Confirm the computer sees **kb.wlt Toucan Receiver** as a USB keyboard.
