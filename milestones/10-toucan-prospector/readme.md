@@ -34,8 +34,9 @@ hardware confirmation.
 - [ ] Confirm the left Toucan's MIP display also shows the receiver's keyboard
   status, including keys pressed on the right half.
 
-- [ ] Repeat every key and thumb check from
-  [milestone 8](../08-toucan-bluetooth/readme.md).
+- [ ] Check every ordinary key and thumb against the two-layer layout below.
+  Hold the left outer thumb and check the layer's navigation keys. Braille
+  bindings are intentionally inactive in this bindings-only version.
 
 - [ ] Hold Shift or the layer key on one half while using the other; confirm
   modifiers and layers span both halves.
@@ -58,8 +59,35 @@ hardware confirmation.
   `toucan-prospector`, and confirm the changed behavior without reflashing
   either satellite.
 
-The keymap matches milestone 8. Both the Prospector LCD and the left keyboard's
-MIP display are enabled; the trackpad remains inactive. All three default images
+The keymap imports the two-layer bindings from
+`~/Code/logaan/all-my-keyboards/toucan/config/toucan.keymap`.
+Each row is read left to right:
+
+| Row | Left half | Right half |
+| --- | --- | --- |
+| Top | Tab Q W E R T | Y U I O P Esc |
+| Home | Left Control A S D F G | H J K L Semicolon Apostrophe |
+| Bottom | Left Shift Z X C V B | N M Comma Period Slash Minus |
+| Thumbs | Braille layer, Backspace, Left GUI | Space, Return, Left Shift |
+
+Hold the left outer thumb to access the second layer:
+
+| Row | Left half | Right half |
+| --- | --- | --- |
+| Top | Computer 8, Tab, Left, Esc, Up, UEB1 | UEB2, Tab, Down, Right, Base, Inactive |
+| Home | Inactive, Dot 7, Dot 3, Dot 2, Dot 1, Settings | Shorthand, Dot 4, Dot 5, Dot 6, Dot 8, Inactive |
+| Bottom | Inactive, Left Shift, Left Control, Left Alt, Backspace, Inactive | Inactive, Left GUI, Return, Space, Inactive, Inactive |
+| Thumbs | Base, Backspace, Left GUI | Braille Space, Return, Next mode |
+
+This is a bindings-only port: dot keys, Braille Space, mode selectors,
+Settings, and Base are named in `keymap.wlt` but emit no HID output. Release
+the layer thumb to return to the ordinary layout. No braille engine integration
+or ZMK tap-to-latch behavior is included. GUI means Command on macOS or
+Windows/Super on other hosts. Layer indicators still use
+the firmware's original rightmost-thumb detection, not this layer binding.
+
+Both the Prospector LCD and the left keyboard's MIP display are enabled;
+the trackpad remains inactive. All three default images
 target XIAO stock S140 v7 at `0x27000`; use per-target bootloader variants if
 your boards differ.
 
