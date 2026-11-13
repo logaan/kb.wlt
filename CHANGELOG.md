@@ -26,9 +26,13 @@
 
 ### Changed
 
+- Redesigned the Toucan MIP status screen for 144×168 pixels with a full-width header, link indicator, larger key and layer values, and a separate HID report section.
+
 - Split Paintbrush layouts now assign all eight braille dots to the top rows and braille Space to each inner bottom key.
 
 ### Fixed
+
+- Corrected the upgraded Toucan 1 display from 160×68 nice!view geometry to its original 144×168 MIP panel, and documented verified Toucan and Prospector display specifications.
 
 - Paintbrush supports one-shot Shift, Control, Alt, Command, and Globe chords. Armed modifiers apply to the next key and expire after one second.
 

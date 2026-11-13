@@ -1,6 +1,6 @@
-# Milestone 8: Toucan 2 Bluetooth keyboard
+# Milestone 8: Toucan (upgraded Toucan 1) Bluetooth keyboard
 
-The left XIAO runs the Wavelet keymap, connects to the right half over Bluetooth, and presents Bluetooth HID to the computer. Cross-builds, matrix/packet tests, and keymap tests pass. Hardware operation is unverified. This target uses the Toucan 2 42-key wiring; its display and trackpad are inactive.
+The left XIAO runs the Wavelet keymap, connects to the right half over Bluetooth, and presents Bluetooth HID to the computer. Cross-builds, matrix/packet tests, and keymap tests pass. Hardware operation is unverified. This target uses the Toucan 2 42-key wiring; its original MIP display and upgraded Azoteq trackpad are inactive. The hardware under test is a Toucan 1 with the Toucan 2 upgrade kit.
 
 Default US English keymap, each row read left to right:
 

@@ -77,3 +77,7 @@ The mode and bindings take effect immediately and save asynchronously. The confi
 - [ ] Exit a menu with Space held. Press another chord, then release everything. Confirm no Space or partial chord reaches the editor.
 - [ ] Disconnect a satellite while a menu chord is held. Reconnect with keys held and confirm typing resumes after all keys release.
 - [ ] With a test Wavelet component that traps, confirm diagnostics remains reachable and reports the fault.
+
+Display hardware: [Beekeeb’s Prospector](https://shop.beekeeb.com/products/pre-soldered-prospector-zmk-dongle) includes the Waveshare 1.69-inch Touch LCD Module, 240×280 IPS. [Waveshare](https://www.waveshare.com/product/displays/lcd-oled/lcd-oled-3/1.69inch-touch-lcd-module.htm) identifies the display controller as ST7789V2 and the unused touch controller as CST816T. The firmware uses RGB565 over SPI; touch is inactive.
+
+The [upstream XIAO overlay](https://github.com/carrefinho/prospector-zmk-module/blob/main/boards/shields/prospector_adapter/boards/seeeduino_xiao_ble.overlay) matches the firmware’s 240×280 window with a 20-row offset: SCK P1.13, MOSI P1.15, CS P1.14 (D9), DC P1.12 (D7), reset P0.29 (D3), and inverted backlight P1.11 (D6). Confirm orientation, colors, screen edges, and backlight on the physical unit; source verification is not hardware validation.
