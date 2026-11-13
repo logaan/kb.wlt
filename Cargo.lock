@@ -594,7 +594,7 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "kb-bond-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kb-core",
  "postcard",
@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "kb-component-build"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kb-component-runtime",
  "tempfile",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "kb-component-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kb-core",
  "wasmi",
@@ -625,11 +625,11 @@ dependencies = [
 
 [[package]]
 name = "kb-core"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "kb-display"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "embedded-graphics",
  "futures",
@@ -1236,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kb-component-build",
  "kb-component-runtime",

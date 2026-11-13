@@ -1015,7 +1015,7 @@ dependencies = [
 
 [[package]]
 name = "kb-bond-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kb-core",
  "postcard",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "kb-component-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kb-core",
  "wasmi",
@@ -1033,11 +1033,11 @@ dependencies = [
 
 [[package]]
 name = "kb-core"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "kb-display"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "embedded-graphics",
  "kb-core",
@@ -1045,7 +1045,7 @@ dependencies = [
 
 [[package]]
 name = "kb-nrf52840"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",

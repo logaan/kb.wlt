@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-14
+
 ### Changed
 
 - Support only the two three-board Toucan and Paintbrush configurations: removed standalone USB/Bluetooth keyboard modes, single-keyboard receivers, OLED support, LED demos, composed firmware variants, diagnostic/reset images, the external resetter, and their build/release paths.
