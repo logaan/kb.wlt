@@ -50,7 +50,7 @@ fn main() -> ! {
                 let input = Input::with_events(
                     now,
                     &[KeyEvent {
-                        position: 41,
+                        position: 36,
                         state: KeyState::Pressed,
                         timestamp_ms: now,
                     }],

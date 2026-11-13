@@ -6,7 +6,9 @@ use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
 use embassy_futures::select::{Either, select};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
-use embassy_nrf::interrupt::{InterruptExt, Priority};
+#[cfg(feature = "prospector-display")]
+use embassy_nrf::interrupt::InterruptExt;
+use embassy_nrf::interrupt::Priority;
 use embassy_nrf::usb::{Driver, vbus_detect::HardwareVbusDetect};
 use embassy_nrf::{Peri, peripherals};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

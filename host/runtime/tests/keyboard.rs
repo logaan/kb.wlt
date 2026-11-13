@@ -85,7 +85,7 @@ fn toucan_keymap_emits_qwerty_presses_and_releases() {
         &[
             event(1, KeyState::Pressed),
             event(13, KeyState::Pressed),
-            event(38, KeyState::Pressed),
+            event(39, KeyState::Pressed),
         ],
     )
     .unwrap();
@@ -114,7 +114,7 @@ fn toucan_keymap_emits_qwerty_presses_and_releases() {
         &[
             event(1, KeyState::Released),
             event(13, KeyState::Released),
-            event(38, KeyState::Released),
+            event(39, KeyState::Released),
         ],
     )
     .unwrap();
@@ -147,9 +147,9 @@ fn toucan_layers_preserve_the_original_key_when_released() {
     let input = Input::<8>::with_events(
         0,
         &[
-            event(41, KeyState::Pressed),
+            event(36, KeyState::Pressed),
             event(1, KeyState::Pressed),
-            event(41, KeyState::Released),
+            event(36, KeyState::Released),
             event(1, KeyState::Released),
         ],
     )
@@ -159,11 +159,11 @@ fn toucan_layers_preserve_the_original_key_when_released() {
         output.actions.as_slice(),
         &[
             Action::Press(Key {
-                usage: 30,
+                usage: 43,
                 modifiers: 0
             }),
             Action::Release(Key {
-                usage: 30,
+                usage: 43,
                 modifiers: 0
             }),
         ]
@@ -194,7 +194,7 @@ fn toucan_accepts_all_physical_keys_in_one_scan() {
         .collect();
     let input = Input::<42>::with_events(0, &events).unwrap();
     let output = component.process::<64, 42, 42>(&[], &input).unwrap();
-    assert_eq!(output.actions.len(), 41);
+    assert_eq!(output.actions.len(), 39);
 }
 
 #[test]
@@ -208,14 +208,14 @@ fn toucan_duplicate_usage_survives_either_physical_release_order() {
         include_bytes!("../../../clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
     ])
     .unwrap();
-    for (first, last) in [(11, 25), (25, 11)] {
+    for (first, last) in [(28, 37), (37, 28)] {
         let input = Input::<6>::with_events(
             0,
             &[
-                event(41, KeyState::Pressed),
-                event(11, KeyState::Pressed),
-                event(25, KeyState::Pressed),
-                event(41, KeyState::Released),
+                event(36, KeyState::Pressed),
+                event(28, KeyState::Pressed),
+                event(37, KeyState::Pressed),
+                event(36, KeyState::Released),
                 event(first, KeyState::Released),
                 event(last, KeyState::Released),
             ],
@@ -227,7 +227,7 @@ fn toucan_duplicate_usage_survives_either_physical_release_order() {
             .unwrap();
         for actions in [plain.actions, shifted.actions] {
             let key = Key {
-                usage: 49,
+                usage: 42,
                 modifiers: 0,
             };
             assert_eq!(
@@ -240,7 +240,7 @@ fn toucan_duplicate_usage_survives_either_physical_release_order() {
                 ]
             );
             let mut reports = ReportState::<42>::new();
-            let held = [0, 0, 49, 0, 0, 0, 0, 0];
+            let held = [0, 0, 42, 0, 0, 0, 0, 0];
             for (action, expected) in actions.as_slice().iter().zip([held, held, held, [0; 8]]) {
                 assert_eq!(reports.apply(*action).unwrap().first, expected);
             }
@@ -263,7 +263,7 @@ fn pipeline_composes_wavelet_input_and_output_middleware() {
         &[
             event(1, KeyState::Pressed),
             event(1, KeyState::Released),
-            event(38, KeyState::Pressed),
+            event(39, KeyState::Pressed),
         ],
     )
     .unwrap();
@@ -303,7 +303,7 @@ fn owning_pipeline_composes_optimized_components() {
         &[
             event(1, KeyState::Pressed),
             event(1, KeyState::Released),
-            event(38, KeyState::Pressed),
+            event(39, KeyState::Pressed),
         ],
     )
     .unwrap();

@@ -28,6 +28,8 @@
 
 ### Changed
 
+- Normal Toucan builds and release artifacts now use the tested two-layer layout with the left outer thumb as the momentary layer key; braille bindings remain inactive.
+
 - Toucan Prospector status now uses a clockwise-rotated 280×240 landscape dashboard with larger key/layer values and HID details instead of the inset portrait display.
 
 - Prospector LCD transfers use SPI2 at 4 MHz instead of SPI3 at 16 MHz while retaining the same display pins and initialization.

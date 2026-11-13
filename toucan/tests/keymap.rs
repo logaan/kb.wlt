@@ -2,7 +2,7 @@ use kb_component_runtime::KeyboardComponent;
 use kb_core::pipeline::{Action, Input, Key, KeyEvent, KeyState};
 
 const KEYMAP: &[u8] =
-    include_bytes!("../../clients/components/generated/toucan-two-layer/keyboard.core.wasm");
+    include_bytes!("../../clients/components/generated/toucan-keymap/keyboard.core.wasm");
 
 fn run(state: &[u8], edges: &[(u16, bool)]) -> kb_core::pipeline::Output<64, 42, 42> {
     let component = KeyboardComponent::new(KEYMAP).unwrap();
@@ -82,7 +82,7 @@ fn layer_navigation_and_modifiers_match_the_source() {
 #[test]
 fn braille_bindings_are_inert_without_runtime_integration() {
     for position in [
-        0, 5, 6, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 29, 30, 34, 35, 39, 41,
+        0, 5, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 29, 30, 34, 35, 39, 41,
     ] {
         let output = run(
             &[],
