@@ -74,6 +74,10 @@ name = "prospector-dongle"
 required-features = ["split"]
 
 [[bin]]
+name = "prospector-display-test"
+required-features = ["prospector-display"]
+
+[[bin]]
 name = "settings-reset"
 required-features = ["settings-reset"]
 

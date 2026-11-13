@@ -126,6 +126,13 @@ pub const TARGETS: &[Target] = &[
         NANO,
     ),
     Target::new(
+        "prospector-display-test",
+        "prospector-display-test",
+        "prospector-display",
+        None,
+        XIAO,
+    ),
+    Target::new(
         "prospector-single",
         "prospector-dongle",
         "usb,split,prospector-display",

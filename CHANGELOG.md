@@ -4,6 +4,8 @@
 
 ### Added
 
+- Standalone Prospector LCD color-cycle diagnostic using software SPI, independent of Bluetooth, hardware SPI/DMA, and keyboard rendering.
+
 - Optional two-component Toucan firmware without displays, with optimized Wavelet middleware, a Cortex-M heap probe, and a native RAM reserve check before UF2 generation.
 
 - A separate atomic flash journal for keyboard preferences, asynchronous saves, and menu-safe Bluetooth link restart and pairing reset commands.

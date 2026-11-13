@@ -95,3 +95,22 @@ Display specifications and source checks are recorded in
 [milestone 9](../09-toucan-display/readme.md) for the retained 144×168 Toucan
 MIP panel and [milestone 5](../05-paintbrush-prospector/readme.md) for the
 240×280 ST7789V2 Prospector LCD.
+
+## Blank LCD diagnostic
+
+This temporary image replaces the receiver application: typing stops until the
+normal receiver image is restored. It does not erase saved pairings or change
+satellite firmware. It uses slow software SPI without Bluetooth, hardware
+SPI/DMA, or status rendering.
+
+- [ ] Build with `cargo xtask build prospector-display-test`.
+- [ ] Enter the Prospector bootloader and run
+  `./scripts/flash-uf2.sh dist/prospector-display-test.uf2 /Volumes/XIAO-SENSE`.
+- [ ] Watch for at least 30 seconds. The LCD should repeatedly fill red, green,
+  blue, and white, pausing two seconds after each fill. Drawing is intentionally
+  slow. The XIAO red LED lights during each fill and turns off during the pause.
+- [ ] Record whether the colors appear and whether the red LED cycles. If the
+  LED cycles but the LCD stays black, check the panel initialization, physical
+  connections, and board/panel variant before blaming the keyboard renderer.
+- [ ] Restore the receiver by entering its bootloader and flashing
+  `dist/toucan-prospector.uf2`. Neither half needs reflashing or re-pairing.
