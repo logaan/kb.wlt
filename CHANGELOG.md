@@ -32,6 +32,8 @@
 
 ### Fixed
 
+- Prospector dongles declare 500 ppm Bluetooth sleep-clock accuracy to accommodate measured clock drift and avoid split-link handshake timeouts, including the display-free Toucan dongle.
+
 - Corrected the upgraded Toucan 1 display from 160×68 nice!view geometry to its original 144×168 MIP panel, and documented verified Toucan and Prospector display specifications.
 
 - Paintbrush supports one-shot Shift, Control, Alt, Command, and Globe chords. Armed modifiers apply to the next key and expire after one second.
