@@ -1,6 +1,6 @@
-use crate::radio::{Bonds, Host, Irqs, address, authenticate, device_id, radio};
 #[cfg(feature = "prospector-display")]
 use crate::radio::DisplayIrqs;
+use crate::radio::{Bonds, Host, Irqs, address, authenticate, device_id, radio};
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};

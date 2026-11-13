@@ -19,7 +19,10 @@ pub struct St7789<B> {
 
 impl<B: PanelBus> St7789<B> {
     pub fn new(bus: B) -> Self {
-        Self { bus, landscape: false }
+        Self {
+            bus,
+            landscape: false,
+        }
     }
 
     pub async fn initialize(&mut self) -> Result<(), B::Error> {
@@ -114,7 +117,9 @@ impl<B: PanelBus> St7789<B> {
 
     async fn orientation(&mut self, landscape: bool) -> Result<(), B::Error> {
         if self.landscape != landscape {
-            self.bus.command(0x36, &[if landscape { 0x60 } else { 0x00 }]).await?;
+            self.bus
+                .command(0x36, &[if landscape { 0x60 } else { 0x00 }])
+                .await?;
             self.landscape = landscape;
         }
         Ok(())

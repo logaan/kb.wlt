@@ -28,6 +28,8 @@
 
 ### Changed
 
+- Reorganized the repository into Toucan, Paintbrush, Rust host, Wasm clients, shared support, and platform areas; retired milestone folders in favor of normal build instructions and per-area READMEs.
+
 - Normal Toucan builds and release artifacts now use the tested two-layer layout with the left outer thumb as the momentary layer key; braille bindings remain inactive.
 
 - Toucan Prospector status now uses a clockwise-rotated 280×240 landscape dashboard with larger key/layer values and HID details instead of the inset portrait display.

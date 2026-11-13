@@ -64,7 +64,10 @@ pub(crate) fn radio(
                 source: mpsl::raw::MPSL_CLOCK_LF_SRC_XTAL as u8,
                 rc_ctiv: 0,
                 rc_temp_ctiv: 0,
-                accuracy_ppm: if cfg!(any(feature = "prospector-display", feature = "toucan-dongle")) {
+                accuracy_ppm: if cfg!(any(
+                    feature = "prospector-display",
+                    feature = "toucan-dongle"
+                )) {
                     500
                 } else {
                     20

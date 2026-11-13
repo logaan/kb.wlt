@@ -204,8 +204,12 @@ fn toucan_duplicate_usage_survives_either_physical_release_order() {
 
     let component = KeyboardComponent::new(TOUCAN).unwrap();
     let composed = KeyboardPipeline::new(&[
-        include_bytes!("../../../clients/components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
-        include_bytes!("../../../clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
+        include_bytes!(
+            "../../../clients/components/generated/keyboard-composed/stage0/keyboard.core.wasm"
+        ),
+        include_bytes!(
+            "../../../clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"
+        ),
     ])
     .unwrap();
     for (first, last) in [(28, 37), (37, 28)] {
@@ -294,8 +298,12 @@ fn owning_pipeline_composes_optimized_components() {
     use kb_component_runtime::KeyboardPipeline;
     use kb_core::pipeline::PipelineState;
     let pipeline = KeyboardPipeline::new(&[
-        include_bytes!("../../../clients/components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
-        include_bytes!("../../../clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
+        include_bytes!(
+            "../../../clients/components/generated/keyboard-composed/stage0/keyboard.core.wasm"
+        ),
+        include_bytes!(
+            "../../../clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"
+        ),
     ])
     .unwrap();
     let input = Input::<8>::with_events(

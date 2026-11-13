@@ -29,8 +29,7 @@ fn malformed_and_core_binaries_are_rejected_as_components() {
 
 #[test]
 fn keyboard_contract_validates_every_function_and_compound_type() {
-    let bytes =
-        include_bytes!("../../components/generated/toucan-keymap/keyboard.component.wasm");
+    let bytes = include_bytes!("../../components/generated/toucan-keymap/keyboard.component.wasm");
     assert_eq!(
         prepare(bytes, Contract::Keyboard).unwrap(),
         include_bytes!("../../components/generated/toucan-keymap/keyboard.core.wasm")
