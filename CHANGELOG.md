@@ -26,6 +26,8 @@
 
 ### Changed
 
+- The UF2 flashing script reports validation steps and verbose copy output before confirming completion.
+
 - Redesigned the Toucan MIP status screen for 144×168 pixels with a full-width header, link indicator, larger key and layer values, and a separate HID report section.
 
 - Split Paintbrush layouts now assign all eight braille dots to the top rows and braille Space to each inner bottom key.
