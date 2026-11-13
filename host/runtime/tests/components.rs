@@ -1,8 +1,8 @@
 use kb_component_runtime::{BrailleComponent, BrailleState, LedComponent, LedState};
 use kb_core::braille::computer8;
 
-const LED: &[u8] = include_bytes!("../../../components/generated/led.core.wasm");
-const BRAILLE: &[u8] = include_bytes!("../../../components/generated/braille.core.wasm");
+const LED: &[u8] = include_bytes!("../../../clients/components/generated/led.core.wasm");
+const BRAILLE: &[u8] = include_bytes!("../../../clients/components/generated/braille.core.wasm");
 
 #[test]
 fn led_cycles_every_colour_and_returns_explicit_state() {
@@ -178,8 +178,8 @@ fn excessive_guest_memory_is_rejected() {
 #[test]
 fn composed_led_middleware_transforms_outgoing_colours() {
     let mut component = LedComponent::new_chain(&[
-        include_bytes!("../../../components/generated/led-dim/stage0/led.core.wasm"),
-        include_bytes!("../../../components/generated/led-dim/stage1/led.core.wasm"),
+        include_bytes!("../../../clients/components/generated/led-dim/stage0/led.core.wasm"),
+        include_bytes!("../../../clients/components/generated/led-dim/stage1/led.core.wasm"),
     ])
     .unwrap();
     let mut state = LedState::default();

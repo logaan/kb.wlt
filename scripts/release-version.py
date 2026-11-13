@@ -11,7 +11,7 @@ VERSION_PATTERN = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)
 MANIFESTS = (
     ("Cargo.toml", "workspace.package"),
     ("firmware/nrf52840/Cargo.toml", "package"),
-    ("firmware/heap-probe/Cargo.toml", "package"),
+    ("host/heap-probe/Cargo.toml", "package"),
     ("resetter/Cargo.toml", "package"),
 )
 

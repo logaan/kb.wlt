@@ -34,7 +34,7 @@ fn embedded_components_fit_the_nrf_heap_budget() {
     PEAK.store(baseline, Ordering::SeqCst);
     {
         let mut component = LedComponent::new(include_bytes!(
-            "../../../components/generated/led.core.wasm"
+            "../../../clients/components/generated/led.core.wasm"
         ))
         .unwrap();
         component.step(LedState::default(), 1000, false).unwrap();
@@ -44,7 +44,7 @@ fn embedded_components_fit_the_nrf_heap_budget() {
     PEAK.store(baseline, Ordering::SeqCst);
     {
         let mut component = BrailleComponent::new(include_bytes!(
-            "../../../components/generated/braille.core.wasm"
+            "../../../clients/components/generated/braille.core.wasm"
         ))
         .unwrap();
         for cell in 1..=511 {
@@ -60,8 +60,8 @@ fn embedded_components_fit_the_nrf_heap_budget() {
     PEAK.store(baseline, Ordering::SeqCst);
     {
         let mut component = LedComponent::new_chain(&[
-            include_bytes!("../../../components/generated/led-dim/stage0/led.core.wasm"),
-            include_bytes!("../../../components/generated/led-dim/stage1/led.core.wasm"),
+            include_bytes!("../../../clients/components/generated/led-dim/stage0/led.core.wasm"),
+            include_bytes!("../../../clients/components/generated/led-dim/stage1/led.core.wasm"),
         ])
         .unwrap();
         component.step(LedState::default(), 1000, false).unwrap();
@@ -72,7 +72,7 @@ fn embedded_components_fit_the_nrf_heap_budget() {
     PEAK.store(baseline, Ordering::SeqCst);
     {
         let component = KeyboardComponent::new(include_bytes!(
-            "../../../components/generated/toucan-keymap/keyboard.core.wasm"
+            "../../../clients/components/generated/toucan-keymap/keyboard.core.wasm"
         ))
         .unwrap();
         let events: Vec<_> = (0..42)

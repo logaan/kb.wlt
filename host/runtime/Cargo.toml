@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-kb-core = { path = "../keyboard-core" }
+kb-core = { path = "../../shared/keyboard-core" }
 wasmi = { version = "2.0.0", default-features = false, features = ["stable", "validate", "portable-dispatch", "prefer-btree-collections", "libm"] }
 
 [dev-dependencies]

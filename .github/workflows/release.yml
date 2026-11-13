@@ -55,7 +55,7 @@ jobs:
           workspaces: |
             . -> target
             firmware/nrf52840 -> target
-            firmware/heap-probe -> target
+            host/heap-probe -> target
             resetter -> target
       - name: Validate and update version
         id: version
@@ -77,7 +77,7 @@ jobs:
           python3 scripts/release-version.py "${version_args[@]}" --notes "$RUNNER_TEMP/release-notes.md"
           cargo update --workspace
           (cd firmware/nrf52840 && cargo update --workspace)
-          (cd firmware/heap-probe && cargo update --workspace)
+          (cd host/heap-probe && cargo update --workspace)
           (cd resetter && cargo update --workspace)
           echo "value=$version" >> "$GITHUB_OUTPUT"
       - name: Test release
@@ -95,7 +95,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Cargo.toml Cargo.lock firmware/nrf52840/Cargo.toml firmware/nrf52840/Cargo.lock firmware/heap-probe/Cargo.toml firmware/heap-probe/Cargo.lock resetter/Cargo.toml resetter/Cargo.lock CHANGELOG.md
+          git add Cargo.toml Cargo.lock firmware/nrf52840/Cargo.toml firmware/nrf52840/Cargo.lock host/heap-probe/Cargo.toml host/heap-probe/Cargo.lock resetter/Cargo.toml resetter/Cargo.lock CHANGELOG.md
           git commit -m "Release v$VERSION"
           git tag -a "v$VERSION" -m "kb.wlt v$VERSION"
           git push --atomic origin HEAD:master "refs/tags/v$VERSION"

@@ -38,16 +38,16 @@ embassy-time = "0.5.1"
 embassy-usb = "0.6.0"
 embedded-storage = "0.3.2"
 embedded-alloc = { version = "0.7.0", default-features = false, features = ["llff"] }
-kb-component-runtime = { path = "../../crates/component-runtime" }
-kb-display = { path = "../../crates/display", optional = true }
-kb-core = { path = "../../crates/keyboard-core" }
+kb-component-runtime = { path = "../../host/runtime" }
+kb-display = { path = "../../shared/display", optional = true }
+kb-core = { path = "../../shared/keyboard-core" }
 panic-halt = "1.0.0"
 
 nrf-sdc = { version = "0.4.0", optional = true, default-features = false, features = ["nrf52840", "peripheral"] }
 nrf-mpsl = { version = "0.4.0", optional = true, features = ["nrf52840", "critical-section-impl"] }
 trouble-host = { version = "0.8.0", optional = true, default-features = false, features = ["derive", "gatt", "peripheral", "default-packet-pool", "default-packet-pool-mtu-128", "default-packet-pool-size-8", "security", "serde"] }
 static_cell = { version = "2.1.1", optional = true }
-kb-bond-storage = { path = "../../crates/bond-storage", optional = true }
+kb-bond-storage = { path = "../../shared/bond-storage", optional = true }
 
 [[bin]]
 name = "xiao-led"

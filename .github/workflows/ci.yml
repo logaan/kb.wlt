@@ -49,6 +49,6 @@ jobs:
           workspaces: |
             . -> target
             firmware/nrf52840 -> target
-            firmware/heap-probe -> target
+            host/heap-probe -> target
             resetter -> target
       - run: bash scripts/build-artifacts.sh

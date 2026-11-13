@@ -3,7 +3,7 @@ use kb_core::pipeline::{Action, Input, Key, KeyEvent, KeyState};
 use kb_core::report_state::ReportState;
 
 const PASSTHROUGH: &[u8] =
-    include_bytes!("../../../components/generated/passthrough/keyboard.core.wasm");
+    include_bytes!("../../../clients/components/generated/passthrough/keyboard.core.wasm");
 
 #[test]
 fn component_round_trips_explicit_state_and_events() {
@@ -67,7 +67,7 @@ fn empty_lists_and_repeated_calls_do_not_leak_guest_arena() {
 }
 
 const TOUCAN: &[u8] =
-    include_bytes!("../../../components/generated/toucan-keymap/keyboard.core.wasm");
+    include_bytes!("../../../clients/components/generated/toucan-keymap/keyboard.core.wasm");
 
 fn event(position: u16, state: KeyState) -> KeyEvent {
     KeyEvent {
@@ -204,8 +204,8 @@ fn toucan_duplicate_usage_survives_either_physical_release_order() {
 
     let component = KeyboardComponent::new(TOUCAN).unwrap();
     let composed = KeyboardPipeline::new(&[
-        include_bytes!("../../../components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
-        include_bytes!("../../../components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
+        include_bytes!("../../../clients/components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
+        include_bytes!("../../../clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
     ])
     .unwrap();
     for (first, last) in [(11, 25), (25, 11)] {
@@ -252,7 +252,7 @@ fn toucan_duplicate_usage_survives_either_physical_release_order() {
 fn pipeline_composes_wavelet_input_and_output_middleware() {
     use kb_core::pipeline::{Middleware, Pipeline, PipelineState};
     let shift = KeyboardComponent::new(include_bytes!(
-        "../../../components/generated/shift/keyboard.core.wasm"
+        "../../../clients/components/generated/shift/keyboard.core.wasm"
     ))
     .unwrap();
     let keymap = KeyboardComponent::new(TOUCAN).unwrap();
@@ -294,8 +294,8 @@ fn owning_pipeline_composes_optimized_components() {
     use kb_component_runtime::KeyboardPipeline;
     use kb_core::pipeline::PipelineState;
     let pipeline = KeyboardPipeline::new(&[
-        include_bytes!("../../../components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
-        include_bytes!("../../../components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
+        include_bytes!("../../../clients/components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
+        include_bytes!("../../../clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
     ])
     .unwrap();
     let input = Input::<8>::with_events(

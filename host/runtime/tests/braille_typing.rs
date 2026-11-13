@@ -167,7 +167,7 @@ fn wavelet_sticky_commands_arm_modify_and_release_in_both_braille_modes() {
                 (0x150, KeyStroke::new(0, 0).with_consumer(0x029d)),
             ] {
                 let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(
-                    "../../../components/generated/braille.core.wasm"
+                    "../../../clients/components/generated/braille.core.wasm"
                 )));
                 let settings = Settings {
                     mode,
@@ -200,7 +200,7 @@ fn wavelet_sticky_commands_arm_modify_and_release_in_both_braille_modes() {
 fn wavelet_sticky_state_expires_while_idle_and_cancels_on_capture() {
     for buffered in [false, true] {
         let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(
-            "../../../components/generated/braille.core.wasm"
+            "../../../clients/components/generated/braille.core.wasm"
         )));
         let mut typing = BrailleTyping::new(buffered);
         let settings = Settings::default();

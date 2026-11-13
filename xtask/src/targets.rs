@@ -35,9 +35,9 @@ impl Target {
 
     pub fn source(self) -> Option<&'static str> {
         match self.contract {
-            Some(Contract::Led) => Some("components/led/led.wlt"),
-            Some(Contract::Braille) => Some("components/braille/braille.wlt"),
-            Some(Contract::Keyboard) => Some("components/toucan-keymap/toucan-keymap.wlt"),
+            Some(Contract::Led) => Some("clients/components/led/led.wlt"),
+            Some(Contract::Braille) => Some("clients/components/braille/braille.wlt"),
+            Some(Contract::Keyboard) => Some("clients/components/toucan-keymap/toucan-keymap.wlt"),
             None => None,
         }
     }

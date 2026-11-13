@@ -10,5 +10,5 @@ wit-parser = "0.251.0"
 tempfile = "3.23.0"
 
 [dev-dependencies]
-kb-component-runtime = { path = "../component-runtime" }
+kb-component-runtime = { path = "../../host/runtime" }
 wat = "1.251.0"

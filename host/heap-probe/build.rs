@@ -9,7 +9,7 @@ fn main() {
         ("KB_KEYBOARD_STAGE1_WASM", "stage1"),
     ] {
         let path = env::var_os(key).map(PathBuf::from).unwrap_or_else(|| {
-            root.join("../../components/generated/keyboard-composed")
+            root.join("../../clients/components/generated/keyboard-composed")
                 .join(stage)
                 .join("keyboard.core.wasm")
         });

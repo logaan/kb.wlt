@@ -36,8 +36,8 @@ fn run() -> Result {
         [command, name, options @ ..] if command == "build" => build(name, options),
         [command] if command == "check" => check(),
         [command] if command == "probe-arm" => arm_probe(&[
-            root().join("components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
-            root().join("components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
+            root().join("clients/components/generated/keyboard-composed/stage0/keyboard.core.wasm"),
+            root().join("clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"),
         ]),
         [command, first, second] if command == "probe-arm" => arm_probe(&[PathBuf::from(first), PathBuf::from(second)]),
         [command] if command == "targets" => {
@@ -78,7 +78,7 @@ fn checked(command: &mut Command) -> Result {
 }
 
 fn arm_probe(paths: &[PathBuf; 2]) -> Result {
-    let probe = root().join("firmware/heap-probe");
+    let probe = root().join("host/heap-probe");
     let target = probe.join("target");
     checked(
         Command::new("cargo")
@@ -153,9 +153,9 @@ fn build(name: &str, options: &[String]) -> Result {
     let root = root();
     let mut source = target.source().map(|path| root.join(path));
     let mut middleware = root.join(if target.keyboard_composed() {
-        "components/shift/shift.wlt"
+        "clients/components/shift/shift.wlt"
     } else {
-        "components/led-dim/led-dim.wlt"
+        "clients/components/led-dim/led-dim.wlt"
     });
     let mut features = target.features.to_string();
     let mut base = target.flash_origin;

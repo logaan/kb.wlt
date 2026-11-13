@@ -35,7 +35,7 @@ fn main() {
     for (key, file) in artifacts {
         let path = env::var_os(key)
             .map(PathBuf::from)
-            .unwrap_or_else(|| root.join("../../components/generated").join(file));
+            .unwrap_or_else(|| root.join("../../clients/components/generated").join(file));
         let path = fs::canonicalize(path).expect("WebAssembly component artifact is missing");
         println!("cargo:rustc-env={key}={}", path.display());
         println!("cargo:rerun-if-env-changed={key}");

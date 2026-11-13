@@ -109,7 +109,7 @@ fn compile_stage(
         .map_err(|e| format!("{}: {e}", source.display()))?;
     std::fs::write(
         wit_dir.join("firmware.wit"),
-        include_str!("../../../wit/firmware.wit"),
+        include_str!("../../wit/firmware.wit"),
     )
     .map_err(|e| e.to_string())?;
     let binary = std::env::var_os("WAVELET").unwrap_or_else(|| "wavelet".into());
@@ -220,7 +220,7 @@ fn validate_interface(
 ) -> Result<(), String> {
     let mut expected = Resolve::new();
     let package = expected
-        .push_str("firmware.wit", include_str!("../../../wit/firmware.wit"))
+        .push_str("firmware.wit", include_str!("../../wit/firmware.wit"))
         .map_err(|e| e.to_string())?;
     let expected_interface = expected.packages[package].interfaces[contract.name()];
     let actual_functions = &resolve.interfaces[interface].functions;

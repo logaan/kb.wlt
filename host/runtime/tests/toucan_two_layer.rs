@@ -2,7 +2,7 @@ use kb_component_runtime::KeyboardComponent;
 use kb_core::pipeline::{Action, Input, Key, KeyEvent, KeyState};
 
 const KEYMAP: &[u8] =
-    include_bytes!("../../../components/generated/toucan-two-layer/keyboard.core.wasm");
+    include_bytes!("../../../clients/components/generated/toucan-two-layer/keyboard.core.wasm");
 
 fn run(state: &[u8], edges: &[(u16, bool)]) -> kb_core::pipeline::Output<64, 42, 42> {
     let component = KeyboardComponent::new(KEYMAP).unwrap();
