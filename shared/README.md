@@ -3,7 +3,7 @@
 These workspace crates contain code shared by keyboard applications and the component host:
 
 - `keyboard-core/` (`kb-core`): HID reports, key-state tracking, chords, braille typing primitives, preferences, menu/reference models, and transport/storage protocols.
-- `display/` (`kb-display`): display status, OLED/ST7789 controller support, braille menus/reference rendering, and panel bus traits.
+- `display/` (`kb-display`): display status, ST7789 controller support, braille menus/reference rendering, and panel bus traits.
 - `bond-storage/` (`kb-bond-storage`): persistent Bluetooth bonding and preference storage.
 
 Toucan-specific matrix and display modules and their tests live in [toucan/](../toucan/). The relevant shared manifests/modules include them explicitly to preserve the existing Rust APIs without duplicating code.

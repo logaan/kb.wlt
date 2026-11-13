@@ -1,18 +1,16 @@
 # Shared nRF52840 platform
 
-`nrf52840/` is the firmware Cargo workspace. Its manifest selects binary entry points from [toucan/](../toucan/), [paintbrush/](../paintbrush/), and local platform examples/diagnostics. Shared code provides clocks, USB HID, Nordic radio initialization and authentication, persistent bonds/settings, the component heap, and the Prospector LCD bus.
+`nrf52840/` is the firmware Cargo workspace. Its manifest selects binary entry points from [toucan/](../toucan/), [paintbrush/](../paintbrush/), only. No standalone, example, diagnostic, or reset firmware entry points remain. Shared code provides clocks, USB HID, Nordic radio initialization and authentication, persistent bonds/settings, the component heap, and the Prospector LCD bus.
 
 Use the root target catalog rather than assembling feature combinations by hand:
 
 ```sh
 cargo xtask targets
 cargo xtask build toucan-prospector
-cargo xtask build prospector-single
-cargo xtask build xiao-led
-cargo xtask build prospector-display-test
+cargo xtask build prospector-pair
 ```
 
-`cargo xtask build` compiles the selected Wavelet source, runs its resource probe, cross-builds firmware, and writes ELF, component, and UF2 outputs under `dist/`. `./scripts/build-artifacts.sh` builds the complete release catalog from checked-in components into `dist/release/`, including the separate resetter firmware. All current targets use `thumbv7em-none-eabihf`.
+`cargo xtask build` compiles the selected Wavelet source, runs its resource probe, cross-builds firmware, and writes ELF, component, and UF2 outputs under `dist/`. `./scripts/build-artifacts.sh` builds exactly six images from checked-in components into `dist/release/`: left satellite, right satellite, and Prospector receiver for each keyboard. It validates a staging directory before replacing existing UF2s, preventing stale variants from leaking into a release. All current targets use `thumbv7em-none-eabihf`.
 
 ## Prospector display
 
@@ -31,4 +29,4 @@ Normal firmware uses SPI2 at 4 MHz. Hardware testing found a blank LCD with the 
 
 References: [upstream Prospector XIAO overlay](https://github.com/carrefinho/prospector-zmk-module/blob/main/boards/shields/prospector_adapter/boards/seeeduino_xiao_ble.overlay), [Waveshare panel](https://www.waveshare.com/product/displays/lcd-oled/lcd-oled-3/1.69inch-touch-lcd-module.htm), and [Waveshare Arduino demo](https://files.waveshare.com/wiki/1.69inch-Touch-LCD-Module/1.69inch_Touch_LCD_Arduino.zip).
 
-`prospector-display-test` cycles solid colors with slow software SPI and no keyboard reception. It does not erase saved bonds. Reflash the normal receiver image afterward. `settings-reset-xiao` and `settings-reset-nano`, by contrast, intentionally clear saved pairing records; do not use them for ordinary display diagnosis.
+The temporary software-SPI diagnostic and standalone pairing-reset images have been removed. Their successful display fixes remain in the shared driver. Pairing management remains part of the keyboard applications.

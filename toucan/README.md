@@ -36,17 +36,10 @@ The default is the tested two-layer conventional layout. Hold the left outer thu
 
 Display layer reporting still follows the original rightmost-thumb convention rather than introspecting the component's layer state. The Prospector dashboard is 280×240 landscape with an inset title for rounded corners. Its backlight is currently fully on.
 
-The two-half/Prospector configuration was accepted by the user after typing, display, cross-half modifier, reconnection, and power-cycle checks. This does not validate every alternative target or the subsequent repository reorganization.
+The two-half/Prospector configuration was accepted by the user after typing, display, cross-half modifier, reconnection, and power-cycle checks. Subsequent code cleanup still needs hardware regression testing. Direct Bluetooth HID, display-free left halves, and composed-firmware variants are not supported.
 
-## Alternatives
-
-- `toucan-ble-display`: left half executes the keymap and sends Bluetooth HID directly to the computer; use `toucan-right-satellite` on the right.
-- `toucan-ble`: the same direct Bluetooth role without the MIP display.
-- `toucan-left-satellite`: left matrix satellite without the display.
-- `toucan-ble-composed`, `toucan-dongle-composed`: display-free, two-component input/output middleware examples requiring Binaryen and QEMU.
-
-## Displays and diagnosis
+## Displays
 
 The Toucan MIP uses SCK P1.13, MOSI P1.15, and active-high CS P0.03 at 1 MHz, with native 144×168 geometry and VCOM maintenance. Hardware references: [Toucan upgrade kit](https://shop.beekeeb.com/products/toucan-upgrade-kit) and [Beekeeb display overlay](https://github.com/beekeeb/zmk-keyboard-toucan/blob/main/boards/shields/nice_view_gem/nice_view_gem.overlay).
 
-The shared [Prospector driver](../firmware/README.md) uses SPI2 at 4 MHz. For a blank LCD, build and flash `prospector-display-test`. It uses slow software SPI to cycle red, green, blue, and white; the XIAO red LED lights while each frame is drawn. Allow at least 30 seconds. This temporarily disables keyboard reception but does not erase pairing records. Restore `toucan-prospector.uf2` afterward.
+The shared [Prospector driver](../firmware/README.md) uses SPI2 at 4 MHz with the hardware-verified initialization sequence and active-high backlight. Display regression tests cover geometry, orientation, status rendering, and the rounded-corner title inset.
