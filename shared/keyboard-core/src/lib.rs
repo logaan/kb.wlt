@@ -14,6 +14,7 @@ pub use chord::{ChordError, ChordState, DotEvent, PhysicalKey};
 pub use debounce::{DebounceUpdate, Debouncer};
 pub use hid::{KeyStroke, QueueFull, ReportQueue};
 
+#[path = "../../../toucan/firmware/matrix_link.rs"]
 pub mod matrix_link;
 pub mod report_state;
 

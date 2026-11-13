@@ -4,5 +4,9 @@ version.workspace = true
 edition.workspace = true
 license = "MIT"
 
+[[test]]
+name = "toucan-matrix-link"
+path = "../../toucan/tests/matrix_link.rs"
+
 [lib]
 path = "src/lib.rs"

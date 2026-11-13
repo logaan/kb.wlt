@@ -8,5 +8,13 @@ kb-core = { path = "../keyboard-core" }
 embedded-hal-async = "1.0.0"
 embedded-graphics = "0.8.1"
 
+[[test]]
+name = "toucan-display"
+path = "../../toucan/tests/display.rs"
+
+[[test]]
+name = "toucan-nice-view"
+path = "../../toucan/tests/nice_view.rs"
+
 [dev-dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["executor"] }

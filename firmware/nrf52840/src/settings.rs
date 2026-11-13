@@ -94,7 +94,7 @@ pub(crate) async fn radio_changed(epoch: u32) {
     }
 }
 
-pub(crate) async fn run_saves(bonds: &crate::split::Bonds) {
+pub(crate) async fn run_saves(bonds: &crate::radio::Bonds) {
     loop {
         let mut blob = SAVES.wait().await;
         let mut attempts = 0;
@@ -124,7 +124,7 @@ pub(crate) async fn run_saves(bonds: &crate::split::Bonds) {
     }
 }
 
-pub(crate) async fn run_controls(stack: &crate::split::Host<'_>, bonds: &crate::split::Bonds) {
+pub(crate) async fn run_controls(stack: &crate::radio::Host<'_>, bonds: &crate::radio::Bonds) {
     loop {
         let control = CONTROLS.receive().await;
         RADIO_ENABLED.store(false, Ordering::Relaxed);

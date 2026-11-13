@@ -1,7 +1,9 @@
 #![no_std]
 
+#[path = "../../../toucan/display/keyboard.rs"]
 pub mod keyboard;
 pub mod menu;
+#[path = "../../../toucan/display/nice_view.rs"]
 pub mod nice_view;
 pub mod reference;
 pub mod st7789;

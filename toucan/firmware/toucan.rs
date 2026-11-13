@@ -1,6 +1,6 @@
 #[cfg(feature = "prospector-display")]
-use crate::split::DisplayIrqs;
-use crate::split::{Bonds, Host, Irqs, address, device_id};
+use crate::radio::DisplayIrqs;
+use crate::radio::{Bonds, Host, Irqs, address, device_id};
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use embassy_executor::Spawner;
@@ -304,7 +304,7 @@ pub async fn run(spawner: Spawner, role: Role) {
         Role::Satellite => (0, 1),
         Role::Dongle => (2, 0),
     };
-    let (controller, mut bonds, boot) = crate::split::radio(
+    let (controller, mut bonds, boot) = crate::radio::radio(
         spawner,
         mpsl::Peripherals::new(p.RTC0, p.TIMER0, p.TEMP, p.PPI_CH19, p.PPI_CH30, p.PPI_CH31),
         sdc::Peripherals::new(
@@ -601,7 +601,7 @@ async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, side: Side) {
                 _ => continue,
             }
         };
-        if crate::split::authenticate(&connection, stack, bonds).await {
+        if crate::radio::authenticate(&connection, stack, bonds).await {
             receive_snapshots(stack, bonds, &connection, side, display_feedback).await;
         }
         connection.disconnect();

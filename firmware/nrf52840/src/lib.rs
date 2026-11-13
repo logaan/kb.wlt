@@ -36,6 +36,7 @@ pub fn clock_config() -> Config {
 }
 
 #[cfg(feature = "display")]
+#[path = "../../../paintbrush/firmware/display.rs"]
 pub mod display;
 
 #[cfg(feature = "ble")]
@@ -45,6 +46,10 @@ pub mod ble_bonds;
 mod critical_section;
 
 #[cfg(feature = "split")]
+pub(crate) mod radio;
+
+#[cfg(feature = "split")]
+#[path = "../../../paintbrush/firmware/split.rs"]
 pub mod split;
 
 #[cfg(feature = "prospector-display")]
@@ -53,9 +58,11 @@ pub mod prospector;
 pub mod usb_hid;
 
 #[cfg(feature = "nice-view")]
+#[path = "../../../toucan/firmware/nice_view.rs"]
 pub mod nice_view;
 
 #[cfg(feature = "toucan")]
+#[path = "../../../toucan/firmware/toucan.rs"]
 pub mod toucan;
 
 #[cfg(feature = "split")]

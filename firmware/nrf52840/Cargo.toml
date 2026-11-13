@@ -55,22 +55,27 @@ required-features = ["usb"]
 
 [[bin]]
 name = "paintbrush-usb"
+path = "../../paintbrush/firmware/bin/paintbrush-usb.rs"
 required-features = ["usb"]
 
 [[bin]]
 name = "paintbrush-ble"
+path = "../../paintbrush/firmware/bin/paintbrush-ble.rs"
 required-features = ["ble"]
 
 [[bin]]
 name = "paintbrush-satellite"
+path = "../../paintbrush/firmware/bin/paintbrush-satellite.rs"
 required-features = ["split"]
 
 [[bin]]
 name = "paintbrush-central"
+path = "../../paintbrush/firmware/bin/paintbrush-central.rs"
 required-features = ["split"]
 
 [[bin]]
 name = "prospector-dongle"
+path = "../../paintbrush/firmware/bin/prospector-dongle.rs"
 required-features = ["split"]
 
 [[bin]]
@@ -90,12 +95,15 @@ panic = "abort"
 
 [[bin]]
 name = "toucan-ble"
+path = "../../toucan/firmware/bin/toucan-ble.rs"
 required-features = ["toucan"]
 
 [[bin]]
 name = "toucan-satellite"
+path = "../../toucan/firmware/bin/toucan-satellite.rs"
 required-features = ["toucan"]
 
 [[bin]]
 name = "toucan-dongle"
+path = "../../toucan/firmware/bin/toucan-dongle.rs"
 required-features = ["toucan-dongle"]
