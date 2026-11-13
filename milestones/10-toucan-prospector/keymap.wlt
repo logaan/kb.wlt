@@ -5,7 +5,10 @@ DefType key-event {position: u16 state: key-state timestamp-ms: u32}
 DefType key {usage: u16 modifiers: u8}
 DefType action [press(key) release(key) tap(key) release-all]
 DefType input {events: list(key-event) now-ms: u32}
-DefType output {state: list(u8) events: list(key-event) actions: list(action) wake-at-ms: option(u32)}
+DefType output {state:      list(u8)
+                events:     list(key-event)
+                actions:    list(action)
+                wake-at-ms: option(u32)}
 
 Def base-usage Fn {position: u16}
   to-u8(get([43 20 26 8 21 23 28 24 12 18 19 49
@@ -26,19 +29,39 @@ Def transition Fn {acc: output event: key-event}
   Match acc [({state: state events: events actions: actions wake-at-ms: wake}
     Match event [({position: position state: edge timestamp-ms: time}
       If ge(position 42)
-        {state: state events: push(events event) actions: actions wake-at-ms: wake}
+        {state:      state
+         events:     push(events event)
+         actions:    actions
+         wake-at-ms: wake}
         If eq(position 41)
-          {state: put(state 41 to-u8(If eq(edge pressed) 1 0)) events: events actions: actions wake-at-ms: wake}
+          {state:       put(state 41 to-u8(If eq(edge pressed) 1 0))
+           events:      events
+           actions:     actions
+           wake-at-ms:  wake}
           If eq(edge pressed)
             If eq(get(state position) 0)
-              Let {usage: If eq(get(state 41) 0) base-usage(position) layer-usage(position)}
-                {state: put(state position usage) events: events actions: push(actions press({usage: to-u16(usage) modifiers: The u8 0})) wake-at-ms: wake}
+              Let {usage: If eq(get(state 41) 0)
+                            base-usage(position)
+                            layer-usage(position)}
+                {state:      put(state position usage)
+                 events:     events
+                 actions:    push(actions press({usage: to-u16(usage)
+                                                 modifiers: The u8 0}))
+                 wake-at-ms: wake}
               acc
             Let {usage: get(state position)}
               If eq(usage 0) acc
-                {state: put(state position The u8 0) events: events actions: push(actions release({usage: to-u16(usage) modifiers: The u8 0})) wake-at-ms: wake})])]
+                {state:      put(state position The u8 0)
+                 events:     events
+                 actions:    push(actions release({usage: to-u16(usage)
+                                                   modifiers: The u8 0}))
+                 wake-at-ms: wake})])]
 
-Export {iface: "kb:firmware/keyboard@0.1.0" name: process params: {state: list(u8) input: input} result: output}
+Export {iface:  "kb:firmware/keyboard@0.1.0"
+        name:   process
+        params: {state: list(u8)
+        input:  input}
+        result: output}
 Def process Fn {state: list(u8) input: input}
   Match input [({events: events now-ms: now}
     fold(transition

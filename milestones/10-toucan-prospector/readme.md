@@ -6,39 +6,54 @@ to the computer. The left Toucan's MIP display remains active and receives
 keyboard status from Prospector. Radio and display behavior still require
 hardware confirmation.
 
-- [ ] Run `./milestones/10-toucan-prospector/build.sh`.
-Flash one board at a time: each XIAO bootloader mounts at
-`/Volumes/XIAO-SENSE`. Disconnect the flashed board before connecting the next.
-Run these commands from the repository root.
+- [x] Run `./milestones/10-toucan-prospector/build.sh`. Flash one board at a
+  time: each XIAO bootloader mounts at `/Volumes/XIAO-SENSE`. Disconnect the
+  flashed board before connecting the next. Run these commands from the
+  repository root.
 
-- [ ] Connect the left Toucan and enter its bootloader. Run
-  `./scripts/flash-uf2.sh dist/toucan-left-satellite-display.uf2 /Volumes/XIAO-SENSE`.
-- [ ] Connect the right Toucan and enter its bootloader. Run
-  `./scripts/flash-uf2.sh dist/toucan-right-satellite.uf2 /Volumes/XIAO-SENSE`.
-- [ ] Connect Prospector and enter its bootloader. Run
+- [x] Connect the left Toucan and enter its bootloader. Run
+  `./scripts/flash-uf2.sh dist/toucan-left-satellite-display.uf2 /Volumes/XIAO-BOOT`.
+
+- [x] Connect the right Toucan and enter its bootloader. Run
+  `./scripts/flash-uf2.sh dist/toucan-right-satellite.uf2 /Volumes/XIAO-BOOT`.
+
+- [x] Connect Prospector and enter its bootloader. Run
   `./scripts/flash-uf2.sh dist/toucan-prospector.uf2 /Volumes/XIAO-SENSE`.
-- [ ] Keep Prospector connected to the computer by USB; power both keyboard
+
+- [x] Keep Prospector connected to the computer by USB; power both keyboard
   halves from USB or batteries.
-- [ ] Wait for both halves to connect automatically. Do not pair the satellites
+
+- [x] Wait for both halves to connect automatically. Do not pair the satellites
   through the computer's Bluetooth settings.
-- [ ] Confirm the computer sees **kb.wlt Toucan Receiver** as a USB keyboard.
+
+- [x] Confirm the computer sees **kb.wlt Toucan Receiver** as a USB keyboard.
+
 - [ ] Confirm the Prospector LCD displays connection, held-key count, and HID
   status.
+
 - [ ] Confirm the left Toucan's MIP display also shows the receiver's keyboard
   status, including keys pressed on the right half.
+
 - [ ] Repeat every key and thumb check from
   [milestone 8](../08-toucan-bluetooth/readme.md).
+
 - [ ] Hold Shift or the layer key on one half while using the other; confirm
   modifiers and layers span both halves.
+
 - [ ] Confirm the active layer and last HID output update on both displays.
+
 - [ ] Disconnect one half during a held key or modifier; verify the host
   releases it, then reconnect and verify fresh typing.
+
 - [ ] Reset Prospector while keys are held. Release all keys after reconnecting
   and confirm there is no phantom output.
+
 - [ ] Confirm the MIP display clears stale key, layer, and HID status after
   losing Prospector, then resumes live updates after reconnection.
+
 - [ ] Power-cycle all three controllers and confirm their saved pairing
   relationships recover.
+
 - [ ] Edit this folder's `keymap.wlt`, rebuild and reflash only
   `toucan-prospector`, and confirm the changed behavior without reflashing
   either satellite.
