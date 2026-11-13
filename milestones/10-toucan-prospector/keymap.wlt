@@ -42,9 +42,16 @@ Export {iface: "kb:firmware/keyboard@0.1.0" name: process params: {state: list(u
 Def process Fn {state: list(u8) input: input}
   Match input [({events: events now-ms: now}
     fold(transition
-      {state: initial-state(state) events: The list(key-event) [] actions: The list(action) [] wake-at-ms: none}
+      {state:      initial-state(state)
+       events:     The list(key-event) []
+       actions:    The list(action) []
+       wake-at-ms: none}
       events))]
 
-Export {iface: "kb:firmware/keyboard@0.1.0" name: transform-output params: {state: list(u8) actions: list(action)} result: tuple(list(u8) list(action))}
+Export {iface:  "kb:firmware/keyboard@0.1.0"
+        name:   transform-output
+        params: {state:   list(u8)
+                 actions: list(action)}
+        result: tuple(list(u8) list(action))}
 Def transform-output Fn {state: list(u8) actions: list(action)}
   tuple2(state actions)
