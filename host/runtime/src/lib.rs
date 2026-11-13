@@ -14,7 +14,6 @@ use wasmi::{
     TypedFunc,
 };
 
-pub const LED_EXPORT: &str = "kb:firmware/led@0.1.0#step";
 pub const BRAILLE_EXPORT: &str = "kb:firmware/braille@0.1.0#step";
 pub const MAX_MEMORY_BYTES: usize = 65_536;
 pub const CALL_FUEL: u64 = 100_000;
@@ -43,11 +42,11 @@ struct Runtime {
 }
 
 impl Runtime {
-    fn new_chain(bytes: &[&[u8]], contract: link::Contract) -> Result<Self, Error> {
+    fn new_chain(bytes: &[&[u8]]) -> Result<Self, Error> {
         if bytes.is_empty() || bytes.len() > 2 {
             return Err(Error::InvalidChain);
         }
-        Self::with_engine(bytes, contract, &Self::engine(false))
+        Self::with_engine(bytes, &Self::engine(false))
     }
 
     fn engine(eager: bool) -> Engine {
@@ -63,11 +62,7 @@ impl Runtime {
         Engine::new(&config)
     }
 
-    fn with_engine(
-        bytes: &[&[u8]],
-        contract: link::Contract,
-        engine: &Engine,
-    ) -> Result<Self, Error> {
+    fn with_engine(bytes: &[&[u8]], engine: &Engine) -> Result<Self, Error> {
         let limits = StoreLimitsBuilder::new()
             .memory_size(MAX_MEMORY_BYTES)
             .table_elements(128)
@@ -84,7 +79,7 @@ impl Runtime {
             let module = Module::new(engine, bytes)?;
             let mut linker = Linker::new(engine);
             if let Some(provider) = downstream {
-                link::connect(&mut linker, &store, provider, contract)?;
+                link::connect(&mut linker, &store, provider)?;
             }
             downstream = Some(linker.instantiate_and_start(&mut store, &module)?);
         }
@@ -106,88 +101,6 @@ impl Runtime {
             .read(&self.store, offset, &mut bytes)
             .map_err(|_| Error::InvalidReturn)?;
         Ok(bytes)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct LedState {
-    pub phase: u8,
-    pub speed: u8,
-    pub last_change_ms: u32,
-    pub button_was_down: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LedOutput {
-    pub state: LedState,
-    pub red: u8,
-    pub green: u8,
-    pub blue: u8,
-}
-
-type LedStep = TypedFunc<(i32, i32, i32, i32, i32, i32), i32>;
-
-pub struct LedComponent {
-    runtime: Runtime,
-    step: LedStep,
-    post_return: TypedFunc<i32, ()>,
-}
-
-impl LedComponent {
-    pub fn new(bytes: &[u8]) -> Result<Self, Error> {
-        Self::new_chain(&[bytes])
-    }
-
-    pub fn new_chain(bytes: &[&[u8]]) -> Result<Self, Error> {
-        let runtime = Runtime::new_chain(bytes, link::Contract::Led)?;
-        let step = runtime
-            .instance
-            .get_typed_func(&runtime.store, LED_EXPORT)?;
-        let post_return = runtime
-            .instance
-            .get_typed_func(&runtime.store, "cabi_post_kb:firmware/led@0.1.0#step")?;
-        Ok(Self {
-            runtime,
-            step,
-            post_return,
-        })
-    }
-
-    pub fn step(
-        &mut self,
-        state: LedState,
-        now_ms: u32,
-        button_down: bool,
-    ) -> Result<LedOutput, Error> {
-        self.runtime.store.set_fuel(CALL_FUEL)?;
-        let pointer = self.step.call(
-            &mut self.runtime.store,
-            (
-                state.phase as i32,
-                state.speed as i32,
-                state.last_change_ms as i32,
-                state.button_was_down as i32,
-                now_ms as i32,
-                button_down as i32,
-            ),
-        )?;
-        let bytes = self.runtime.read::<16>(pointer);
-        self.post_return.call(&mut self.runtime.store, pointer)?;
-        let bytes = bytes?;
-        if bytes[8] > 1 {
-            return Err(Error::InvalidReturn);
-        }
-        Ok(LedOutput {
-            state: LedState {
-                phase: bytes[0],
-                speed: bytes[1],
-                last_change_ms: u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
-                button_was_down: bytes[8] == 1,
-            },
-            red: bytes[12],
-            green: bytes[13],
-            blue: bytes[14],
-        })
     }
 }
 
@@ -240,7 +153,7 @@ impl BrailleComponent {
     }
 
     pub fn new_chain(bytes: &[&[u8]]) -> Result<Self, Error> {
-        let runtime = Runtime::new_chain(bytes, link::Contract::Braille)?;
+        let runtime = Runtime::new_chain(bytes)?;
         let step = runtime
             .instance
             .get_typed_func(&runtime.store, BRAILLE_EXPORT)?;

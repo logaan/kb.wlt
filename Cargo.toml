@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["host/runtime", "clients/build", "shared/*", "xtask"]
-exclude = ["firmware/nrf52840", "host/heap-probe", "resetter"]
+exclude = ["firmware/nrf52840"]
 
 [workspace.package]
 version = "0.1.0"

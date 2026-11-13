@@ -1,15 +1,39 @@
 #![no_std]
 
 #[cfg(all(
-    feature = "keyboard-composed",
-    any(
-        feature = "composed",
-        feature = "nice-view",
-        feature = "prospector-display",
-        feature = "display"
-    )
+    feature = "toucan-dongle",
+    not(all(feature = "usb", feature = "prospector-display"))
 ))]
-compile_error!("keyboard composition requires the no-display Toucan configuration");
+compile_error!("the Toucan receiver requires USB and the Prospector display");
+
+#[cfg(all(
+    feature = "toucan",
+    not(any(
+        feature = "toucan-dongle",
+        feature = "toucan-right",
+        feature = "nice-view"
+    ))
+))]
+compile_error!("the left Toucan satellite requires its MIP display");
+
+#[cfg(all(feature = "prospector-display", not(feature = "usb")))]
+compile_error!("Prospector is a USB receiver");
+
+#[cfg(all(
+    feature = "split",
+    not(feature = "toucan"),
+    not(any(
+        feature = "prospector-display",
+        feature = "satellite-left",
+        feature = "satellite-right"
+    ))
+))]
+compile_error!(
+    "Paintbrush requires a left satellite, right satellite, or Prospector receiver role"
+);
+
+#[cfg(all(feature = "satellite-left", feature = "satellite-right"))]
+compile_error!("a Paintbrush satellite has exactly one side");
 
 use embassy_nrf::config::{Config, HfclkSource, LfclkSource};
 use embedded_alloc::LlffHeap;
@@ -19,11 +43,6 @@ static HEAP: LlffHeap = LlffHeap::empty();
 
 pub fn init_heap() {
     unsafe {
-        #[cfg(feature = "keyboard-composed")]
-        embedded_alloc::init!(HEAP, 196 * 1024);
-        #[cfg(all(feature = "composed", not(feature = "keyboard-composed")))]
-        embedded_alloc::init!(HEAP, 208 * 1024);
-        #[cfg(not(any(feature = "composed", feature = "keyboard-composed")))]
         embedded_alloc::init!(HEAP, 160 * 1024);
     }
 }
@@ -35,10 +54,6 @@ pub fn clock_config() -> Config {
     config
 }
 
-#[cfg(feature = "display")]
-#[path = "../../../paintbrush/firmware/display.rs"]
-pub mod display;
-
 #[cfg(feature = "ble")]
 pub mod ble_bonds;
 
@@ -48,7 +63,7 @@ mod critical_section;
 #[cfg(feature = "split")]
 pub(crate) mod radio;
 
-#[cfg(feature = "split")]
+#[cfg(all(feature = "split", not(feature = "toucan")))]
 #[path = "../../../paintbrush/firmware/split.rs"]
 pub mod split;
 
@@ -65,5 +80,5 @@ pub mod nice_view;
 #[path = "../../../toucan/firmware/toucan.rs"]
 pub mod toucan;
 
-#[cfg(feature = "split")]
+#[cfg(all(feature = "prospector-display", not(feature = "toucan")))]
 pub mod settings;

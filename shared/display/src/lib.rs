@@ -17,7 +17,6 @@ use embedded_graphics::{
     primitives::{Circle, PrimitiveStyle},
     text::Text,
 };
-use embedded_hal_async::i2c::I2c;
 
 pub const WIDTH: usize = 128;
 pub const HEIGHT: usize = 32;
@@ -187,44 +186,4 @@ pub fn render(status: Status) -> Frame {
             .draw(&mut frame);
     }
     frame
-}
-
-pub struct Ssd1306<I> {
-    bus: I,
-    address: u8,
-}
-
-impl<I: I2c> Ssd1306<I> {
-    pub fn new(bus: I, address: u8) -> Self {
-        Self { bus, address }
-    }
-
-    pub async fn initialize(&mut self) -> Result<(), I::Error> {
-        self.bus
-            .write(
-                self.address,
-                &[
-                    0x00, 0xae, 0xd5, 0x80, 0xa8, 0x1f, 0xd3, 0x00, 0x40, 0x8d, 0x14, 0x20, 0x00,
-                    0xa1, 0xc8, 0xda, 0x02, 0x81, 0x8f, 0xd9, 0xf1, 0xdb, 0x40, 0xa4, 0xa6, 0x2e,
-                    0xaf,
-                ],
-            )
-            .await
-    }
-
-    pub async fn present(&mut self, frame: &Frame) -> Result<(), I::Error> {
-        self.bus
-            .write(self.address, &[0x00, 0x21, 0, 127, 0x22, 0, 3])
-            .await?;
-        for chunk in frame.bytes.chunks_exact(16) {
-            let mut packet = [0x40; 17];
-            packet[1..].copy_from_slice(chunk);
-            self.bus.write(self.address, &packet).await?;
-        }
-        Ok(())
-    }
-
-    pub fn into_inner(self) -> I {
-        self.bus
-    }
 }

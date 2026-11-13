@@ -1,7 +1,5 @@
 use kb_component_build::Contract;
-use kb_component_runtime::{
-    BrailleComponent, BrailleState, KeyboardComponent, LedComponent, LedState,
-};
+use kb_component_runtime::{BrailleComponent, BrailleState, KeyboardComponent};
 use kb_core::pipeline::{Input, KeyEvent, KeyState};
 use std::{fs, path::PathBuf};
 
@@ -14,21 +12,6 @@ pub fn check(contract: Contract, paths: &[PathBuf], budget: usize) -> Result<usi
     let core = bytes.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let baseline = crate::heap::begin();
     match contract {
-        Contract::Led => {
-            let mut component = if core.len() == 1 {
-                LedComponent::new(core[0])
-            } else {
-                LedComponent::new_chain(&core)
-            }
-            .map_err(|error| format!("LED runtime: {error:?}"))?;
-            let mut state = LedState::default();
-            for step in 0..128 {
-                state = component
-                    .step(state, step * 1000, false)
-                    .map_err(|error| format!("LED step: {error:?}"))?
-                    .state;
-            }
-        }
         Contract::Braille => {
             let mut component = if core.len() == 1 {
                 BrailleComponent::new(core[0])

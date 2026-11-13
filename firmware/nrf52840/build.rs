@@ -10,27 +10,9 @@ fn main() {
     assert!(matches!(origin, 0x1000 | 0x26000 | 0x27000));
     let end = 0xf0000;
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let mut artifacts = vec![
-        ("KB_LED_WASM", "led.core.wasm"),
-        ("KB_BRAILLE_WASM", "braille.core.wasm"),
-    ];
-    if env::var_os("CARGO_FEATURE_COMPOSED").is_some() {
-        artifacts.push(("KB_LED_WRAPPER_WASM", "led-dim/stage0/led.core.wasm"));
-    }
-    if env::var_os("CARGO_FEATURE_TOUCAN").is_some()
-        && env::var_os("CARGO_FEATURE_KEYBOARD_COMPOSED").is_none()
-    {
+    let mut artifacts = vec![("KB_BRAILLE_WASM", "braille.core.wasm")];
+    if env::var_os("CARGO_FEATURE_TOUCAN").is_some() {
         artifacts.push(("KB_KEYBOARD_WASM", "toucan-keymap/keyboard.core.wasm"));
-    }
-    if env::var_os("CARGO_FEATURE_KEYBOARD_COMPOSED").is_some() {
-        artifacts.push((
-            "KB_KEYBOARD_STAGE0_WASM",
-            "keyboard-composed/stage0/keyboard.core.wasm",
-        ));
-        artifacts.push((
-            "KB_KEYBOARD_STAGE1_WASM",
-            "keyboard-composed/stage1/keyboard.core.wasm",
-        ));
     }
     for (key, file) in artifacts {
         let path = env::var_os(key)

@@ -1,57 +1,19 @@
-use kb_component_runtime::{BrailleComponent, BrailleState, LedComponent, LedState};
+use kb_component_runtime::{BrailleComponent, BrailleState};
 use kb_core::braille::computer8;
 
-const LED: &[u8] = include_bytes!("../../../clients/components/generated/led.core.wasm");
 const BRAILLE: &[u8] = include_bytes!("../../../clients/components/generated/braille.core.wasm");
 
 #[test]
-fn led_cycles_every_colour_and_returns_explicit_state() {
-    let mut component = LedComponent::new(LED).unwrap();
-    let mut state = LedState::default();
-    for (second, rgb) in [
-        (255, 0, 0),
-        (255, 255, 0),
-        (0, 255, 0),
-        (0, 255, 255),
-        (0, 0, 255),
-        (255, 0, 255),
-        (255, 0, 0),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let output = component.step(state, second as u32 * 1000, false).unwrap();
-        assert_eq!((output.red, output.green, output.blue), rgb);
-        assert_eq!(output.state.last_change_ms, second as u32 * 1000);
-        state = output.state;
-    }
-}
-
-#[test]
 fn repeated_calls_release_the_guest_arena() {
-    let mut component = LedComponent::new(LED).unwrap();
-    let mut state = LedState::default();
+    let mut component = BrailleComponent::new(BRAILLE).unwrap();
+    let mut state = BrailleState::default();
     for time in 0..20_000 {
-        state = component.step(state, time, false).unwrap().state;
+        state = component.step(state, (time % 2) as u16).unwrap().state;
     }
-    assert_eq!(state.phase, 1);
-}
-
-#[test]
-fn led_handles_clock_wrap_and_button_edges() {
-    let mut component = LedComponent::new(LED).unwrap();
-    let initial = LedState {
-        last_change_ms: u32::MAX - 200,
-        ..LedState::default()
-    };
-    let output = component.step(initial, 300, false).unwrap();
-    assert_eq!(output.state.phase, 0);
-    let output = component.step(output.state, 800, false).unwrap();
-    assert_eq!(output.state.phase, 1);
-    let output = component.step(output.state, 801, true).unwrap();
-    assert_eq!(output.state.speed, 1);
-    let output = component.step(output.state, 802, true).unwrap();
-    assert_eq!(output.state.speed, 1);
+    assert_eq!(
+        component.step(state, 0).unwrap().state,
+        BrailleState::default()
+    );
 }
 
 #[test]
@@ -160,47 +122,21 @@ fn guest_execution_is_fuel_limited() {
     let module = wat::parse_str(
         r#"(module
         (memory (export "memory") 1)
-        (func (export "kb:firmware/led@0.1.0#step") (param i32 i32 i32 i32 i32 i32) (result i32)
+        (func (export "kb:firmware/braille@0.1.0#map-cell") (param i32) (result i32) i32.const 0)
+        (func (export "cabi_post_kb:firmware/braille@0.1.0#map-cell") (param i32))
+        (func (export "kb:firmware/braille@0.1.0#step") (param i32 i32 i32) (result i32)
             (loop $again br $again) i32.const 0)
-        (func (export "cabi_post_kb:firmware/led@0.1.0#step") (param i32)))"#,
+        (func (export "cabi_post_kb:firmware/braille@0.1.0#step") (param i32)))"#,
     )
     .unwrap();
-    let mut component = LedComponent::new(&module).unwrap();
-    assert!(component.step(LedState::default(), 0, false).is_err());
+    let mut component = BrailleComponent::new(&module).unwrap();
+    assert!(component.step(BrailleState::default(), 0).is_err());
 }
 
 #[test]
 fn excessive_guest_memory_is_rejected() {
     let module = wat::parse_str("(module (memory (export \"memory\") 2))").unwrap();
-    assert!(LedComponent::new(&module).is_err());
-}
-
-#[test]
-fn composed_led_middleware_transforms_outgoing_colours() {
-    let mut component = LedComponent::new_chain(&[
-        include_bytes!("../../../clients/components/generated/led-dim/stage0/led.core.wasm"),
-        include_bytes!("../../../clients/components/generated/led-dim/stage1/led.core.wasm"),
-    ])
-    .unwrap();
-    let mut state = LedState::default();
-    for (second, rgb) in [
-        (63, 0, 0),
-        (63, 63, 0),
-        (0, 63, 0),
-        (0, 63, 63),
-        (0, 0, 63),
-        (63, 0, 63),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let output = component.step(state, second as u32 * 1000, false).unwrap();
-        assert_eq!((output.red, output.green, output.blue), rgb);
-        state = output.state;
-    }
-    for time in 6000..16000 {
-        state = component.step(state, time, false).unwrap().state;
-    }
+    assert!(BrailleComponent::new(&module).is_err());
 }
 
 #[test]

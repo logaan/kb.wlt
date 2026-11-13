@@ -1,79 +1,45 @@
 use kb_component_build::{Contract, compile, compile_chain, compile_optimized};
 use std::path::Path;
 
-fn main() {
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    if let [command, contract, source, downstream, output] = args.as_slice() {
+fn contract(name: &str) -> Result<Contract, String> {
+    match name {
+        "braille" => Ok(Contract::Braille),
+        "keyboard" => Ok(Contract::Keyboard),
+        _ => Err("contract must be braille or keyboard".into()),
+    }
+}
+
+fn run(args: &[String]) -> Result<(), String> {
+    if let [command, name, source, downstream, output] = args {
         if command == "chain" {
-            let contract = match contract.as_str() {
-                "led" => Contract::Led,
-                "braille" => Contract::Braille,
-                "keyboard" => Contract::Keyboard,
-                _ => {
-                    eprintln!("unknown contract");
-                    std::process::exit(2);
-                }
-            };
-            match compile_chain(
+            let artifacts = compile_chain(
                 &[Path::new(source), Path::new(downstream)],
                 Path::new(output),
-                contract,
-            ) {
-                Ok(artifacts) => {
-                    println!("{}", artifacts.component_path.display());
-                    for path in artifacts.core_paths {
-                        println!("{}", path.display());
-                    }
-                }
-                Err(error) => {
-                    eprintln!("{error}");
-                    std::process::exit(1);
-                }
+                contract(name)?,
+            )?;
+            println!("{}", artifacts.component_path.display());
+            for path in artifacts.core_paths {
+                println!("{}", path.display());
             }
-            return;
+            return Ok(());
         }
     }
-    let result = match args.as_slice() {
-        [command, contract, source, output] if command == "optimized" => {
-            let contract = match contract.as_str() {
-                "led" => Contract::Led,
-                "braille" => Contract::Braille,
-                "keyboard" => Contract::Keyboard,
-                _ => {
-                    eprintln!("unknown contract");
-                    std::process::exit(2);
-                }
-            };
-            compile_optimized(Path::new(source), Path::new(output), contract)
-        }
-        [contract, source, output] => {
-            let contract = match contract.as_str() {
-                "led" => Contract::Led,
-                "braille" => Contract::Braille,
-                "keyboard" => Contract::Keyboard,
-                _ => {
-                    eprintln!("contract must be led, braille, or keyboard");
-                    std::process::exit(2);
-                }
-            };
-            compile(Path::new(source), Path::new(output), contract)
-        }
-        _ => {
-            eprintln!(
-                "usage: kb-component-build [optimized] <led|braille|keyboard> <source.wlt> <output-directory>"
-            );
-            std::process::exit(2);
-        }
+    let artifacts = match args {
+        [command, name, source, output] if command == "optimized" => compile_optimized(Path::new(source), Path::new(output), contract(name)?)?,
+        [name, source, output] => compile(Path::new(source), Path::new(output), contract(name)?)?,
+        _ => return Err("usage: kb-component-build [optimized] <braille|keyboard> <source.wlt> <output-directory>\n       kb-component-build chain <braille|keyboard> <source.wlt> <downstream.wlt> <output-directory>".into()),
     };
-    match result {
-        Ok(artifacts) => println!(
-            "{}\n{}",
-            artifacts.component_path.display(),
-            artifacts.core_path.display()
-        ),
-        Err(error) => {
-            eprintln!("{error}");
-            std::process::exit(1);
-        }
+    println!(
+        "{}\n{}",
+        artifacts.component_path.display(),
+        artifacts.core_path.display()
+    );
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = run(&std::env::args().skip(1).collect::<Vec<_>>()) {
+        eprintln!("{error}");
+        std::process::exit(1);
     }
 }

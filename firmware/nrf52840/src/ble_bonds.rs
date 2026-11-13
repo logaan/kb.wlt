@@ -13,8 +13,6 @@ pub fn storage_failed() -> bool {
     STORAGE_FAILED.load(Ordering::Relaxed)
 }
 
-pub const HID_SCHEMA: u32 = 0x4849_4401;
-pub const BRAILLE_HID_SCHEMA: u32 = 0x4849_4402;
 pub const PAINTBRUSH_LINK_SCHEMA: u32 = 0x5042_0001;
 pub const TOUCAN_LINK_SCHEMA: u32 = 0x5443_0001;
 

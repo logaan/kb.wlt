@@ -1,8 +1,6 @@
 /target/
 /dist/
 /firmware/nrf52840/target/
-/host/heap-probe/target/
-/resetter/target/
 .DS_Store
 __pycache__/
 *.pyc

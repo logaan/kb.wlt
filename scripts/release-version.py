@@ -11,8 +11,6 @@ VERSION_PATTERN = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)
 MANIFESTS = (
     ("Cargo.toml", "workspace.package"),
     ("firmware/nrf52840/Cargo.toml", "package"),
-    ("host/heap-probe/Cargo.toml", "package"),
-    ("resetter/Cargo.toml", "package"),
 )
 
 
@@ -117,7 +115,7 @@ def update(root, bump, explicit="", check=False, allow_current=False, released_o
         inputs.append((manifest, section, text, manifest_version(text, section)))
     current = inputs[0][3]
     if any(version != current for _, _, _, version in inputs):
-        raise ValueError("all workspace, firmware, probe, and resetter versions must match before release")
+        raise ValueError("workspace and firmware versions must match before release")
     version = next_version(current, bump, explicit, allow_current)
     outputs = [(manifest, replace_version(text, section, version)) for manifest, section, text, _ in inputs]
     notes = None

@@ -6,5 +6,5 @@ use panic_halt as _;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    kb_nrf52840::split::central(spawner, false).await;
+    kb_nrf52840::split::central(spawner).await;
 }

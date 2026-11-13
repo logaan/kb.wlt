@@ -104,32 +104,6 @@ fn colors_distinguish_accumulated_dot_eight_from_held_space() {
 }
 
 #[test]
-fn diagnostic_fill_writes_every_pixel_in_big_endian_rgb565() {
-    futures::executor::block_on(async {
-        for color in [0xf800u16, 0x07e0, 0x001f, 0xffff] {
-            let mut panel = St7789::new(Bus::default());
-            panel.fill(color).await.unwrap();
-            let bus = panel.into_inner();
-            assert_eq!(
-                bus.commands,
-                [
-                    (0x2a, vec![0, 0, 0, 239]),
-                    (0x2b, vec![0, 20, 1, 43]),
-                    (0x2c, vec![]),
-                ]
-            );
-            assert_eq!(bus.pixels.len(), 240 * 280 * 2);
-            assert!(bus.pixels.chunks_exact(2).all(|p| p == color.to_be_bytes()));
-        }
-        let mut panel = St7789::new(Bus {
-            fail: true,
-            ..Bus::default()
-        });
-        assert!(panel.fill(0xffff).await.is_err());
-    });
-}
-
-#[test]
 fn keyboard_uses_clockwise_landscape_and_restores_portrait_for_other_views() {
     futures::executor::block_on(async {
         let mut panel = St7789::new(Bus::default());

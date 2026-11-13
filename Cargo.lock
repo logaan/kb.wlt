@@ -632,7 +632,6 @@ name = "kb-display"
 version = "0.1.0"
 dependencies = [
  "embedded-graphics",
- "embedded-hal-async",
  "futures",
  "kb-core",
 ]

@@ -1,6 +1,5 @@
 pub const PACKET_LEN: usize = 20;
 pub const PROTOCOL_VERSION: u8 = 1;
-pub const SINGLE_PAINTBRUSH: [u16; 8] = [0x40, 0x04, 0x02, 0x01, 0x08, 0x10, 0x20, 0x100];
 pub const LEFT_PAINTBRUSH: [u16; 8] = [0x40, 0x04, 0x02, 0x01, 0, 0, 0, 0x100];
 pub const RIGHT_PAINTBRUSH: [u16; 8] = [0x08, 0x10, 0x20, 0x80, 0x100, 0, 0, 0];
 
@@ -8,7 +7,6 @@ pub const RIGHT_PAINTBRUSH: [u16; 8] = [0x08, 0x10, 0x20, 0x80, 0x100, 0, 0, 0];
 #[repr(u8)]
 pub enum Layout {
     #[default]
-    Single = 0,
     Left = 1,
     Right = 2,
 }
@@ -18,7 +16,6 @@ impl Layout {
         map_keys(
             keys,
             match self {
-                Self::Single => &SINGLE_PAINTBRUSH,
                 Self::Left => &LEFT_PAINTBRUSH,
                 Self::Right => &RIGHT_PAINTBRUSH,
             },
@@ -78,7 +75,6 @@ impl Snapshot {
             return Err(PacketError::Version);
         }
         let layout = match bytes[1] {
-            0 => Layout::Single,
             1 => Layout::Left,
             2 => Layout::Right,
             _ => return Err(PacketError::Layout),
@@ -148,7 +144,7 @@ impl<const N: usize> Receiver<N> {
         Self {
             peers: [Peer {
                 node: 0,
-                layout: Layout::Single,
+                layout: Layout::Left,
                 generation: 0,
                 boot: None,
                 sequence: 0,

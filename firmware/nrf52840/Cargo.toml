@@ -3,28 +3,22 @@ name = "kb-nrf52840"
 version = "0.1.0"
 edition = "2024"
 build = "build.rs"
+autobins = false
 
 [workspace]
 
 [features]
-default = ["usb"]
+default = []
 usb = []
 ble = ["dep:nrf-sdc", "dep:nrf-mpsl", "dep:trouble-host", "dep:static_cell", "dep:kb-bond-storage"]
-paintbrush-left = []
-composed = []
-keyboard-composed = ["toucan"]
-settings-reset = []
 split = ["ble", "nrf-sdc/central", "trouble-host/central", "trouble-host/scan"]
-split-pair = ["split"]
 satellite-left = ["split"]
 satellite-right = ["split"]
 prospector-display = ["dep:kb-display"]
 toucan = ["split"]
 toucan-right = ["toucan"]
 toucan-dongle = ["toucan"]
-niceview-display = ["nice-view"]
 nice-view = ["dep:kb-display"]
-display = ["dep:kb-display"]
 
 [dependencies]
 critical-section = { version = "1.2.0", features = ["restore-state-bool"] }
@@ -42,7 +36,6 @@ kb-component-runtime = { path = "../../host/runtime" }
 kb-display = { path = "../../shared/display", optional = true }
 kb-core = { path = "../../shared/keyboard-core" }
 panic-halt = "1.0.0"
-
 nrf-sdc = { version = "0.4.0", optional = true, default-features = false, features = ["nrf52840", "peripheral"] }
 nrf-mpsl = { version = "0.4.0", optional = true, features = ["nrf52840", "critical-section-impl"] }
 trouble-host = { version = "0.8.0", optional = true, default-features = false, features = ["derive", "gatt", "peripheral", "default-packet-pool", "default-packet-pool-mtu-128", "default-packet-pool-size-8", "security", "serde"] }
@@ -50,53 +43,14 @@ static_cell = { version = "2.1.1", optional = true }
 kb-bond-storage = { path = "../../shared/bond-storage", optional = true }
 
 [[bin]]
-name = "xiao-led"
-required-features = ["usb"]
-
-[[bin]]
-name = "paintbrush-usb"
-path = "../../paintbrush/firmware/bin/paintbrush-usb.rs"
-required-features = ["usb"]
-
-[[bin]]
-name = "paintbrush-ble"
-path = "../../paintbrush/firmware/bin/paintbrush-ble.rs"
-required-features = ["ble"]
-
-[[bin]]
 name = "paintbrush-satellite"
 path = "../../paintbrush/firmware/bin/paintbrush-satellite.rs"
 required-features = ["split"]
 
 [[bin]]
-name = "paintbrush-central"
-path = "../../paintbrush/firmware/bin/paintbrush-central.rs"
-required-features = ["split"]
-
-[[bin]]
 name = "prospector-dongle"
 path = "../../paintbrush/firmware/bin/prospector-dongle.rs"
-required-features = ["split"]
-
-[[bin]]
-name = "prospector-display-test"
-required-features = ["prospector-display"]
-
-[[bin]]
-name = "settings-reset"
-required-features = ["settings-reset"]
-
-[profile.release]
-codegen-units = 1
-lto = "fat"
-opt-level = "s"
-debug = 2
-panic = "abort"
-
-[[bin]]
-name = "toucan-ble"
-path = "../../toucan/firmware/bin/toucan-ble.rs"
-required-features = ["toucan"]
+required-features = ["split", "usb", "prospector-display"]
 
 [[bin]]
 name = "toucan-satellite"
@@ -106,4 +60,11 @@ required-features = ["toucan"]
 [[bin]]
 name = "toucan-dongle"
 path = "../../toucan/firmware/bin/toucan-dongle.rs"
-required-features = ["toucan-dongle"]
+required-features = ["toucan-dongle", "usb", "prospector-display"]
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = "s"
+debug = 2
+panic = "abort"

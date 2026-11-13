@@ -1,23 +1,5 @@
 package kb:firmware@0.1.0;
 
-interface led {
-    record state {
-        phase: u8,
-        speed: u8,
-        last-change-ms: u32,
-        button-was-down: bool,
-    }
-
-    record output {
-        state: state,
-        red: u8,
-        green: u8,
-        blue: u8,
-    }
-
-    step: func(state: state, now-ms: u32, button-down: bool) -> output;
-}
-
 interface keyboard {
     enum key-state {
         pressed,
@@ -56,10 +38,6 @@ interface keyboard {
 
     process: func(state: list<u8>, input: input) -> output;
     transform-output: func(state: list<u8>, actions: list<action>) -> tuple<list<u8>, list<action>>;
-}
-
-world led-module {
-    export led;
 }
 
 interface braille {

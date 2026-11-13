@@ -1,6 +1,7 @@
 #[cfg(feature = "prospector-display")]
 use crate::radio::DisplayIrqs;
 use crate::radio::{Bonds, Host, Irqs, address, device_id};
+#[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use embassy_executor::Spawner;
@@ -14,6 +15,7 @@ use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::interrupt::Priority;
 use embassy_nrf::usb::{Driver, vbus_detect::HardwareVbusDetect};
 use embassy_nrf::{Peri, peripherals};
+#[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -24,10 +26,7 @@ use embassy_usb::class::hid::{
     Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, State,
 };
 use embassy_usb::{Builder, Config};
-#[cfg(not(feature = "keyboard-composed"))]
 use kb_component_runtime::KeyboardComponent;
-#[cfg(feature = "keyboard-composed")]
-use kb_component_runtime::KeyboardPipeline;
 use kb_core::Debouncer;
 use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
 #[cfg(feature = "nice-view")]
@@ -38,10 +37,7 @@ use kb_core::matrix_link::{DISPLAY_PACKET_LEN, KEYS_MASK, PACKET_LEN, Receiver, 
     all(feature = "toucan-dongle", feature = "prospector-display")
 ))]
 use kb_core::matrix_link::{DisplayFeedback, DisplayStatus};
-#[cfg(not(feature = "keyboard-composed"))]
 use kb_core::pipeline::Bounded;
-#[cfg(feature = "keyboard-composed")]
-use kb_core::pipeline::PipelineState;
 use kb_core::pipeline::{Input, KeyEvent, KeyState};
 use kb_core::report_state::ReportState;
 use kb_core::transport::{InputGate, SessionGate};
@@ -71,8 +67,6 @@ static DISPLAY_INPUT: Signal<CriticalSectionRawMutex, (DisplayFeedback, u32)> = 
 static DISPLAY_OUTPUT: BlockingMutex<CriticalSectionRawMutex, Cell<Option<(DisplayStatus, u32)>>> =
     BlockingMutex::new(Cell::new(None));
 
-static BLE_SESSION: BlockingMutex<CriticalSectionRawMutex, Cell<SessionGate>> =
-    BlockingMutex::new(Cell::new(SessionGate::new()));
 static COMPONENT_FAILED: AtomicBool = AtomicBool::new(false);
 static KEYS: AtomicU32 = AtomicU32::new(0);
 static KEY_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -83,7 +77,6 @@ static CONNECT_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Role {
-    Keyboard,
     Satellite,
     Dongle,
 }
@@ -300,7 +293,6 @@ pub async fn run(spawner: Spawner, role: Role) {
         )
     };
     let (central_count, peripheral_count) = match role {
-        Role::Keyboard => (1, 1),
         Role::Satellite => (0, 1),
         Role::Dongle => (2, 0),
     };
@@ -346,17 +338,6 @@ pub async fn run(spawner: Spawner, role: Role) {
         match role {
             Role::Satellite => {
                 join(satellite(&stack, &bonds, side, boot), scanner).await;
-            }
-            Role::Keyboard => {
-                join3(
-                    join(
-                        hid_host(&stack, &bonds),
-                        peer_loop(&stack, &bonds, Side::Right),
-                    ),
-                    join(process_keys(), local_snapshots(boot)),
-                    scanner,
-                )
-                .await;
             }
             Role::Dongle => {
                 join3(
@@ -475,7 +456,6 @@ async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
                 crate::ble_bonds::TOUCAN_LINK_SCHEMA,
                 &connection,
                 bonds,
-                None,
                 #[cfg(feature = "nice-view")]
                 display_capable.then_some(server.keys.display.handle),
             ),
@@ -529,24 +509,6 @@ async fn run_remote_display() {
     }
 }
 
-async fn local_snapshots(boot: u32) {
-    let mut sequence = 0;
-    let mut opens = true;
-    loop {
-        let snapshot = Snapshot {
-            node: device_id(),
-            boot,
-            sequence,
-            side: Side::Left,
-            keys: KEYS.load(Ordering::Relaxed),
-        };
-        opens = EVENTS
-            .try_send(LinkEvent::snapshot(snapshot, opens))
-            .is_err();
-        sequence = sequence.wrapping_add(1);
-        let _ = select(KEY_CHANGED.wait(), Timer::after_millis(100)).await;
-    }
-}
 async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, side: Side) {
     loop {
         let (connection, display_feedback) = {
@@ -731,158 +693,6 @@ async fn receive_snapshots(
     let _ = select(client.task(), receive).await;
 }
 
-#[gatt_server(connections_max = 1, attribute_table_size = 40)]
-struct HidServer {
-    hid: HidService,
-    _device: DeviceInformation,
-}
-
-#[gatt_service(uuid = "1812")]
-struct HidService {
-    #[characteristic(uuid = "2a4a", read, value = [0x11, 0x01, 0x00, 0x02], permissions(encrypted))]
-    information: [u8; 4],
-    #[characteristic(uuid = "2a4b", read, value = REPORT_DESCRIPTOR, permissions(encrypted))]
-    report_map: [u8; 65],
-    #[characteristic(
-        uuid = "2a4e",
-        read,
-        write_without_response,
-        value = 1,
-        permissions(encrypted)
-    )]
-    protocol_mode: u8,
-    #[characteristic(uuid = "2a4c", write_without_response, permissions(encrypted))]
-    control_point: u8,
-    #[descriptor(uuid = "2908", read, value = [0u8, 1u8])]
-    #[characteristic(uuid = "2a4d", read, notify, permissions(encrypted))]
-    input_report: [u8; 8],
-    #[descriptor(uuid = "2908", read, value = [0u8, 2u8])]
-    #[characteristic(
-        uuid = "2a4d",
-        read,
-        write,
-        write_without_response,
-        permissions(encrypted)
-    )]
-    output_report: [u8; 1],
-    #[characteristic(uuid = "2a22", read, notify, permissions(encrypted))]
-    boot_input: [u8; 8],
-    #[characteristic(
-        uuid = "2a32",
-        read,
-        write,
-        write_without_response,
-        permissions(encrypted)
-    )]
-    boot_output: [u8; 1],
-}
-
-#[gatt_service(uuid = "180a")]
-struct DeviceInformation {
-    #[characteristic(uuid = "2a29", read, value = *b"kb.wlt")]
-    manufacturer: [u8; 6],
-    #[characteristic(uuid = "2a24", read, value = *b"Toucan")]
-    model: [u8; 6],
-}
-
-async fn hid_host(stack: &Host<'_>, bonds: &Bonds) {
-    let mut peripheral = stack.peripheral();
-    let server = HidServer::new_with_config(GapConfig::Peripheral(PeripheralConfig {
-        name: "kb.wlt Toucan",
-        appearance: &appearance::human_interface_device::KEYBOARD,
-    }))
-    .unwrap();
-    let mut advertising = [0; 31];
-    let length = AdStructure::encode_slice(
-        &[
-            AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
-            AdStructure::CompleteServiceUuids16(&[[0x12, 0x18]]),
-            AdStructure::CompleteLocalName(b"kb.wlt Toucan"),
-        ],
-        &mut advertising,
-    )
-    .unwrap();
-    loop {
-        set_ble_ready(false);
-        REPORTS.clear();
-        let advertisement = peripheral
-            .advertise(
-                &Default::default(),
-                Advertisement::ConnectableScannableUndirected {
-                    adv_data: &advertising[..length],
-                    scan_data: &[],
-                },
-            )
-            .await;
-        let Ok(advertisement) = advertisement else {
-            Timer::after_millis(100).await;
-            continue;
-        };
-        let Ok(connection) = advertisement.accept().await else {
-            Timer::after_millis(100).await;
-            continue;
-        };
-        if connection.set_bondable(true).is_err() {
-            continue;
-        }
-        let Ok(connection) = connection.with_attribute_server(&server) else {
-            continue;
-        };
-        connection.set(&server.hid.protocol_mode, &1).unwrap();
-        connection.set(&server.hid.control_point, &1).unwrap();
-        let send = async {
-            loop {
-                let boot = connection.get(&server.hid.protocol_mode).unwrap_or(1) == 0;
-                let characteristic = if boot {
-                    server.hid.boot_input
-                } else {
-                    server.hid.input_report
-                };
-                let ready = connection
-                    .raw()
-                    .security_level()
-                    .map(|level| level.encrypted())
-                    .unwrap_or(false)
-                    && connection.get(&server.hid.control_point).unwrap_or(1) != 0
-                    && characteristic.should_notify(&connection);
-                set_ble_ready(ready);
-                if !ready {
-                    REPORTS.clear();
-                    Timer::after_millis(10).await;
-                    continue;
-                }
-                if let Ok((generation, report)) = REPORTS.try_receive() {
-                    if transport().accepts(generation)
-                        && characteristic
-                            .notify(&connection, &report, true)
-                            .await
-                            .is_err()
-                    {
-                        return;
-                    }
-                }
-                Timer::after_millis(1).await;
-            }
-        };
-        let _ = select(
-            gatt_events(
-                &server.server,
-                crate::ble_bonds::HID_SCHEMA,
-                &connection,
-                bonds,
-                Some([
-                    server.hid.protocol_mode.handle,
-                    server.hid.control_point.handle,
-                ]),
-                #[cfg(feature = "nice-view")]
-                None,
-            ),
-            send,
-        )
-        .await;
-    }
-}
-
 async fn gatt_events<
     M: embassy_sync::blocking_mutex::raw::RawMutex,
     const AT: usize,
@@ -892,7 +702,6 @@ async fn gatt_events<
     schema: u32,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     bonds: &Bonds,
-    reset_handles: Option<[u16; 2]>,
     #[cfg(feature = "nice-view")] display_handle: Option<u16>,
 ) {
     loop {
@@ -933,12 +742,6 @@ async fn gatt_events<
                     event => event,
                 };
                 let changed = matches!(&event, GattEvent::Write(_));
-                if let GattEvent::Write(ref write) = event {
-                    if reset_handles.is_some_and(|handles| handles.contains(&write.handle())) {
-                        BLE_SESSION.lock(|state| state.set(state.get().reset()));
-                        REPORTS.clear();
-                    }
-                }
                 if let Ok(reply) = event.accept() {
                     reply.send().await;
                 }
@@ -956,18 +759,8 @@ async fn gatt_events<
 }
 
 async fn process_keys() {
-    #[cfg(not(feature = "keyboard-composed"))]
     let mut component = KeyboardComponent::new(include_bytes!(env!("KB_KEYBOARD_WASM"))).ok();
-    #[cfg(feature = "keyboard-composed")]
-    let mut component = KeyboardPipeline::new(&[
-        include_bytes!(env!("KB_KEYBOARD_STAGE0_WASM")),
-        include_bytes!(env!("KB_KEYBOARD_STAGE1_WASM")),
-    ])
-    .ok();
-    #[cfg(not(feature = "keyboard-composed"))]
     let mut state = Bounded::<u8, 64>::new(0);
-    #[cfg(feature = "keyboard-composed")]
-    let mut state = PipelineState::<2, 64>::new();
     let mut reports = ReportState::<42>::new();
     let mut receivers = [Receiver::new(); 2];
     let mut previous = 0;
@@ -1056,7 +849,6 @@ async fn process_keys() {
                 let component = component
                     .as_ref()
                     .ok_or(kb_component_runtime::Error::InvalidState)?;
-                #[cfg(not(feature = "keyboard-composed"))]
                 let (next_state, wake, actions) = {
                     let output = component.process::<64, 42, 42>(state.as_slice(), &input)?;
                     let wake = output.wake_at_ms;
@@ -1065,11 +857,6 @@ async fn process_keys() {
                         output.actions.as_slice(),
                     )?;
                     (output.state, wake, output.actions)
-                };
-                #[cfg(feature = "keyboard-composed")]
-                let (next_state, wake, actions) = {
-                    let output = component.process::<64, 42, 42>(state, input)?;
-                    (output.state, output.wake_at_ms, output.actions)
                 };
                 let mut next_reports = reports;
                 for action in actions.as_slice() {
@@ -1148,15 +935,7 @@ async fn process_keys() {
 }
 
 fn transport() -> SessionGate {
-    if cfg!(feature = "toucan-dongle") {
-        crate::usb_hid::connection()
-    } else {
-        BLE_SESSION.lock(Cell::get)
-    }
-}
-
-fn set_ble_ready(ready: bool) {
-    BLE_SESSION.lock(|session| session.set(session.get().set_ready(ready)));
+    crate::usb_hid::connection()
 }
 
 async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {

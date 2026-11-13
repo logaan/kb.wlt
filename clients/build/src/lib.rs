@@ -10,7 +10,6 @@ use wit_parser::{Resolve, Type, TypeDefKind, WorldItem, WorldKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Contract {
-    Led,
     Braille,
     Keyboard,
 }
@@ -18,7 +17,6 @@ pub enum Contract {
 impl Contract {
     pub fn name(self) -> &'static str {
         match self {
-            Self::Led => "led",
             Self::Braille => "braille",
             Self::Keyboard => "keyboard",
         }
@@ -26,7 +24,6 @@ impl Contract {
 
     pub(crate) fn functions(self) -> &'static [&'static str] {
         match self {
-            Self::Led => &["step"],
             Self::Braille => &["step", "map-cell"],
             Self::Keyboard => &["process", "transform-output"],
         }
@@ -34,7 +31,6 @@ impl Contract {
 
     pub fn interface(self) -> &'static str {
         match self {
-            Self::Led => "kb:firmware/led@0.1.0",
             Self::Braille => "kb:firmware/braille@0.1.0",
             Self::Keyboard => "kb:firmware/keyboard@0.1.0",
         }
@@ -352,7 +348,6 @@ fn validate_core(core: &[u8], contract: Contract, imports: bool) -> Result<(), S
         return Err("embedded component requires exactly one memory".into());
     }
     let functions: &[&str] = match contract {
-        Contract::Led => &["step"],
         Contract::Braille => &["step", "map-cell"],
         Contract::Keyboard => &["process", "transform-output"],
     };

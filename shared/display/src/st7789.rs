@@ -74,15 +74,6 @@ impl<B: PanelBus> St7789<B> {
         Ok(())
     }
 
-    pub async fn fill(&mut self, color: u16) -> Result<(), B::Error> {
-        self.present_rows(|_, row| {
-            for pixel in row.chunks_exact_mut(2) {
-                pixel.copy_from_slice(&color.to_be_bytes());
-            }
-        })
-        .await
-    }
-
     pub async fn present(&mut self, status: Status) -> Result<(), B::Error> {
         if status.keyboard.is_some() {
             self.orientation(true).await?;

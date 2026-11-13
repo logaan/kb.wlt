@@ -27,6 +27,9 @@ fn snapshots_fit_a_default_att_payload_and_detect_corruption() {
         }
     }
     assert_eq!(Snapshot::decode(&encoded[..19]), Err(PacketError::Length));
+    let mut retired_layout = encoded;
+    retired_layout[1] = 0;
+    assert_eq!(Snapshot::decode(&retired_layout), Err(PacketError::Layout));
 }
 
 #[test]
@@ -34,7 +37,6 @@ fn split_top_rows_have_all_eight_dots_and_bottom_rows_have_inner_space() {
     for (layout, expected) in [
         (Layout::Left, [0x40, 4, 2, 1, 0, 0, 0, 0x100]),
         (Layout::Right, [8, 0x10, 0x20, 0x80, 0x100, 0, 0, 0]),
-        (Layout::Single, [0x40, 4, 2, 1, 8, 0x10, 0x20, 0x100]),
     ] {
         assert_eq!(core::array::from_fn(|key| layout.map(1 << key)), expected);
     }
@@ -56,22 +58,22 @@ fn split_dot_eight_and_space_dot_seven_produce_return() {
 #[test]
 fn reconnecting_while_pressed_requires_neutral_before_accepting_keys() {
     let (receiver, session, _) = Receiver::<1>::new(500)
-        .connect(0, 10, Layout::Single, 0)
+        .connect(0, 10, Layout::Left, 0)
         .unwrap();
     let (receiver, update) = receiver
-        .receive(session, snapshot(10, Layout::Single, 1, 1), 1)
-        .unwrap();
-    assert_eq!(update.keys, 0);
-    let (receiver, update) = receiver
-        .receive(session, snapshot(10, Layout::Single, 2, 3), 2)
+        .receive(session, snapshot(10, Layout::Left, 1, 1), 1)
         .unwrap();
     assert_eq!(update.keys, 0);
     let (receiver, update) = receiver
-        .receive(session, snapshot(10, Layout::Single, 3, 0), 3)
+        .receive(session, snapshot(10, Layout::Left, 2, 3), 2)
+        .unwrap();
+    assert_eq!(update.keys, 0);
+    let (receiver, update) = receiver
+        .receive(session, snapshot(10, Layout::Left, 3, 0), 3)
         .unwrap();
     assert_eq!(update.keys, 0);
     let (_, update) = receiver
-        .receive(session, snapshot(10, Layout::Single, 4, 1), 4)
+        .receive(session, snapshot(10, Layout::Left, 4, 1), 4)
         .unwrap();
     assert_eq!(update.pressed, 0x40);
 }
@@ -143,17 +145,17 @@ fn space_remains_held_until_both_split_space_keys_release() {
 #[test]
 fn sequence_wrap_is_accepted_but_duplicates_and_old_snapshots_are_rejected() {
     let (receiver, session, _) = Receiver::<1>::new(500)
-        .connect(0, 10, Layout::Single, 0)
+        .connect(0, 10, Layout::Left, 0)
         .unwrap();
     let (receiver, _) = receiver
-        .receive(session, snapshot(10, Layout::Single, u16::MAX, 0), 0)
+        .receive(session, snapshot(10, Layout::Left, u16::MAX, 0), 0)
         .unwrap();
     let (receiver, _) = receiver
-        .receive(session, snapshot(10, Layout::Single, 0, 1), 1)
+        .receive(session, snapshot(10, Layout::Left, 0, 1), 1)
         .unwrap();
     for sequence in [0, u16::MAX, 0x8000] {
         assert_eq!(
-            receiver.receive(session, snapshot(10, Layout::Single, sequence, 0), 2),
+            receiver.receive(session, snapshot(10, Layout::Left, sequence, 0), 2),
             Err(ReceiveError::Sequence)
         );
     }
@@ -162,25 +164,25 @@ fn sequence_wrap_is_accepted_but_duplicates_and_old_snapshots_are_rejected() {
 #[test]
 fn stale_connection_tokens_and_changed_device_identity_are_rejected() {
     let (receiver, old, _) = Receiver::<1>::new(500)
-        .connect(0, 10, Layout::Single, 0)
+        .connect(0, 10, Layout::Left, 0)
         .unwrap();
-    let (receiver, session, _) = receiver.connect(0, 10, Layout::Single, 1).unwrap();
+    let (receiver, session, _) = receiver.connect(0, 10, Layout::Left, 1).unwrap();
     assert_eq!(
-        receiver.receive(old, snapshot(10, Layout::Single, 0, 0), 2),
+        receiver.receive(old, snapshot(10, Layout::Left, 0, 0), 2),
         Err(ReceiveError::StaleSession)
     );
     assert_eq!(
-        receiver.receive(session, snapshot(11, Layout::Single, 0, 0), 2),
+        receiver.receive(session, snapshot(11, Layout::Left, 0, 0), 2),
         Err(ReceiveError::Identity)
     );
     assert_eq!(
-        receiver.receive(session, snapshot(10, Layout::Left, 0, 0), 2),
+        receiver.receive(session, snapshot(10, Layout::Right, 0, 0), 2),
         Err(ReceiveError::Layout)
     );
     let (receiver, _) = receiver
-        .receive(session, snapshot(10, Layout::Single, 0, 0), 2)
+        .receive(session, snapshot(10, Layout::Left, 0, 0), 2)
         .unwrap();
-    let mut reboot = snapshot(10, Layout::Single, 1, 0);
+    let mut reboot = snapshot(10, Layout::Left, 1, 0);
     reboot.boot += 1;
     assert_eq!(
         receiver.receive(session, reboot, 3),
@@ -192,13 +194,13 @@ fn stale_connection_tokens_and_changed_device_identity_are_rejected() {
 fn silence_and_disconnect_cancel_partial_chords_and_release_keys() {
     let start = u32::MAX - 10;
     let (receiver, session, _) = Receiver::<1>::new(20)
-        .connect(0, 10, Layout::Single, start)
+        .connect(0, 10, Layout::Left, start)
         .unwrap();
     let (receiver, _) = receiver
-        .receive(session, snapshot(10, Layout::Single, 0, 0), start)
+        .receive(session, snapshot(10, Layout::Left, 0, 0), start)
         .unwrap();
     let (receiver, _) = receiver
-        .receive(session, snapshot(10, Layout::Single, 1, 8), start + 1)
+        .receive(session, snapshot(10, Layout::Left, 1, 8), start + 1)
         .unwrap();
     let (live, update) = receiver.expire(9);
     assert_eq!(update.released, 0);
@@ -208,7 +210,7 @@ fn silence_and_disconnect_cancel_partial_chords_and_release_keys() {
     assert!(update.cancel_chord);
     assert!(!expired.is_connected(0));
     assert_eq!(
-        expired.receive(session, snapshot(10, Layout::Single, 2, 0), 11),
+        expired.receive(session, snapshot(10, Layout::Left, 2, 0), 11),
         Err(ReceiveError::StaleSession)
     );
     let (_, update) = live.disconnect(session).unwrap();
@@ -219,13 +221,13 @@ fn silence_and_disconnect_cancel_partial_chords_and_release_keys() {
 #[test]
 fn replacing_closing_and_expiring_idle_links_cancel_pending_input() {
     let receiver = Receiver::<1>::new(500);
-    let (receiver, session, update) = receiver.connect(0, 1, Layout::Single, 0).unwrap();
+    let (receiver, session, update) = receiver.connect(0, 1, Layout::Left, 0).unwrap();
     assert!(!update.cancel_chord);
     assert!(receiver.disconnect(session).unwrap().1.cancel_chord);
     assert!(receiver.expire(500).1.cancel_chord);
     assert!(
         receiver
-            .connect(0, 2, Layout::Single, 499)
+            .connect(0, 2, Layout::Left, 499)
             .unwrap()
             .2
             .cancel_chord

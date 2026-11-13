@@ -4,7 +4,6 @@ fn firmware_contracts_are_valid_and_resource_free() {
     let (package, _) = resolve
         .push_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../clients/wit"))
         .unwrap();
-    assert!(resolve.packages[package].worlds.contains_key("led-module"));
     assert!(
         resolve.packages[package]
             .worlds

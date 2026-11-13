@@ -1,4 +1,4 @@
-use crate::{CALL_FUEL, Error, Runtime, link};
+use crate::{CALL_FUEL, Error, Runtime};
 use core::cell::RefCell;
 use kb_core::pipeline::{
     Action, Bounded, Input, Key, KeyEvent, KeyState, Middleware, Output, Pipeline, PipelineState,
@@ -30,7 +30,7 @@ impl KeyboardComponent {
     }
 
     fn with_engine(bytes: &[u8], engine: &wasmi::Engine) -> Result<Self, Error> {
-        let runtime = Runtime::with_engine(&[bytes], link::Contract::Led, engine)?;
+        let runtime = Runtime::with_engine(&[bytes], engine)?;
         let instance = runtime.instance;
         let store = &runtime.store;
         let process = instance.get_typed_func(store, "kb:firmware/keyboard@0.1.0#process")?;

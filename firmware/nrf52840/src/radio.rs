@@ -4,6 +4,7 @@ use embassy_nrf::interrupt::{InterruptExt, Priority};
 use embassy_nrf::mode::Async;
 use embassy_nrf::{Peri, bind_interrupts, pac, peripherals, rng, usb};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+#[cfg(any(feature = "toucan", feature = "prospector-display"))]
 use embassy_time::{Duration, with_timeout};
 use nrf_sdc::{self as sdc, mpsl};
 use static_cell::StaticCell;
@@ -25,6 +26,7 @@ bind_interrupts!(pub(crate) struct DisplayIrqs {
 });
 
 pub(crate) type ControllerType = sdc::SoftdeviceController<'static>;
+#[cfg(any(feature = "toucan", feature = "prospector-display"))]
 pub(crate) type Host<'d> = Stack<'d, ControllerType, DefaultPacketPool>;
 pub(crate) type Bonds = Mutex<CriticalSectionRawMutex, BondStore<'static>>;
 
@@ -108,6 +110,7 @@ pub(crate) fn radio(
     )
 }
 
+#[cfg(any(feature = "toucan", feature = "prospector-display"))]
 pub(crate) async fn authenticate(
     connection: &Connection<'_, DefaultPacketPool>,
     stack: &Host<'_>,

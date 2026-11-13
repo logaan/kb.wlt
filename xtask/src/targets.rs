@@ -6,217 +6,82 @@ pub struct Target {
     pub name: &'static str,
     pub binary: &'static str,
     pub features: &'static str,
-    pub contract: Option<Contract>,
+    pub contract: Contract,
     pub flash_origin: u32,
 }
 
 impl Target {
-    pub fn keyboard_composed(self) -> bool {
-        self.features
-            .split(',')
-            .any(|feature| feature == "keyboard-composed")
-    }
-
-    const fn new(
-        name: &'static str,
-        binary: &'static str,
-        features: &'static str,
-        contract: Option<Contract>,
-        flash_origin: u32,
-    ) -> Self {
-        Self {
-            name,
-            binary,
-            features,
-            contract,
-            flash_origin,
-        }
-    }
-
-    pub fn source(self) -> Option<&'static str> {
+    pub fn source(self) -> &'static str {
         match self.contract {
-            Some(Contract::Led) => Some("clients/components/led/led.wlt"),
-            Some(Contract::Braille) => Some("clients/components/braille/braille.wlt"),
-            Some(Contract::Keyboard) => Some("clients/components/toucan-keymap/toucan-keymap.wlt"),
-            None => None,
+            Contract::Braille => "clients/components/braille/braille.wlt",
+            Contract::Keyboard => "clients/components/toucan-keymap/toucan-keymap.wlt",
         }
     }
 }
 
-const NANO: u32 = STOCK_APPLICATION_START;
-const XIAO: u32 = S140_V7_APPLICATION_START;
-
 pub const TARGETS: &[Target] = &[
-    Target::new("xiao-led", "xiao-led", "usb", Some(Contract::Led), XIAO),
-    Target::new(
-        "xiao-led-composed",
-        "xiao-led",
-        "usb,composed",
-        Some(Contract::Led),
-        XIAO,
-    ),
-    Target::new(
-        "paintbrush-usb",
-        "paintbrush-usb",
-        "usb",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-usb-left",
-        "paintbrush-usb",
-        "usb,paintbrush-left",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-ble",
-        "paintbrush-ble",
-        "ble",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-ble-left",
-        "paintbrush-ble",
-        "ble,paintbrush-left",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-display",
-        "paintbrush-usb",
-        "usb,display",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-ble-display",
-        "paintbrush-ble",
-        "ble,display",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-satellite",
-        "paintbrush-satellite",
-        "split",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-left-satellite",
-        "paintbrush-satellite",
-        "split,satellite-left",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-right-satellite",
-        "paintbrush-satellite",
-        "split,satellite-right",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "paintbrush-central",
-        "paintbrush-central",
-        "usb,split",
-        Some(Contract::Braille),
-        NANO,
-    ),
-    Target::new(
-        "prospector-display-test",
-        "prospector-display-test",
-        "prospector-display",
-        None,
-        XIAO,
-    ),
-    Target::new(
-        "prospector-single",
-        "prospector-dongle",
-        "usb,split,prospector-display",
-        Some(Contract::Braille),
-        XIAO,
-    ),
-    Target::new(
-        "prospector-pair",
-        "prospector-dongle",
-        "usb,split,split-pair,prospector-display",
-        Some(Contract::Braille),
-        XIAO,
-    ),
-    Target::new(
-        "settings-reset-nano",
-        "settings-reset",
-        "settings-reset",
-        None,
-        NANO,
-    ),
-    Target::new(
-        "settings-reset-xiao",
-        "settings-reset",
-        "settings-reset",
-        None,
-        XIAO,
-    ),
-    Target::new(
-        "toucan-ble",
-        "toucan-ble",
-        "toucan",
-        Some(Contract::Keyboard),
-        XIAO,
-    ),
-    Target::new(
-        "toucan-ble-display",
-        "toucan-ble",
-        "toucan,nice-view",
-        Some(Contract::Keyboard),
-        XIAO,
-    ),
-    Target::new(
-        "toucan-right-satellite",
-        "toucan-satellite",
-        "toucan,toucan-right",
-        Some(Contract::Keyboard),
-        XIAO,
-    ),
-    Target::new(
-        "toucan-left-satellite",
-        "toucan-satellite",
-        "toucan",
-        Some(Contract::Keyboard),
-        XIAO,
-    ),
-    Target::new(
-        "toucan-left-satellite-display",
-        "toucan-satellite",
-        "toucan,nice-view",
-        Some(Contract::Keyboard),
-        XIAO,
-    ),
-    Target::new(
-        "toucan-prospector",
-        "toucan-dongle",
-        "toucan-dongle,usb,prospector-display",
-        Some(Contract::Keyboard),
-        XIAO,
-    ),
-    Target::new(
-        "toucan-ble-composed",
-        "toucan-ble",
-        "toucan,keyboard-composed",
-        Some(Contract::Keyboard),
-        XIAO,
-    ),
-    Target::new(
-        "toucan-dongle-composed",
-        "toucan-dongle",
-        "toucan-dongle,usb,keyboard-composed",
-        Some(Contract::Keyboard),
-        XIAO,
-    ),
+    Target {
+        name: "toucan-left-satellite-display",
+        binary: "toucan-satellite",
+        features: "toucan,nice-view",
+        contract: Contract::Keyboard,
+        flash_origin: S140_V7_APPLICATION_START,
+    },
+    Target {
+        name: "toucan-right-satellite",
+        binary: "toucan-satellite",
+        features: "toucan,toucan-right",
+        contract: Contract::Keyboard,
+        flash_origin: S140_V7_APPLICATION_START,
+    },
+    Target {
+        name: "toucan-prospector",
+        binary: "toucan-dongle",
+        features: "toucan-dongle,usb,prospector-display",
+        contract: Contract::Keyboard,
+        flash_origin: S140_V7_APPLICATION_START,
+    },
+    Target {
+        name: "paintbrush-left-satellite",
+        binary: "paintbrush-satellite",
+        features: "split,satellite-left",
+        contract: Contract::Braille,
+        flash_origin: STOCK_APPLICATION_START,
+    },
+    Target {
+        name: "paintbrush-right-satellite",
+        binary: "paintbrush-satellite",
+        features: "split,satellite-right",
+        contract: Contract::Braille,
+        flash_origin: STOCK_APPLICATION_START,
+    },
+    Target {
+        name: "prospector-pair",
+        binary: "prospector-dongle",
+        features: "usb,split,prospector-display",
+        contract: Contract::Braille,
+        flash_origin: S140_V7_APPLICATION_START,
+    },
 ];
+
+pub fn verify_release_names(names: &[String]) -> Result<(), String> {
+    let expected = TARGETS
+        .iter()
+        .map(|target| format!("{}.uf2", target.name))
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual = names
+        .iter()
+        .filter(|name| name.ends_with(".uf2"))
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "release UF2 mismatch: expected {expected:?}, found {actual:?}"
+        ))
+    }
+}
 
 pub fn find(name: &str) -> Option<Target> {
     TARGETS.iter().copied().find(|target| target.name == name)

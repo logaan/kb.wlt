@@ -61,7 +61,7 @@ class ReleaseVersionTests(unittest.TestCase):
     def test_mismatched_versions_fail_before_any_file_is_modified(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.make_manifests(root, ("0.1.0", "0.2.0", "0.1.0", "0.1.0"))
+            self.make_manifests(root, ("0.1.0", "0.2.0"))
             before = {filename: (root / filename).read_text() for filename, _ in RELEASE.MANIFESTS}
             with self.assertRaises(ValueError):
                 RELEASE.update(root, "major")

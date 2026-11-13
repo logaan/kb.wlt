@@ -1,6 +1,4 @@
-use kb_component_runtime::{
-    BrailleComponent, BrailleState, KeyboardComponent, LedComponent, LedState,
-};
+use kb_component_runtime::{BrailleComponent, BrailleState, KeyboardComponent};
 use kb_core::pipeline::{Input, KeyEvent, KeyState};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -33,16 +31,6 @@ fn embedded_components_fit_the_nrf_heap_budget() {
     let baseline = LIVE.load(Ordering::SeqCst);
     PEAK.store(baseline, Ordering::SeqCst);
     {
-        let mut component = LedComponent::new(include_bytes!(
-            "../../../clients/components/generated/led.core.wasm"
-        ))
-        .unwrap();
-        component.step(LedState::default(), 1000, false).unwrap();
-    }
-    let led_peak = PEAK.load(Ordering::SeqCst) - baseline;
-    let baseline = LIVE.load(Ordering::SeqCst);
-    PEAK.store(baseline, Ordering::SeqCst);
-    {
         let mut component = BrailleComponent::new(include_bytes!(
             "../../../clients/components/generated/braille.core.wasm"
         ))
@@ -53,21 +41,7 @@ fn embedded_components_fit_the_nrf_heap_budget() {
         }
     }
     let braille_peak = PEAK.load(Ordering::SeqCst) - baseline;
-    eprintln!(
-        "LED peak allocations: {led_peak} bytes; Braille peak allocations: {braille_peak} bytes"
-    );
-    let baseline = LIVE.load(Ordering::SeqCst);
-    PEAK.store(baseline, Ordering::SeqCst);
-    {
-        let mut component = LedComponent::new_chain(&[
-            include_bytes!("../../../clients/components/generated/led-dim/stage0/led.core.wasm"),
-            include_bytes!("../../../clients/components/generated/led-dim/stage1/led.core.wasm"),
-        ])
-        .unwrap();
-        component.step(LedState::default(), 1000, false).unwrap();
-    }
-    let chain_peak = PEAK.load(Ordering::SeqCst) - baseline;
-    eprintln!("Composed LED peak allocations: {chain_peak} bytes");
+    eprintln!("Braille peak allocations: {braille_peak} bytes");
     let baseline = LIVE.load(Ordering::SeqCst);
     PEAK.store(baseline, Ordering::SeqCst);
     {
@@ -105,7 +79,5 @@ fn embedded_components_fit_the_nrf_heap_budget() {
     let keyboard_peak = PEAK.load(Ordering::SeqCst) - baseline;
     eprintln!("Toucan keymap peak allocations: {keyboard_peak} bytes");
     assert!(keyboard_peak <= 160 * 1024);
-    assert!(chain_peak <= 208 * 1024);
-    assert!(led_peak <= 160 * 1024);
     assert!(braille_peak <= 160 * 1024);
 }

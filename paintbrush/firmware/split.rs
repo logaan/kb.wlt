@@ -1,31 +1,45 @@
 #[cfg(feature = "prospector-display")]
 use crate::radio::DisplayIrqs;
-use crate::radio::{Bonds, Host, Irqs, address, authenticate, device_id, radio};
+use crate::radio::{Bonds, address, device_id, radio};
+#[cfg(feature = "prospector-display")]
+use crate::radio::{Host, Irqs, authenticate};
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_executor::Spawner;
-use embassy_futures::join::{join, join3};
-use embassy_futures::select::{Either, select};
+#[cfg(feature = "prospector-display")]
+use embassy_futures::{join::join, select::Either};
+use embassy_futures::{join::join3, select::select};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 #[cfg(feature = "prospector-display")]
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::interrupt::Priority;
+#[cfg(feature = "prospector-display")]
 use embassy_nrf::usb::{Driver, vbus_detect::HardwareVbusDetect};
 use embassy_nrf::{Peri, peripherals};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Instant, Timer, with_timeout};
+#[cfg(feature = "prospector-display")]
+use embassy_sync::{channel::Channel, mutex::Mutex};
+#[cfg(feature = "prospector-display")]
+use embassy_time::{Duration, with_timeout};
+use embassy_time::{Instant, Timer};
+#[cfg(feature = "prospector-display")]
 use embassy_usb::class::hid::{
     Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, State,
 };
+#[cfg(feature = "prospector-display")]
 use embassy_usb::{Builder, Config};
+#[cfg(feature = "prospector-display")]
 use kb_component_runtime::{BrailleComponent, BrailleTyping};
-use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
-use kb_core::preferences::{MAX_OUTPUT, Settings};
-use kb_core::split::{Layout, PACKET_LEN, Receiver, Session, Snapshot};
-use kb_core::transport::{FaultLatch, InputGate};
-use kb_core::{Debouncer, KeyStroke};
+use kb_core::Debouncer;
+use kb_core::split::{Layout, PACKET_LEN, Snapshot};
+#[cfg(feature = "prospector-display")]
+use kb_core::{
+    KeyStroke,
+    hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR,
+    preferences::{MAX_OUTPUT, Settings},
+    split::{Receiver, Session},
+    transport::{FaultLatch, InputGate},
+};
 use nrf_sdc::{self as sdc, mpsl};
 use trouble_host::prelude::*;
 
@@ -39,18 +53,25 @@ const SNAPSHOT_UUID: Uuid = Uuid::new_long([
 
 static KEYS: AtomicU8 = AtomicU8::new(0);
 static KEY_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+#[cfg(feature = "prospector-display")]
 static STROKES: Channel<CriticalSectionRawMutex, (u32, KeyStroke), 32> = Channel::new();
+#[cfg(feature = "prospector-display")]
 const LINK_TIMEOUT_MS: u32 = 500;
+#[cfg(feature = "prospector-display")]
 static EVENTS: Channel<CriticalSectionRawMutex, (u32, LinkEvent), 64> = Channel::new();
+#[cfg(feature = "prospector-display")]
 static ADVERTISEMENTS: Channel<CriticalSectionRawMutex, Discovered, 16> = Channel::new();
+#[cfg(feature = "prospector-display")]
 static CONNECT_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
+#[cfg(feature = "prospector-display")]
 #[derive(Clone, Copy)]
 struct Discovered {
     address: Address,
     layout: Layout,
 }
 
+#[cfg(feature = "prospector-display")]
 #[derive(Clone, Copy)]
 enum LinkEvent {
     Open(usize, Snapshot),
@@ -58,14 +79,17 @@ enum LinkEvent {
     Close(usize),
 }
 
+#[cfg(feature = "prospector-display")]
 impl LinkEvent {
     async fn send(self) {
         EVENTS.send((Instant::now().as_millis() as u32, self)).await;
     }
 }
 
+#[cfg(feature = "prospector-display")]
 struct Discovery;
 
+#[cfg(feature = "prospector-display")]
 impl EventHandler for Discovery {
     fn on_adv_reports(&self, mut reports: LeAdvReportsIter<'_>) {
         while let Some(Ok(report)) = reports.next() {
@@ -79,6 +103,7 @@ impl EventHandler for Discovery {
     }
 }
 
+#[cfg(feature = "prospector-display")]
 fn advertised_layout(mut data: &[u8]) -> Option<Layout> {
     let mut service = false;
     let mut layout = None;
@@ -100,7 +125,6 @@ fn advertised_layout(mut data: &[u8]) -> Option<Layout> {
         }
         if field.len() == 9 && field[..7] == [0xff, 0xff, 0xff, b'k', b'b', b'w', 1] {
             layout = match field[7] {
-                0 => Some(Layout::Single),
                 1 => Some(Layout::Left),
                 2 => Some(Layout::Right),
                 _ => None,
@@ -155,14 +179,7 @@ async fn scan(inputs: [Input<'static>; 8], mut indicator: Output<'static>) {
             });
         let (next, update) = debouncer.sample(raw, Instant::now().as_millis() as u32);
         debouncer = next;
-        let keys = if cfg!(feature = "paintbrush-left") {
-            ((update.stable as u8 & 0x88) >> 3)
-                | ((update.stable as u8 & 0x44) >> 1)
-                | ((update.stable as u8 & 0x22) << 1)
-                | ((update.stable as u8 & 0x11) << 3)
-        } else {
-            update.stable as u8
-        };
+        let keys = update.stable as u8;
         KEYS.store(keys, Ordering::Relaxed);
         if update.pressed | update.released != 0 {
             KEY_CHANGED.signal(());
@@ -222,10 +239,8 @@ pub async fn satellite(spawner: Spawner) {
     .unwrap();
     let layout = if cfg!(feature = "satellite-left") {
         Layout::Left
-    } else if cfg!(feature = "satellite-right") {
-        Layout::Right
     } else {
-        Layout::Single
+        Layout::Right
     };
     let connections = async {
         let mut advertising = [0; 31];
@@ -346,27 +361,13 @@ pub async fn satellite(spawner: Spawner) {
     join3(runner.run(), connections, scan(inputs, indicator)).await;
 }
 
-pub async fn central(spawner: Spawner, local_keyboard: bool) {
+#[cfg(feature = "prospector-display")]
+pub async fn central(spawner: Spawner) {
     crate::init_heap();
     let mut config = crate::clock_config();
     config.time_interrupt_priority = Priority::P3;
     let p = embassy_nrf::init(config);
-    #[cfg(not(feature = "prospector-display"))]
-    let local = if local_keyboard {
-        Some((
-            inputs(
-                p.P0_31, p.P0_29, p.P0_02, p.P1_15, p.P1_13, p.P1_11, p.P0_10, p.P0_09,
-            ),
-            Output::new(p.P0_15, Level::Low, OutputDrive::Standard),
-        ))
-    } else {
-        None
-    };
-    #[cfg(feature = "prospector-display")]
-    let local: Option<([Input<'static>; 8], Output<'static>)> = None;
-    #[cfg(feature = "prospector-display")]
     let display = {
-        assert!(!local_keyboard);
         embassy_nrf::interrupt::SPI2.set_priority(Priority::P3);
         let mut spi_config = embassy_nrf::spim::Config::default();
         spi_config.frequency = embassy_nrf::spim::Frequency::M4;
@@ -380,7 +381,7 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
             Output::new(p.P1_11, Level::Low, OutputDrive::Standard),
         )
     };
-    let (controller, mut bonds, boot) = radio(
+    let (controller, mut bonds, _) = radio(
         spawner,
         mpsl::Peripherals::new(p.RTC0, p.TIMER0, p.TEMP, p.PPI_CH19, p.PPI_CH30, p.PPI_CH31),
         sdc::Peripherals::new(
@@ -392,14 +393,6 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
         2,
         0,
     );
-    if let Some((ref inputs, _)) = local {
-        if inputs.iter().all(Input::is_low) {
-            Timer::after_secs(2).await;
-            if inputs.iter().all(Input::is_low) {
-                bonds.forget().await;
-            }
-        }
-    }
     let saved = bonds.load_all().unwrap();
     let mut config_bytes = [0; 512];
     if let Ok(Some(length)) = bonds.load_config(&mut config_bytes) {
@@ -414,31 +407,11 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
     }
     let bonds = Bonds::new(bonds);
     let mut runner = stack.runner();
-    let links = async {
-        if local_keyboard {
-            join(
-                peer_loop(&stack, &bonds, 1, Layout::Right),
-                local_snapshots(boot),
-            )
-            .await;
-        } else if cfg!(feature = "split-pair") {
-            join(
-                peer_loop(&stack, &bonds, 0, Layout::Left),
-                peer_loop(&stack, &bonds, 1, Layout::Right),
-            )
-            .await;
-        } else {
-            peer_loop(&stack, &bonds, 0, Layout::Single).await;
-        }
-    };
-    let scanner = async {
-        if let Some((inputs, indicator)) = local {
-            scan(inputs, indicator).await;
-        } else {
-            core::future::pending::<()>().await;
-        }
-    };
-    let application = join3(process_keys(), run_usb(p.USBD), scanner);
+    let links = join(
+        peer_loop(&stack, &bonds, 0, Layout::Left),
+        peer_loop(&stack, &bonds, 1, Layout::Right),
+    );
+    let application = join(process_keys(), run_usb(p.USBD));
     let settings = join(
         crate::settings::run_saves(&bonds),
         crate::settings::run_controls(&stack, &bonds),
@@ -448,35 +421,10 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
         links,
         join(application, settings),
     );
-    #[cfg(feature = "prospector-display")]
     let _ = join(keyboard, display).await;
-    #[cfg(not(feature = "prospector-display"))]
-    let _ = keyboard.await;
 }
 
-async fn local_snapshots(boot: u32) {
-    let mut sequence = 0;
-    let mut first = true;
-    loop {
-        let snapshot = Snapshot {
-            node: device_id(),
-            boot,
-            sequence,
-            layout: Layout::Left,
-            keys: KEYS.load(Ordering::Relaxed),
-        };
-        let event = if first {
-            LinkEvent::Open(0, snapshot)
-        } else {
-            LinkEvent::Snapshot(0, snapshot)
-        };
-        event.send().await;
-        first = false;
-        sequence = sequence.wrapping_add(1);
-        let _ = select(KEY_CHANGED.wait(), Timer::after_millis(100)).await;
-    }
-}
-
+#[cfg(feature = "prospector-display")]
 async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, slot: usize, layout: Layout) {
     loop {
         while !crate::settings::bluetooth_enabled() {
@@ -553,6 +501,7 @@ async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, slot: usize, layout: Layout)
     }
 }
 
+#[cfg(feature = "prospector-display")]
 async fn receive_snapshots(
     stack: &Host<'_>,
     bonds: &Bonds,
@@ -641,6 +590,7 @@ async fn receive_snapshots(
     let _ = select(client.task(), receive).await;
 }
 
+#[cfg(feature = "prospector-display")]
 async fn process_keys() {
     const PENDING_CAPACITY: usize = 128;
     const BATCH_CAPACITY: usize = MAX_OUTPUT;
@@ -972,6 +922,7 @@ async fn process_keys() {
     }
 }
 
+#[cfg(feature = "prospector-display")]
 async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
     let driver = Driver::new(peripheral, Irqs, HardwareVbusDetect::new(Irqs));
     let mut config = Config::new(0xc0de, 0xcafe);

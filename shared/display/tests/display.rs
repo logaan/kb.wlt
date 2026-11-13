@@ -1,38 +1,8 @@
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::BinaryColor, prelude::*};
-use embedded_hal_async::i2c::{ErrorType, I2c, Operation};
-use kb_display::{Frame, Ssd1306, Status, Transport, render};
-
-#[derive(Debug, Default)]
-struct Bus {
-    writes: Vec<(u8, Vec<u8>)>,
-    fail_after: Option<usize>,
-}
-
-impl ErrorType for Bus {
-    type Error = embedded_hal_async::i2c::ErrorKind;
-}
-
-impl I2c for Bus {
-    async fn transaction(
-        &mut self,
-        address: u8,
-        operations: &mut [Operation<'_>],
-    ) -> Result<(), Self::Error> {
-        for operation in operations {
-            if self.fail_after == Some(self.writes.len()) {
-                return Err(Self::Error::Other);
-            }
-            match operation {
-                Operation::Write(bytes) => self.writes.push((address, bytes.to_vec())),
-                Operation::Read(_) => panic!("display must only write"),
-            }
-        }
-        Ok(())
-    }
-}
+use kb_display::{Frame, Status, Transport, render};
 
 #[test]
-fn framebuffer_uses_ssd1306_page_order_and_clips() {
+fn monochrome_framebuffer_packs_pixels_and_clips() {
     let mut frame = Frame::default();
     frame
         .draw_iter([
@@ -57,50 +27,6 @@ fn framebuffer_uses_ssd1306_page_order_and_clips() {
         .draw_iter([Pixel(Point::new(0, 0), BinaryColor::Off)])
         .unwrap();
     assert_eq!(frame.bytes()[0], 0);
-}
-
-#[test]
-fn initializes_geometry_and_transmits_complete_frame() {
-    futures::executor::block_on(async {
-        let frame = render(Status {
-            connected: true,
-            held: 0x101,
-            chord: 3,
-            last_usage: 4,
-            ..Status::default()
-        });
-        let mut display = Ssd1306::new(Bus::default(), 0x3c);
-        display.initialize().await.unwrap();
-        display.present(&frame).await.unwrap();
-        let bus = display.into_inner();
-        assert!(bus.writes.iter().all(|(address, _)| *address == 0x3c));
-        assert_eq!(bus.writes[0].1.last(), Some(&0xaf));
-        assert!(bus.writes[0].1.windows(2).any(|pair| pair == [0xa8, 31]));
-        assert_eq!(bus.writes[1].1, [0, 0x21, 0, 127, 0x22, 0, 3]);
-        let sent: Vec<u8> = bus.writes[2..]
-            .iter()
-            .flat_map(|(_, bytes)| {
-                assert_eq!(bytes[0], 0x40);
-                bytes[1..].iter().copied()
-            })
-            .collect();
-        assert_eq!(sent, frame.bytes());
-    });
-}
-
-#[test]
-fn i2c_failures_stop_frame_transfer() {
-    futures::executor::block_on(async {
-        let mut display = Ssd1306::new(
-            Bus {
-                fail_after: Some(2),
-                ..Bus::default()
-            },
-            0x3c,
-        );
-        assert!(display.present(&Frame::default()).await.is_err());
-        assert_eq!(display.into_inner().writes.len(), 2);
-    });
 }
 
 #[test]
