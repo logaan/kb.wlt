@@ -39,7 +39,7 @@ bind_interrupts!(pub(crate) struct Irqs {
 
 #[cfg(feature = "prospector-display")]
 bind_interrupts!(pub(crate) struct DisplayIrqs {
-    SPIM3 => embassy_nrf::spim::InterruptHandler<peripherals::SPI3>;
+    SPI2 => embassy_nrf::spim::InterruptHandler<peripherals::SPI2>;
 });
 
 const SERVICE_BYTES: [u8; 16] = [
@@ -461,11 +461,11 @@ pub async fn central(spawner: Spawner, local_keyboard: bool) {
     #[cfg(feature = "prospector-display")]
     let display = {
         assert!(!local_keyboard);
-        embassy_nrf::interrupt::SPIM3.set_priority(Priority::P3);
+        embassy_nrf::interrupt::SPI2.set_priority(Priority::P3);
         let mut spi_config = embassy_nrf::spim::Config::default();
-        spi_config.frequency = embassy_nrf::spim::Frequency::M16;
+        spi_config.frequency = embassy_nrf::spim::Frequency::M4;
         let spi =
-            embassy_nrf::spim::Spim::new_txonly(p.SPI3, DisplayIrqs, p.P1_13, p.P1_15, spi_config);
+            embassy_nrf::spim::Spim::new_txonly(p.SPI2, DisplayIrqs, p.P1_13, p.P1_15, spi_config);
         crate::prospector::run(
             spi,
             Output::new(p.P1_14, Level::High, OutputDrive::Standard),

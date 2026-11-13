@@ -286,11 +286,11 @@ pub async fn run(spawner: Spawner, role: Role) {
     };
     #[cfg(feature = "prospector-display")]
     let display = {
-        embassy_nrf::interrupt::SPIM3.set_priority(Priority::P3);
+        embassy_nrf::interrupt::SPI2.set_priority(Priority::P3);
         let mut config = embassy_nrf::spim::Config::default();
-        config.frequency = embassy_nrf::spim::Frequency::M16;
+        config.frequency = embassy_nrf::spim::Frequency::M4;
         let spi =
-            embassy_nrf::spim::Spim::new_txonly(p.SPI3, DisplayIrqs, p.P1_13, p.P1_15, config);
+            embassy_nrf::spim::Spim::new_txonly(p.SPI2, DisplayIrqs, p.P1_13, p.P1_15, config);
         crate::prospector::run(
             spi,
             GpioOutput::new(p.P1_14, Level::High, OutputDrive::Standard),
