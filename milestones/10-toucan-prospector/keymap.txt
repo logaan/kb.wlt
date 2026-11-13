@@ -1,0 +1,32 @@
+TOUCAN — MILESTONE 10
+
+BASE LAYER
+
+ Left half                                                               Right half
+ [ Tab       ][ Q         ][ W         ][ E         ][ R         ][ T         ]    [ Y         ][ U         ][ I         ][ O         ][ P         ][ Esc       ]
+ [ LCtrl     ][ A         ][ S         ][ D         ][ F         ][ G         ]    [ H         ][ J         ][ K         ][ L         ][ ;         ][ '         ]
+ [ LShift    ][ Z         ][ X         ][ C         ][ V         ][ B         ]    [ N         ][ M         ][ ,         ][ .         ][ /         ][ -         ]
+                                        [ Layer     ][ Backspace ][ GUI       ]    [ Space     ][ Return    ][ LShift    ]
+
+
+SECOND LAYER — HOLD THE LEFT OUTER THUMB (Layer)
+
+ Left half                                                               Right half
+ [ Computer8*][ Tab       ][ Left      ][ Esc       ][ Up        ][ UEB1*     ]    [ UEB2*     ][ Tab       ][ Down      ][ Right     ][ Base*     ][ --        ]
+ [ --        ][ Dot 7*    ][ Dot 3*    ][ Dot 2*    ][ Dot 1*    ][ Settings* ]    [ Shorthand*][ Dot 4*    ][ Dot 5*    ][ Dot 6*    ][ Dot 8*    ][ --        ]
+ [ --        ][ LShift    ][ LCtrl     ][ LAlt      ][ Backspace ][ --        ]    [ --        ][ GUI       ][ Return    ][ Space     ][ --        ][ --        ]
+                                        [ Layer     ][ Backspace ][ GUI       ]    [ BrlSpace* ][ Return    ][ NextMode* ]
+
+
+Layer: hold to use the second layer; release to return to base. No tap-to-latch.
+*      Named placeholder only: currently produces no output.
+--     Unassigned; produces no output.
+GUI    Command on macOS; Windows/Super on other hosts.
+
+The left outer thumb is labeled Base in the imported second-layer bindings,
+but currently acts only as the held Layer key: releasing it returns to base.
+The top-row Base placeholder does not switch layers.
+
+This drawing shows logical rows and left-to-right thumb order, not key stagger.
+Braille processing is not connected to this Toucan keymap yet.
+Display layer indicators still use the original rightmost-thumb detection.
