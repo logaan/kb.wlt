@@ -42,6 +42,8 @@
 
 ### Fixed
 
+- Inset the Toucan Prospector dashboard title to keep its letters clear of the LCD's rounded corners.
+
 - Prospector LCD initialization now enables extended register writes and explicitly configures the panel interface and gamma settings before leaving sleep.
 
 - Prospector LCD backlight now uses active-high control instead of turning off after initialization, fixing a dark screen while keyboard input still works.

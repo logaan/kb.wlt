@@ -55,7 +55,7 @@ pub fn render(status: Status) -> Frame {
     } else {
         "TOUCAN"
     };
-    let _ = Text::new(title, Point::new(4, 12), small).draw(&mut frame);
+    let _ = Text::new(title, Point::new(8, 16), small).draw(&mut frame);
     if status.faulted {
         for (label, baseline) in [
             ("WASM FAULT", 38),

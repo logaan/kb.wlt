@@ -67,6 +67,29 @@ fn keyboard_dashboard_fills_landscape_and_updates_each_status_field() {
 }
 
 #[test]
+fn header_text_stays_inside_rounded_corner_inset() {
+    for pairing_unsaved in [false, true] {
+        let image = pixels(Status {
+            connected: true,
+            pairing_unsaved,
+            ..Status::default()
+        });
+        let mut title_pixels = 0;
+        for y in 0..34 {
+            for x in 0..WIDTH {
+                let offset = (y * WIDTH + x) * 2;
+                if image[offset..offset + 2] == [0xff, 0xff] {
+                    assert!(x >= 16 && x < WIDTH - 16);
+                    assert!(y >= 16);
+                    title_pixels += 1;
+                }
+            }
+        }
+        assert!(title_pixels > 0);
+    }
+}
+
+#[test]
 fn faults_replace_live_values_instead_of_showing_stale_keys() {
     let fault = Status {
         faulted: true,
