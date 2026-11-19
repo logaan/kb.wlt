@@ -325,6 +325,7 @@ async fn poll_matrix(receivers: &mut [Receiver; 2], accept: bool) -> (u32, u64, 
     (now, keys, invalidated)
 }
 
+#[embassy_executor::task]
 pub(super) async fn process_keys() {
     let mut component = KeyboardComponent::new(include_bytes!(env!("KB_KEYBOARD_WASM"))).ok();
     let mut state = Bounded::<u8, 64>::new(0);

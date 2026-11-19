@@ -1,6 +1,6 @@
 use kb_display::{
     Status, Transport, render,
-    st7789::{PanelBus, St7789, render_row},
+    st7789::{DashboardMemory, PanelBus, St7789, render_row},
 };
 
 #[derive(Default)]
@@ -39,7 +39,8 @@ impl PanelBus for Bus {
 #[test]
 fn uses_portrait_240_by_280_with_twenty_row_offset_and_rgb565() {
     futures::executor::block_on(async {
-        let mut panel = St7789::new(Bus::default());
+        let mut memory = DashboardMemory::EMPTY;
+        let mut panel = St7789::new(Bus::default(), &mut memory);
         panel.initialize().await.unwrap();
         panel.present(Status::default()).await.unwrap();
         let bus = panel.into_inner();
@@ -55,7 +56,8 @@ fn uses_portrait_240_by_280_with_twenty_row_offset_and_rgb565() {
 #[test]
 fn unlocks_extended_registers_and_configures_panel_before_sleep_out() {
     futures::executor::block_on(async {
-        let mut panel = St7789::new(Bus::default());
+        let mut memory = DashboardMemory::EMPTY;
+        let mut panel = St7789::new(Bus::default(), &mut memory);
         panel.initialize().await.unwrap();
         let bus = panel.into_inner();
         assert_eq!(bus.commands[0], (0x01, vec![]));
@@ -106,7 +108,8 @@ fn colors_distinguish_accumulated_dot_eight_from_held_space() {
 #[test]
 fn keyboard_uses_clockwise_landscape_and_restores_portrait_for_other_views() {
     futures::executor::block_on(async {
-        let mut panel = St7789::new(Bus::default());
+        let mut memory = DashboardMemory::EMPTY;
+        let mut panel = St7789::new(Bus::default(), &mut memory);
         panel
             .present(Status {
                 keyboard: Some(kb_display::KeyboardStatus::default()),
@@ -186,7 +189,8 @@ fn chord_updates_reconstruct_the_full_frame_within_a_30_hz_wire_budget() {
         ),
     ] {
         let bus = futures::executor::block_on(async {
-            let mut panel = St7789::new(Bus::default());
+            let mut memory = DashboardMemory::EMPTY;
+            let mut panel = St7789::new(Bus::default(), &mut memory);
             panel.present(before).await.unwrap();
             panel.present(after).await.unwrap();
             panel.into_inner()
@@ -226,7 +230,8 @@ fn chord_updates_reconstruct_the_full_frame_within_a_30_hz_wire_budget() {
 #[test]
 fn returning_from_a_menu_invalidates_the_dashboard_cache() {
     futures::executor::block_on(async {
-        let mut panel = St7789::new(Bus::default());
+        let mut memory = DashboardMemory::EMPTY;
+        let mut panel = St7789::new(Bus::default(), &mut memory);
         let status = Status {
             keyboard: Some(Default::default()),
             ..Default::default()
@@ -241,10 +246,14 @@ fn returning_from_a_menu_invalidates_the_dashboard_cache() {
 #[test]
 fn bus_errors_are_propagated() {
     futures::executor::block_on(async {
-        let mut panel = St7789::new(Bus {
-            fail: true,
-            ..Bus::default()
-        });
+        let mut memory = DashboardMemory::EMPTY;
+        let mut panel = St7789::new(
+            Bus {
+                fail: true,
+                ..Bus::default()
+            },
+            &mut memory,
+        );
         assert!(panel.initialize().await.is_err());
         assert!(panel.present(Status::default()).await.is_err());
     });
@@ -253,7 +262,8 @@ fn bus_errors_are_propagated() {
 #[test]
 fn reference_page_uses_the_same_panel_geometry_and_reports_bus_errors() {
     futures::executor::block_on(async {
-        let mut panel = St7789::new(Bus::default());
+        let mut memory = DashboardMemory::EMPTY;
+        let mut panel = St7789::new(Bus::default(), &mut memory);
         panel
             .present_reference(&kb_core::reference::Page::default())
             .await
@@ -261,10 +271,13 @@ fn reference_page_uses_the_same_panel_geometry_and_reports_bus_errors() {
         let bus = panel.into_inner();
         assert_eq!(bus.pixels.len(), 240 * 280 * 2);
         assert!(bus.commands.contains(&(0x2b, vec![0, 20, 1, 43])));
-        let mut failed = St7789::new(Bus {
-            fail: true,
-            ..Bus::default()
-        });
+        let mut failed = St7789::new(
+            Bus {
+                fail: true,
+                ..Bus::default()
+            },
+            &mut memory,
+        );
         assert!(
             failed
                 .present_reference(&kb_core::reference::Page::default())

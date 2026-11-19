@@ -23,10 +23,13 @@ fn main() {
         println!("cargo:rerun-if-env-changed={key}");
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    let memory = format!(
+    let mut memory = format!(
         "MEMORY {{\n  FLASH : ORIGIN = {origin:#x}, LENGTH = {length:#x}\n  RAM : ORIGIN = 0x20000008, LENGTH = 0x3fff0\n}}\n",
         length = end - origin
     );
+    if env::var_os("CARGO_FEATURE_TOUCAN_DONGLE").is_some() {
+        memory.push_str("ASSERT(_stack_start >= _stack_end + 26K, \"Toucan receiver requires at least 26 KiB of native stack\")\n");
+    }
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out.join("memory.x"), memory).unwrap();
     println!("cargo:rustc-link-search={}", out.display());

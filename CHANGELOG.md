@@ -6,6 +6,10 @@
 
 - Toucan Prospector redraws changed dashboard regions rather than streaming a full screen for each chord, and shows the menu gesture as two braille cells.
 
+### Fixed
+
+- Keep the Toucan receiver's component loader off the display poll stack and reserve display buffers in place so partial refresh does not exhaust startup RAM.
+
 ## [0.2.0] - 2026-11-20
 
 ### Added

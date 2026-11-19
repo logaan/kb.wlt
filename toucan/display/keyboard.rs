@@ -75,6 +75,12 @@ pub struct Frame {
     bytes: [u8; 18 * 120],
 }
 
+impl Frame {
+    pub(crate) const EMPTY: Self = Self {
+        bytes: [0; 18 * 120],
+    };
+}
+
 impl OriginDimensions for Frame {
     fn size(&self) -> Size {
         Size::new(140, 120)
@@ -122,9 +128,13 @@ fn draw_cell(frame: &mut Frame, cell: u16, x: i32, y: i32, rows: usize) {
 }
 
 pub fn render(status: Status) -> Frame {
-    let mut frame = Frame {
-        bytes: [0; 18 * 120],
-    };
+    let mut frame = Frame::EMPTY;
+    render_into(status, &mut frame);
+    frame
+}
+
+pub(crate) fn render_into(status: Status, frame: &mut Frame) {
+    frame.bytes.fill(0);
     let small = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let layer = status.keyboard.unwrap_or_default().layer;
     let title = if status.pairing_unsaved {
@@ -139,16 +149,16 @@ pub fn render(status: Status) -> Frame {
             _ => "TOUCAN / TYPING",
         }
     };
-    let _ = Text::new(title, Point::new(8, 16), small).draw(&mut frame);
+    let _ = Text::new(title, Point::new(8, 16), small).draw(frame);
     if status.faulted {
         for (label, baseline) in [
             ("WASM FAULT", 38),
             ("Typing stopped", 64),
             ("Reflash firmware", 90),
         ] {
-            let _ = Text::new(label, Point::new(4, baseline), small).draw(&mut frame);
+            let _ = Text::new(label, Point::new(4, baseline), small).draw(frame);
         }
-        return frame;
+        return;
     }
     let link = if status.connected {
         "CONNECTED"
@@ -180,13 +190,13 @@ pub fn render(status: Status) -> Frame {
             (buffer, 103),
             ("Menu: hold Space", 117),
         ] {
-            let _ = Text::new(line, Point::new(4, y), small).draw(&mut frame);
+            let _ = Text::new(line, Point::new(4, y), small).draw(frame);
         }
         if status.chord != 0 {
-            draw_cell(&mut frame, status.chord, 80, 54, 4);
+            draw_cell(frame, status.chord, 80, 54, 4);
         }
         if status.chord & 256 != 0 {
-            let _ = Text::new("Space", Point::new(92, 65), small).draw(&mut frame);
+            let _ = Text::new("Space", Point::new(92, 65), small).draw(frame);
         }
         for (i, cell) in live
             .buffered
@@ -195,17 +205,17 @@ pub fn render(status: Status) -> Frame {
             .enumerate()
         {
             let x = 49 + i as i32 * 13;
-            draw_cell(&mut frame, cell, x, 91, 4);
+            draw_cell(frame, cell, x, 91, 4);
             if cell & 256 != 0 {
-                let _ = Text::new("S", Point::new(x + 7, 102), small).draw(&mut frame);
+                let _ = Text::new("S", Point::new(x + 7, 102), small).draw(frame);
             }
         }
         for x in [102, 116] {
-            draw_cell(&mut frame, kb_core::reference::LEADER, x, 108, 3);
+            draw_cell(frame, kb_core::reference::LEADER, x, 108, 3);
         }
-        return frame;
+        return;
     }
-    let _ = Text::new(link, Point::new(4, 26), small).draw(&mut frame);
+    let _ = Text::new(link, Point::new(4, 26), small).draw(frame);
     let lines = match layer {
         1 => [
             "W Left      O Right",
@@ -225,9 +235,8 @@ pub fn render(status: Status) -> Frame {
         ],
     };
     for (i, line) in lines.iter().enumerate() {
-        let _ = Text::new(line, Point::new(5, 42 + 14 * i as i32), small).draw(&mut frame);
+        let _ = Text::new(line, Point::new(5, 42 + 14 * i as i32), small).draw(frame);
     }
-    frame
 }
 
 fn background(status: &Status, y: usize) -> u16 {

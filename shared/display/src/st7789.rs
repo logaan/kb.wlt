@@ -12,18 +12,34 @@ pub trait PanelBus {
     async fn data(&mut self, data: &[u8]) -> Result<(), Self::Error>;
 }
 
-pub struct St7789<B> {
-    bus: B,
-    landscape: bool,
-    keyboard: Option<(crate::keyboard::Frame, Status)>,
+pub struct DashboardMemory {
+    frames: [crate::keyboard::Frame; 2],
+    transfer: [u8; crate::keyboard::WIDTH * 4],
 }
 
-impl<B: PanelBus> St7789<B> {
-    pub fn new(bus: B) -> Self {
+impl DashboardMemory {
+    pub const EMPTY: Self = Self {
+        frames: [crate::keyboard::Frame::EMPTY; 2],
+        transfer: [0; crate::keyboard::WIDTH * 4],
+    };
+}
+
+pub struct St7789<'a, B> {
+    bus: B,
+    landscape: bool,
+    keyboard: Option<Status>,
+    next: usize,
+    memory: &'a mut DashboardMemory,
+}
+
+impl<'a, B: PanelBus> St7789<'a, B> {
+    pub fn new(bus: B, memory: &'a mut DashboardMemory) -> Self {
         Self {
             bus,
             landscape: false,
             keyboard: None,
+            next: 0,
+            memory,
         }
     }
 
@@ -81,26 +97,29 @@ impl<B: PanelBus> St7789<B> {
         if status.keyboard.is_some() {
             let prior = self.keyboard.take();
             self.orientation(true).await?;
-            let frame = crate::keyboard::render(status);
-            if let Some((old, previous)) = prior.as_ref() {
+            crate::keyboard::render_into(status, &mut self.memory.frames[self.next]);
+            if let Some(previous) = prior.as_ref() {
                 for y in (0..crate::keyboard::HEIGHT).step_by(8) {
-                    if let Some(span) =
-                        crate::keyboard::changed_span(old, previous, &frame, &status, y)
-                    {
-                        self.keyboard_region(&frame, &status, span, y..y + 8)
-                            .await?;
+                    if let Some(span) = crate::keyboard::changed_span(
+                        &self.memory.frames[self.next ^ 1],
+                        previous,
+                        &self.memory.frames[self.next],
+                        &status,
+                        y,
+                    ) {
+                        self.keyboard_region(&status, span, y..y + 8).await?;
                     }
                 }
             } else {
                 self.keyboard_region(
-                    &frame,
                     &status,
                     0..crate::keyboard::WIDTH,
                     0..crate::keyboard::HEIGHT,
                 )
                 .await?;
             }
-            self.keyboard = Some((frame, status));
+            self.next ^= 1;
+            self.keyboard = Some(status);
             return Ok(());
         }
         self.keyboard = None;
@@ -111,7 +130,6 @@ impl<B: PanelBus> St7789<B> {
 
     async fn keyboard_region(
         &mut self,
-        frame: &crate::keyboard::Frame,
         status: &Status,
         x: core::ops::Range<usize>,
         y: core::ops::Range<usize>,
@@ -134,7 +152,8 @@ impl<B: PanelBus> St7789<B> {
             .await?;
         self.bus.command(0x2c, &[]).await?;
         let stride = x.len() * 2;
-        let mut bytes = [0; crate::keyboard::WIDTH * 2 * 2];
+        let bytes = &mut self.memory.transfer;
+        let frame = &self.memory.frames[self.next];
         for start in y.step_by(2) {
             for (i, row) in bytes[..2 * stride].chunks_exact_mut(stride).enumerate() {
                 crate::keyboard::render_span(frame, status, start + i, x.start, row);

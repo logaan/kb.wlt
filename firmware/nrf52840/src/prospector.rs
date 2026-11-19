@@ -78,7 +78,10 @@ pub async fn run<'a>(
     reset: Output<'a>,
     mut backlight: Output<'a>,
 ) {
-    let mut panel = St7789::new(Bus { spi, cs, dc, reset });
+    use kb_display::st7789::DashboardMemory;
+    static MEMORY: static_cell::ConstStaticCell<DashboardMemory> =
+        static_cell::ConstStaticCell::new(DashboardMemory::EMPTY);
+    let mut panel = St7789::new(Bus { spi, cs, dc, reset }, MEMORY.take());
     let mut view = View::Status(Status {
         transport: Transport::Split,
         ..Status::default()

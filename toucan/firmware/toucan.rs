@@ -254,6 +254,8 @@ pub async fn run(spawner: Spawner, role: Role) {
             core::future::pending::<()>().await;
         }
     };
+    #[cfg(feature = "toucan-dongle")]
+    spawner.spawn(receiver::process_keys().unwrap());
     let application = async {
         match role {
             Role::Satellite => {
@@ -266,12 +268,11 @@ pub async fn run(spawner: Spawner, role: Role) {
                         crate::settings::run_saves(&bonds),
                         crate::settings::run_controls(&stack, &bonds),
                     ),
-                    join3(
+                    join(
                         join(
                             receiver::peer_loop(&stack, &bonds, Side::Left),
                             receiver::peer_loop(&stack, &bonds, Side::Right),
                         ),
-                        receiver::process_keys(),
                         receiver::run_usb(p.USBD),
                     ),
                 )
