@@ -24,7 +24,7 @@ pub const MUTED: u16 = 0x94b2;
 pub const WHITE: u16 = 0xffff;
 pub const SPACE_COLOR: u16 = 0xff48;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Label {
     bytes: [u8; 48],
     len: usize,
@@ -102,18 +102,25 @@ pub fn label(entry: Entry) -> Label {
             if stroke.consumer == GLOBE_USAGE {
                 let _ = output.write_str("Globe");
             } else {
-                let _ = write!(output, "Consumer {:04X}", stroke.consumer);
+                let _ = output.write_str("Media key");
             }
         }
         let _ = output.write_str(" one-shot");
         return output;
     }
-    if entry.packed > 0xffff {
-        let _ = write!(output, "Raw {:08X}", entry.packed);
-        return output;
+    if stroke.consumer != 0 {
+        let _ = output.write_str(if stroke.consumer == GLOBE_USAGE {
+            "Globe"
+        } else {
+            "Media key"
+        });
+        if stroke.usage == 0 {
+            return output;
+        }
+        let _ = output.write_str("+");
     }
     let shifted = stroke.modifiers & 0x22 != 0;
-    for (mask, text) in [(0x11, "Ctrl+"), (0x44, "Alt+"), (0x88, "Gui+")] {
+    for (mask, text) in [(0x11, "Ctrl+"), (0x44, "Alt+"), (0x88, "Command+")] {
         if stroke.modifiers & mask != 0 {
             let _ = output.write_str(text);
         }
@@ -162,11 +169,11 @@ pub fn label(entry: Entry) -> Label {
         224 => "Left Ctrl",
         225 => "Left Shift",
         226 => "Left Alt",
-        227 => "Left Gui",
+        227 => "Left Command",
         228 => "Right Ctrl",
         229 => "Right Shift",
         230 => "Right Alt",
-        231 => "Right Gui",
+        231 => "Right Command",
         _ => "",
     };
     if !name.is_empty() {
@@ -178,7 +185,7 @@ pub fn label(entry: Entry) -> Label {
     } else if (89..=97).contains(&stroke.usage) {
         let _ = write!(output, "Keypad {}", stroke.usage - 88);
     } else {
-        let _ = write!(output, "HID {:02X}", stroke.usage);
+        let _ = output.write_str("Special key");
     }
     output
 }

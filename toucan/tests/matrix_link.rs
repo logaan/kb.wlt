@@ -5,6 +5,39 @@ use kb_core::matrix_link::{
 use kb_core::pipeline::{Action, Key};
 use kb_core::report_state::ReportState;
 
+#[test]
+fn layer_then_p_toggles_and_home_row_space_qq_opens_main_menu() {
+    use kb_core::{
+        matrix_link::{braille_keys, switch_typing_mode},
+        reference::{Mode, State},
+    };
+    let layer = 1 << 36;
+    let p = 1 << 10;
+    assert!(switch_typing_mode(layer, Some(layer | p)));
+    for previous in [0, p, layer | p] {
+        assert!(!switch_typing_mode(previous, Some(layer | p)));
+    }
+    for keys in [None, Some(p), Some(layer), Some(layer | p | 1)] {
+        assert!(!switch_typing_mode(layer, keys));
+    }
+    for (dot, pos) in [16, 15, 14, 19, 20, 21, 13, 22, 39].into_iter().enumerate() {
+        assert_eq!(braille_keys(1 << pos), 1 << dot);
+    }
+    assert_eq!(braille_keys(layer | p), 0);
+    let q = [14, 15, 16, 19, 20]
+        .into_iter()
+        .fold(0, |keys, pos| keys | 1 << pos);
+    let space = 1 << 39;
+    let mut state = State::new();
+    for (now, keys) in [space, space | q, space, space | q, space, 0]
+        .into_iter()
+        .enumerate()
+    {
+        state = state.step(braille_keys(keys), now as u32).state;
+    }
+    assert_eq!(state.mode, Mode::Main);
+}
+
 fn snapshot(side: Side, keys: u32, sequence: u16) -> Snapshot {
     Snapshot {
         node: 17,

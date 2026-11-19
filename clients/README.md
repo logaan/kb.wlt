@@ -6,8 +6,8 @@ All Wavelet client sources, generated components, and their build tooling live h
 | --- | --- |
 | `wit/firmware.wit` | Braille and keyboard contracts |
 | `build/` | `kb-component-build`: compilation, validation, canonical adapters, and core extraction |
-| `components/toucan-keymap/` | Default tested two-layer Toucan bindings; braille placeholders remain inactive |
-| `components/braille/` | Paintbrush braille client |
+| `components/toucan-keymap/` | Conventional typing and navigation on Toucan |
+| `components/braille/` | Braille client for both Prospector receivers |
 | `components/shift/`, `components/passthrough/` | Reusable keyboard middleware test fixtures |
 | `components/generated/` | Checked-in component/core artifacts used by tests and release builds |
 

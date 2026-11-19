@@ -188,10 +188,16 @@ async fn write_report<'d>(
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum Output {
+    Stroke(KeyStroke),
+    Held([u8; 8]),
+}
+
 pub async fn send_strokes<'d, const N: usize>(
     writer: &mut HidWriter<'d, impl Driver<'d>, 8>,
     consumer: &mut HidWriter<'d, impl Driver<'d>, 2>,
-    strokes: &Channel<CriticalSectionRawMutex, (u32, KeyStroke), N>,
+    strokes: &Channel<CriticalSectionRawMutex, (u32, Output), N>,
 ) {
     let mut bus_reset = BUS_RESET.load(Ordering::Relaxed);
     let mut previous_consumer = [0; 2];
@@ -224,7 +230,16 @@ pub async fn send_strokes<'d, const N: usize>(
         .await
         {
             let stroke = match next {
-                Either::First((generation, stroke)) if generation == token => stroke,
+                Either::First((generation, Output::Stroke(stroke))) if generation == token => {
+                    stroke
+                }
+                Either::First((generation, Output::Held(report))) if generation == token => {
+                    if !write_report(writer, token, report).await {
+                        break;
+                    }
+                    keyboard = report;
+                    continue;
+                }
                 Either::First(_) => continue,
                 Either::Second(()) if release_pending => {
                     if release_consumer(consumer, token, &mut previous_consumer).await {

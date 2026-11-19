@@ -42,14 +42,14 @@ fn labels_cover_printable_ascii_commands_and_unknown_custom_outputs() {
     }
     assert_eq!(label(entry(1, 4, 1)).as_str(), "Ctrl+'a'");
     assert_eq!(label(entry(1, 4, 0x20)).as_str(), "'A'");
-    assert_eq!(label(entry(1, 0xf0, 0)).as_str(), "HID F0");
+    assert_eq!(label(entry(1, 0xf0, 0)).as_str(), "Special key");
     assert_eq!(
         label(Entry {
             cell: 1,
-            packed: 0x12345678
+            packed: 0x12340000
         })
         .as_str(),
-        "Raw 12345678"
+        "Media key"
     );
     assert_eq!(label(entry(1, 0, 1)).as_str(), "Ctrl+Modifiers");
 }

@@ -95,6 +95,7 @@ pub struct Status {
     pub last_usage: u8,
     pub last_modifiers: u8,
     pub keyboard: Option<KeyboardStatus>,
+    pub braille: Option<keyboard::LiveBraille>,
 }
 
 pub fn render(status: Status) -> Frame {
@@ -144,20 +145,16 @@ pub fn render(status: Status) -> Frame {
         style,
     )
     .draw(&mut frame);
-    let hex = b"0123456789ABCDEF";
-    let report = [
-        b'H',
-        b'I',
-        b'D',
-        b' ',
-        hex[status.last_modifiers as usize >> 4],
-        hex[status.last_modifiers as usize & 15],
-        b':',
-        hex[status.last_usage as usize >> 4],
-        hex[status.last_usage as usize & 15],
-    ];
+    let key = reference::label(kb_core::reference::Entry {
+        cell: 0,
+        packed: u32::from(status.last_usage) | u32::from(status.last_modifiers) << 8,
+    });
     let _ = Text::new(
-        core::str::from_utf8(&report).unwrap(),
+        if status.last_usage == 0 {
+            "Ready"
+        } else {
+            key.as_str()
+        },
         Point::new(0, 30),
         style,
     )

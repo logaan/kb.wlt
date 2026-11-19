@@ -15,7 +15,7 @@ fn pixels(status: Status) -> Vec<u8> {
 }
 
 #[test]
-fn keyboard_dashboard_fills_landscape_and_updates_each_status_field() {
+fn keyboard_guide_fills_landscape_and_only_updates_user_facing_state() {
     let status = Status {
         connected: true,
         keyboard: Some(KeyboardStatus {
@@ -37,24 +37,9 @@ fn keyboard_dashboard_fills_landscape_and_updates_each_status_field() {
         },
         Status {
             keyboard: Some(KeyboardStatus {
-                active_keys: 42,
-                layer: 1,
-            }),
-            ..status
-        },
-        Status {
-            keyboard: Some(KeyboardStatus {
                 active_keys: 3,
                 layer: 2,
             }),
-            ..status
-        },
-        Status {
-            last_usage: 0x28,
-            ..status
-        },
-        Status {
-            last_modifiers: 0x80,
             ..status
         },
         Status {
@@ -64,6 +49,57 @@ fn keyboard_dashboard_fills_landscape_and_updates_each_status_field() {
     ] {
         assert_ne!(baseline, pixels(changed));
     }
+    assert_eq!(
+        baseline,
+        pixels(Status {
+            last_usage: 40,
+            last_modifiers: 128,
+            keyboard: Some(KeyboardStatus {
+                layer: 1,
+                active_keys: 42
+            }),
+            ..status
+        })
+    );
+}
+
+#[test]
+fn braille_preview_changes_with_the_result_and_buffer_even_if_dots_stay_the_same() {
+    use kb_core::KeyStroke;
+    use kb_display::keyboard::{LiveBraille, release_label};
+    let live = LiveBraille {
+        release: release_label(&[KeyStroke::new(4, 0)], false, false),
+        ..Default::default()
+    };
+    assert_eq!(live.release.as_str(), "a");
+    let status = Status {
+        keyboard: Some(KeyboardStatus {
+            layer: 2,
+            active_keys: 1,
+        }),
+        braille: Some(live),
+        chord: 1,
+        ..Default::default()
+    };
+    for changed in [
+        LiveBraille {
+            release: release_label(&[], true, false),
+            ..live
+        },
+        LiveBraille {
+            buffered: [1, 0, 0, 0, 0, 0, 0],
+            ..live
+        },
+    ] {
+        assert_ne!(
+            pixels(status),
+            pixels(Status {
+                braille: Some(changed),
+                ..status
+            })
+        );
+    }
+    assert_eq!(release_label(&[], false, true).as_str(), "Menu prefix");
 }
 
 #[test]

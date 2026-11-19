@@ -97,13 +97,34 @@ impl<B: PanelBus> St7789<B> {
         &mut self,
         page: &kb_core::reference::Page,
     ) -> Result<(), B::Error> {
-        self.present_rows(|y, row| crate::reference::render_row(page, y, row))
+        self.present_page(|y, row| crate::reference::render_row(page, y, row))
             .await
     }
 
     pub async fn present_menu(&mut self, page: &crate::menu::Page) -> Result<(), B::Error> {
-        self.present_rows(|y, row| crate::menu::render_row(page, y, row))
+        self.present_page(|y, row| crate::menu::render_row(page, y, row))
             .await
+    }
+
+    async fn present_page(
+        &mut self,
+        render: impl Fn(usize, &mut [u8; PANEL_WIDTH * 2]),
+    ) -> Result<(), B::Error> {
+        if !self.landscape {
+            return self.present_rows(render).await;
+        }
+        self.bus.command(0x2a, &[0, 20, 1, 43]).await?;
+        self.bus.command(0x2b, &[0, 0, 0, 239]).await?;
+        self.bus.command(0x2c, &[]).await?;
+        let mut row = [0; crate::keyboard::WIDTH * 2];
+        for y in 0..crate::keyboard::HEIGHT {
+            render(
+                y * PANEL_HEIGHT / crate::keyboard::HEIGHT,
+                (&mut row[40..520]).try_into().unwrap(),
+            );
+            self.bus.data(&row).await?;
+        }
+        Ok(())
     }
 
     async fn orientation(&mut self, landscape: bool) -> Result<(), B::Error> {

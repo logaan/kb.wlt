@@ -197,6 +197,46 @@ fn wavelet_sticky_commands_arm_modify_and_release_in_both_braille_modes() {
 }
 
 #[test]
+fn release_preview_matches_typing_without_consuming_buffered_cells() {
+    use kb_core::preferences::BrailleMode;
+    for (mode, first, second, expected) in [
+        (BrailleMode::Ueb1, 32, 1, "A"),
+        (BrailleMode::Computer8, 1, 3, "example"),
+    ] {
+        let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(
+            "../../../clients/components/generated/braille.core.wasm"
+        )));
+        let mut typing = BrailleTyping::new(true);
+        let mut settings = Settings {
+            mode,
+            ..Settings::default()
+        };
+        if mode == BrailleMode::Computer8 {
+            settings
+                .set_binding(0, &[first, second], b"example")
+                .unwrap();
+        }
+        typing.step(&mut component, &settings, first, 1);
+        let (preview, waiting) = typing.preview_release(&settings, kb_core::computer8(first), 2);
+        assert!(preview.is_empty() && waiting);
+        typing.step(&mut component, &settings, 0, 2);
+        typing.step(&mut component, &settings, second, 3);
+        let (preview, waiting) = typing.preview_release(&settings, kb_core::computer8(second), 4);
+        assert!(!waiting);
+        assert_eq!(typing.buffered_cells()[0], first);
+        assert_eq!(
+            preview.as_slice(),
+            expected
+                .bytes()
+                .map(|b| KeyStroke::from_ascii(b).unwrap())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(preview, typing.step(&mut component, &settings, 0, 4));
+        assert_eq!(typing.buffered_cells(), [0; 7]);
+    }
+}
+
+#[test]
 fn wavelet_sticky_state_expires_while_idle_and_cancels_on_capture() {
     for buffered in [false, true] {
         let mut component = FaultLatch::new(BrailleComponent::new(include_bytes!(

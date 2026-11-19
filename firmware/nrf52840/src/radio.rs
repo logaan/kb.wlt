@@ -4,7 +4,7 @@ use embassy_nrf::interrupt::{InterruptExt, Priority};
 use embassy_nrf::mode::Async;
 use embassy_nrf::{Peri, bind_interrupts, pac, peripherals, rng, usb};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-#[cfg(any(feature = "toucan", feature = "prospector-display"))]
+#[cfg(feature = "prospector-display")]
 use embassy_time::{Duration, with_timeout};
 use nrf_sdc::{self as sdc, mpsl};
 use static_cell::StaticCell;
@@ -110,7 +110,7 @@ pub(crate) fn radio(
     )
 }
 
-#[cfg(any(feature = "toucan", feature = "prospector-display"))]
+#[cfg(feature = "prospector-display")]
 pub(crate) async fn authenticate(
     connection: &Connection<'_, DefaultPacketPool>,
     stack: &Host<'_>,

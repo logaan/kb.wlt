@@ -80,5 +80,7 @@ pub mod nice_view;
 #[path = "../../../toucan/firmware/toucan.rs"]
 pub mod toucan;
 
-#[cfg(all(feature = "prospector-display", not(feature = "toucan")))]
+#[cfg(feature = "prospector-display")]
+mod braille_receiver;
+#[cfg(feature = "prospector-display")]
 pub mod settings;

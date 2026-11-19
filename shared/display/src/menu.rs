@@ -273,13 +273,31 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
                         let _ = write!(label, "Uptime {} seconds", diagnostics.uptime_seconds);
                     }
                     2 => {
-                        let _ = write!(label, "Held dots {:03X}", diagnostics.held);
-                    }
-                    3 => {
+                        let dots = crate::reference::dot_label(diagnostics.held);
                         let _ = write!(
                             label,
-                            "Last HID {:02X}:{:02X}",
-                            diagnostics.last_modifiers, diagnostics.last_usage
+                            "Dots: {}",
+                            if diagnostics.held == 0 {
+                                "none"
+                            } else {
+                                dots.as_str()
+                            }
+                        );
+                    }
+                    3 => {
+                        let key = crate::reference::label(Entry {
+                            cell: 0,
+                            packed: u32::from(diagnostics.last_usage)
+                                | (u32::from(diagnostics.last_modifiers) << 8),
+                        });
+                        let _ = write!(
+                            label,
+                            "Last key: {}",
+                            if diagnostics.last_usage == 0 {
+                                "none"
+                            } else {
+                                key.as_str()
+                            }
                         );
                     }
                     4 => {

@@ -35,7 +35,7 @@ Only two configurations are supported: Toucan left/right satellites with a Prosp
 
 ## Validation and releases
 
-The upgraded Toucan 1 with a left MIP display, two battery-powered halves, and a USB Prospector receiver was accepted in hardware testing. Its two-layer keymap is now the default; braille bindings remain inactive. The Paintbrush setup and subsequent implementation cleanup still need future hardware regression testing.
+The upgraded Toucan 1 with a left MIP display, two battery-powered halves, and a USB Prospector receiver was accepted in hardware testing. Its conventional keymap is the default; hold the left outer thumb and press P to switch to braille. The new Toucan braille mode and the Paintbrush setup still need hardware regression testing.
 
 `cargo xtask check` runs workspace tests and shared-crate cross-checks. `./scripts/build-artifacts.sh` cross-builds the six supported images, runs component heap probes, and replaces the UF2s in `dist/release/`. `cargo xtask verify-release dist/release` rejects missing or extra images. Neither command flashes hardware.
 

@@ -37,6 +37,25 @@ impl BrailleTyping {
         self.chord
     }
 
+    pub fn buffered_cells(&self) -> [u16; kb_core::preferences::MAX_TRIGGER + 3] {
+        self.engine.buffered_cells()
+    }
+
+    pub fn preview_release(
+        &self,
+        settings: &Settings,
+        mapped: Option<kb_core::KeyStroke>,
+        now: u32,
+    ) -> (StrokeBatch, bool) {
+        let mut engine = self.engine;
+        let mut batch = self.tentative;
+        if let Some(stroke) = mapped {
+            let _ = batch.push(stroke);
+        }
+        let output = engine.accept_batch(settings, self.chord, batch, now);
+        (output, engine.buffered_cells()[0] != 0)
+    }
+
     pub fn step(
         &mut self,
         component: &mut FaultLatch<BrailleComponent>,

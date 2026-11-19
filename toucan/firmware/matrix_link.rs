@@ -5,6 +5,18 @@ pub const DISPLAY_PACKET_LEN: usize = 10;
 pub const DISPLAY_TIMEOUT_MS: u32 = 600;
 pub const LINK_TIMEOUT_MS: u32 = 500;
 pub const KEYS_MASK: u32 = (1 << 21) - 1;
+pub fn switch_typing_mode(previous: u64, current: Option<u64>) -> bool {
+    previous == 1 << 36 && current == Some((1 << 36) | (1 << 10))
+}
+
+pub fn braille_keys(matrix: u64) -> u16 {
+    [16, 15, 14, 19, 20, 21, 13, 22, 39]
+        .into_iter()
+        .enumerate()
+        .fold(0, |cell, (dot, position)| {
+            cell | ((((matrix >> position) & 1) as u16) << dot)
+        })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]

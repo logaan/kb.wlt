@@ -279,6 +279,20 @@ impl Engine {
         *self = Self::default();
     }
 
+    pub fn buffered_cells(&self) -> [u16; MAX_TRIGGER + 3] {
+        let mut cells = [0; MAX_TRIGGER + 3];
+        for (slot, cell) in cells.iter_mut().zip(
+            self.ueb
+                .pending()
+                .iter()
+                .copied()
+                .chain(self.pending[..self.len].iter().map(|entry| entry.cell)),
+        ) {
+            *slot = cell;
+        }
+        cells
+    }
+
     pub fn pending_len(&self) -> usize {
         self.len
     }

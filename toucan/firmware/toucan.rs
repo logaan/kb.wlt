@@ -1,46 +1,38 @@
 #[cfg(feature = "prospector-display")]
 use crate::radio::DisplayIrqs;
-use crate::radio::{Bonds, Host, Irqs, address, device_id};
+use crate::radio::{Bonds, Host, address, device_id};
 #[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
-use embassy_futures::select::{Either, select};
+#[cfg(feature = "nice-view")]
+use embassy_futures::select::Either;
+use embassy_futures::select::select;
 #[cfg(not(feature = "toucan-dongle"))]
 use embassy_nrf::gpio::Pull;
 use embassy_nrf::gpio::{Input as GpioInput, Level, Output as GpioOutput, OutputDrive};
 #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::interrupt::Priority;
-use embassy_nrf::usb::{Driver, vbus_detect::HardwareVbusDetect};
-use embassy_nrf::{Peri, peripherals};
+#[cfg(feature = "nice-view")]
+use embassy_nrf::peripherals;
 #[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Instant, Timer, with_timeout};
-use embassy_usb::class::hid::{
-    Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, State,
-};
-use embassy_usb::{Builder, Config};
-use kb_component_runtime::KeyboardComponent;
+#[cfg(feature = "toucan-dongle")]
+use embassy_time::Duration;
+use embassy_time::{Instant, Timer};
 use kb_core::Debouncer;
-use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
 #[cfg(feature = "nice-view")]
 use kb_core::matrix_link::DisplayReceiver;
-use kb_core::matrix_link::{DISPLAY_PACKET_LEN, KEYS_MASK, PACKET_LEN, Receiver, Side, Snapshot};
+use kb_core::matrix_link::{DISPLAY_PACKET_LEN, KEYS_MASK, PACKET_LEN, Side, Snapshot};
 #[cfg(any(
     feature = "nice-view",
     all(feature = "toucan-dongle", feature = "prospector-display")
 ))]
 use kb_core::matrix_link::{DisplayFeedback, DisplayStatus};
-use kb_core::pipeline::Bounded;
-use kb_core::pipeline::{Input, KeyEvent, KeyState};
-use kb_core::report_state::ReportState;
-use kb_core::transport::{InputGate, SessionGate};
 use nrf_sdc::{self as sdc, mpsl};
 use trouble_host::prelude::*;
 
@@ -70,89 +62,10 @@ static DISPLAY_OUTPUT: BlockingMutex<CriticalSectionRawMutex, Cell<Option<(Displ
 static COMPONENT_FAILED: AtomicBool = AtomicBool::new(false);
 static KEYS: AtomicU32 = AtomicU32::new(0);
 static KEY_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-static REPORTS: Channel<CriticalSectionRawMutex, (u32, [u8; 8]), 64> = Channel::new();
-static EVENTS: Channel<CriticalSectionRawMutex, LinkEvent, 64> = Channel::new();
-static ADVERTISEMENTS: Channel<CriticalSectionRawMutex, Discovered, 16> = Channel::new();
-static CONNECT_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Satellite,
     Dongle,
-}
-
-#[derive(Clone, Copy)]
-struct Discovered {
-    address: Address,
-    side: Side,
-    display_feedback: bool,
-}
-
-#[derive(Clone, Copy)]
-enum LinkEvent {
-    Snapshot {
-        snapshot: Snapshot,
-        received_at: u32,
-        opens: bool,
-    },
-    Close(Side),
-}
-
-impl LinkEvent {
-    fn snapshot(snapshot: Snapshot, opens: bool) -> Self {
-        Self::Snapshot {
-            snapshot,
-            received_at: Instant::now().as_millis() as u32,
-            opens,
-        }
-    }
-}
-
-struct Discovery;
-
-impl EventHandler for Discovery {
-    fn on_adv_reports(&self, mut reports: LeAdvReportsIter<'_>) {
-        while let Some(Ok(report)) = reports.next() {
-            if let Some((side, display_feedback)) = advertised_peer(report.data) {
-                let _ = ADVERTISEMENTS.try_send(Discovered {
-                    address: Address::new(report.addr_kind, report.addr),
-                    side,
-                    display_feedback,
-                });
-            }
-        }
-    }
-}
-
-fn advertised_peer(mut data: &[u8]) -> Option<(Side, bool)> {
-    let mut service = false;
-    let mut side = None;
-    while !data.is_empty() {
-        let length = data[0] as usize;
-        if length == 0 {
-            break;
-        }
-        if length >= data.len() {
-            return None;
-        }
-        let field = &data[1..=length];
-        if field[0] == 0x07
-            && field[1..]
-                .chunks_exact(16)
-                .any(|uuid| uuid == SERVICE_BYTES)
-        {
-            service = true;
-        }
-        if field.len() == 9 && field[..7] == [0xff, 0xff, 0xff, b'k', b'b', b'w', 2] {
-            side = match field[7] {
-                1 => Some((Side::Left, field[8] & DISPLAY_CAPABILITY != 0)),
-                2 => Some((Side::Right, false)),
-                _ => None,
-            };
-        }
-        data = &data[length + 1..];
-    }
-    if service { side } else { None }
 }
 
 mod satellite_gatt {
@@ -316,6 +229,13 @@ pub async fn run(spawner: Spawner, role: Role) {
             }
         }
     }
+    #[cfg(feature = "toucan-dongle")]
+    {
+        let mut bytes = [0; 512];
+        if let Ok(Some(n)) = bonds.load_config(&mut bytes) {
+            crate::settings::initialize(Some(&bytes[..n]));
+        }
+    }
     let saved = bonds.load_all().unwrap();
     let mut resources: HostResources<DefaultPacketPool, 2, 6> = HostResources::new();
     let stack = trouble_host::new(controller, &mut resources)
@@ -340,19 +260,30 @@ pub async fn run(spawner: Spawner, role: Role) {
                 join(satellite(&stack, &bonds, side, boot), scanner).await;
             }
             Role::Dongle => {
-                join3(
+                #[cfg(feature = "toucan-dongle")]
+                join(
                     join(
-                        peer_loop(&stack, &bonds, Side::Left),
-                        peer_loop(&stack, &bonds, Side::Right),
+                        crate::settings::run_saves(&bonds),
+                        crate::settings::run_controls(&stack, &bonds),
                     ),
-                    process_keys(),
-                    run_usb(p.USBD),
+                    join3(
+                        join(
+                            receiver::peer_loop(&stack, &bonds, Side::Left),
+                            receiver::peer_loop(&stack, &bonds, Side::Right),
+                        ),
+                        receiver::process_keys(),
+                        receiver::run_usb(p.USBD),
+                    ),
                 )
                 .await;
             }
         }
     };
-    let keyboard = join3(runner.run_with_handler(&Discovery), application, diagnostic);
+    #[cfg(feature = "toucan-dongle")]
+    let radio = runner.run_with_handler(&receiver::Discovery);
+    #[cfg(not(feature = "toucan-dongle"))]
+    let radio = runner.run();
+    let keyboard = join3(radio, application, diagnostic);
     #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
     let _ = join(keyboard, display).await;
     #[cfg(not(any(feature = "nice-view", feature = "prospector-display")))]
@@ -509,190 +440,6 @@ async fn run_remote_display() {
     }
 }
 
-async fn peer_loop(stack: &Host<'_>, bonds: &Bonds, side: Side) {
-    loop {
-        let (connection, display_feedback) = {
-            let _guard = CONNECT_LOCK.lock().await;
-            let mut central = stack.central();
-            ADVERTISEMENTS.clear();
-            let candidate = {
-                let mut scanner = Scanner::new(&mut central);
-                let config = ScanConfig {
-                    active: false,
-                    interval: Duration::from_millis(100),
-                    window: Duration::from_millis(100),
-                    ..Default::default()
-                };
-                let Ok(_scan) = scanner.scan(&config).await else {
-                    Timer::after_millis(100).await;
-                    continue;
-                };
-                let discovery = async {
-                    loop {
-                        let candidate = ADVERTISEMENTS.receive().await;
-                        if candidate.side == side {
-                            break candidate;
-                        }
-                    }
-                };
-                match with_timeout(Duration::from_secs(1), discovery).await {
-                    Ok(candidate) => candidate,
-                    Err(_) => continue,
-                }
-            };
-            Timer::after_millis(20).await;
-            let filter = [candidate.address];
-            let config = ConnectConfig {
-                scan_config: ScanConfig {
-                    filter_accept_list: &filter,
-                    interval: Duration::from_millis(30),
-                    window: Duration::from_millis(30),
-                    ..Default::default()
-                },
-                connect_params: RequestedConnParams {
-                    min_connection_interval: Duration::from_micros(7500),
-                    max_connection_interval: Duration::from_millis(15),
-                    max_latency: 0,
-                    min_event_length: Duration::from_millis(0),
-                    max_event_length: Duration::from_millis(0),
-                    supervision_timeout: Duration::from_secs(2),
-                },
-            };
-            match with_timeout(Duration::from_secs(10), central.connect(&config)).await {
-                Ok(Ok(connection)) => (connection, candidate.display_feedback),
-                _ => continue,
-            }
-        };
-        if crate::radio::authenticate(&connection, stack, bonds).await {
-            receive_snapshots(stack, bonds, &connection, side, display_feedback).await;
-        }
-        connection.disconnect();
-        EVENTS.send(LinkEvent::Close(side)).await;
-        Timer::after_millis(100).await;
-    }
-}
-
-async fn receive_snapshots(
-    stack: &Host<'_>,
-    bonds: &Bonds,
-    connection: &Connection<'_, DefaultPacketPool>,
-    side: Side,
-    display_feedback: bool,
-) {
-    let Ok(Ok(client)) = with_timeout(
-        Duration::from_secs(5),
-        GattClient::<_, DefaultPacketPool, 12>::new(stack, connection),
-    )
-    .await
-    else {
-        return;
-    };
-    let receive = async {
-        let Ok(Ok(services)) = with_timeout(
-            Duration::from_secs(5),
-            client.services_by_uuid(&SERVICE_UUID),
-        )
-        .await
-        else {
-            return;
-        };
-        let Some(service) = services.first() else {
-            return;
-        };
-        let result: Result<Result<Characteristic<[u8; PACKET_LEN]>, _>, _> = with_timeout(
-            Duration::from_secs(5),
-            client.characteristic_by_uuid(service, &SNAPSHOT_UUID),
-        )
-        .await;
-        let Ok(Ok(characteristic)) = result else {
-            return;
-        };
-        let Ok(Ok(mut listener)) = with_timeout(
-            Duration::from_secs(5),
-            client.subscribe(&characteristic, false),
-        )
-        .await
-        else {
-            return;
-        };
-        let notifications = async {
-            let mut opens = true;
-            loop {
-                let Ok(notification) = with_timeout(Duration::from_secs(1), listener.next()).await
-                else {
-                    return;
-                };
-                let Ok(snapshot) = Snapshot::decode(notification.as_ref()) else {
-                    continue;
-                };
-                if snapshot.side != side {
-                    return;
-                }
-                opens = EVENTS
-                    .try_send(LinkEvent::snapshot(snapshot, opens))
-                    .is_err();
-            }
-        };
-        let events = async {
-            loop {
-                match connection.next().await {
-                    ConnectionEvent::Disconnected { .. } | ConnectionEvent::PairingFailed(_) => {
-                        break;
-                    }
-                    ConnectionEvent::PairingComplete {
-                        bond: Some(bond), ..
-                    } => {
-                        bonds.lock().await.remember(&bond).await;
-                    }
-                    ConnectionEvent::RequestConnectionParams(request) => {
-                        let _ = request.accept(None, stack).await;
-                    }
-                    _ => {}
-                }
-            }
-        };
-        let link = select(events, notifications);
-        #[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
-        if display_feedback {
-            let feedback = async {
-                let characteristic = with_timeout(
-                    Duration::from_secs(1),
-                    client
-                        .characteristic_by_uuid::<[u8; DISPLAY_PACKET_LEN]>(service, &DISPLAY_UUID),
-                )
-                .await;
-                if let Ok(Ok(characteristic)) = characteristic {
-                    let mut sequence = 0u16;
-                    loop {
-                        let now = Instant::now().as_millis() as u32;
-                        if let Some((status, published_at)) = DISPLAY_OUTPUT.lock(Cell::get) {
-                            if now.wrapping_sub(published_at) < 500 {
-                                let packet = DisplayFeedback { sequence, status }.encode();
-                                let _ = with_timeout(
-                                    Duration::from_millis(25),
-                                    client.write_characteristic_without_response(
-                                        &characteristic,
-                                        &packet,
-                                    ),
-                                )
-                                .await;
-                                sequence = sequence.wrapping_add(1);
-                            }
-                        }
-                        Timer::after_millis(100).await;
-                    }
-                }
-                core::future::pending::<()>().await;
-            };
-            let _ = select(link, feedback).await;
-            return;
-        }
-        let _ = display_feedback;
-        let _ = link.await;
-    };
-    let _ = select(client.task(), receive).await;
-}
-
 async fn gatt_events<
     M: embassy_sync::blocking_mutex::raw::RawMutex,
     const AT: usize,
@@ -758,223 +505,6 @@ async fn gatt_events<
     }
 }
 
-async fn process_keys() {
-    let mut component = KeyboardComponent::new(include_bytes!(env!("KB_KEYBOARD_WASM"))).ok();
-    let mut state = Bounded::<u8, 64>::new(0);
-    let mut reports = ReportState::<42>::new();
-    let mut receivers = [Receiver::new(); 2];
-    let mut previous = 0;
-    let mut input_gate = InputGate::new();
-    let mut wake_at = None;
-    #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
-    let mut display_status = kb_display::Status {
-        transport: if cfg!(feature = "toucan-dongle") {
-            kb_display::Transport::Split
-        } else {
-            kb_display::Transport::Bluetooth
-        },
-        ..Default::default()
-    };
-    #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
-    let mut previous_display = display_status;
-    loop {
-        let event = select(EVENTS.receive(), Timer::after_millis(5)).await;
-        let now = Instant::now().as_millis() as u32;
-        let mut invalidated = false;
-        for receiver in &mut receivers {
-            invalidated |= receiver.expire(now);
-        }
-        if let Either::First(event) = event {
-            match event {
-                LinkEvent::Snapshot {
-                    snapshot,
-                    received_at,
-                    opens,
-                } => {
-                    invalidated |= receivers[snapshot.side.index()]
-                        .receive_queued(snapshot, received_at, now, opens)
-                        .unwrap_or(false);
-                }
-                LinkEvent::Close(side) => {
-                    let receiver = &mut receivers[side.index()];
-                    invalidated |= receiver.connected();
-                    receiver.close();
-                }
-            }
-        }
-        let keys = receivers
-            .iter()
-            .fold(0, |keys, receiver| keys | receiver.keys());
-        let session = transport();
-        let ready = session.ready();
-        let gate = input_gate.observe(session.generation(), ready, keys, invalidated);
-        if gate.cancel {
-            state = Default::default();
-            reports.clear();
-            wake_at = None;
-            previous = 0;
-            REPORTS.clear();
-            #[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
-            {
-                display_status.last_usage = 0;
-                display_status.last_modifiers = 0;
-            }
-            if ready {
-                REPORTS.send((session.generation(), [0; 8])).await;
-            }
-        } else if component.is_some()
-            && gate.keys.is_some()
-            && (previous != keys
-                || wake_at.is_some_and(|deadline: u32| now.wrapping_sub(deadline) as i32 >= 0))
-        {
-            let mut input = Input::<42>::tick(now);
-            for position in 0..42 {
-                let mask = 1u64 << position;
-                if (previous ^ keys) & mask != 0 {
-                    input
-                        .events
-                        .push(KeyEvent {
-                            position,
-                            state: if keys & mask != 0 {
-                                KeyState::Pressed
-                            } else {
-                                KeyState::Released
-                            },
-                            timestamp_ms: now,
-                        })
-                        .unwrap();
-                }
-            }
-            let result = (|| {
-                let component = component
-                    .as_ref()
-                    .ok_or(kb_component_runtime::Error::InvalidState)?;
-                let (next_state, wake, actions) = {
-                    let output = component.process::<64, 42, 42>(state.as_slice(), &input)?;
-                    let wake = output.wake_at_ms;
-                    let output = component.transform_output::<64, 42>(
-                        output.state.as_slice(),
-                        output.actions.as_slice(),
-                    )?;
-                    (output.state, wake, output.actions)
-                };
-                let mut next_reports = reports;
-                for action in actions.as_slice() {
-                    next_reports
-                        .apply(*action)
-                        .map_err(|_| kb_component_runtime::Error::InvalidReturn)?;
-                }
-                Ok::<_, kb_component_runtime::Error>((next_state, wake, next_reports, actions))
-            })();
-            match result {
-                Ok((next_state, wake, next_reports, actions)) => {
-                    state = next_state;
-                    wake_at = wake;
-                    let mut replay = reports;
-                    reports = next_reports;
-                    for action in actions.as_slice() {
-                        let update = replay.apply(*action).unwrap();
-                        for report in [Some(update.first), update.second].into_iter().flatten() {
-                            REPORTS.send((session.generation(), report)).await;
-                            #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
-                            {
-                                display_status.last_modifiers = report[0];
-                                if report[2] != 0 {
-                                    display_status.last_usage = report[2];
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(_) => {
-                    component = None;
-                    state = Default::default();
-                    wake_at = None;
-                    reports.clear();
-                    REPORTS.clear();
-                    REPORTS.send((session.generation(), [0; 8])).await;
-                }
-            }
-            previous = keys;
-        }
-        COMPONENT_FAILED.store(component.is_none(), Ordering::Relaxed);
-        #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
-        {
-            display_status.connected = ready;
-            display_status.pairing_unsaved = crate::ble_bonds::storage_failed();
-            display_status.faulted = component.is_none();
-            let keyboard = kb_display::KeyboardStatus {
-                active_keys: keys.count_ones() as u8,
-                layer: u8::from(keys & (1u64 << 41) != 0),
-            };
-            display_status.keyboard = Some(keyboard);
-            #[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
-            DISPLAY_OUTPUT.lock(|output| {
-                output.set(Some((
-                    DisplayStatus {
-                        connected: ready && receivers.iter().all(Receiver::connected),
-                        faulted: display_status.faulted,
-                        pairing_unsaved: display_status.pairing_unsaved,
-                        active_keys: keyboard.active_keys,
-                        layer: keyboard.layer,
-                        last_usage: display_status.last_usage,
-                        last_modifiers: display_status.last_modifiers,
-                    },
-                    now,
-                )));
-            });
-            if display_status != previous_display {
-                #[cfg(feature = "nice-view")]
-                crate::nice_view::update(display_status);
-                #[cfg(feature = "prospector-display")]
-                crate::prospector::update(display_status);
-                previous_display = display_status;
-            }
-        }
-    }
-}
-
-fn transport() -> SessionGate {
-    crate::usb_hid::connection()
-}
-
-async fn run_usb(peripheral: Peri<'static, peripherals::USBD>) {
-    let driver = Driver::new(peripheral, Irqs, HardwareVbusDetect::new(Irqs));
-    let mut config = Config::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("kb.wlt");
-    config.product = Some("kb.wlt Toucan Receiver");
-    config.max_power = 100;
-    config.max_packet_size_0 = 64;
-    config.composite_with_iads = false;
-    let mut configuration = [0; 256];
-    let mut bos = [0; 64];
-    let mut msos = [0; 64];
-    let mut control = [0; 64];
-    let mut state = State::new();
-    let mut handler = crate::usb_hid::ConnectionState::default();
-    let mut hid_control = crate::usb_hid::KeyboardControl::default();
-    let mut builder = Builder::new(
-        driver,
-        config,
-        &mut configuration,
-        &mut bos,
-        &mut msos,
-        &mut control,
-    );
-    builder.handler(&mut handler);
-    let mut writer = HidWriter::<_, 8>::new(
-        &mut builder,
-        &mut state,
-        HidConfig {
-            report_descriptor: &REPORT_DESCRIPTOR,
-            request_handler: Some(&mut hid_control),
-            poll_ms: 1,
-            max_packet_size: 8,
-            hid_subclass: HidSubclass::Boot,
-            hid_boot_protocol: HidBootProtocol::Keyboard,
-        },
-    );
-    let mut usb = builder.build();
-    let send = crate::usb_hid::send_held_reports(&mut writer, &REPORTS);
-    join(usb.run(), send).await;
-}
+#[cfg(feature = "toucan-dongle")]
+#[path = "receiver.rs"]
+pub(crate) mod receiver;
