@@ -9,6 +9,11 @@
 ### Changed
 
 - The Toucan Prospector shows named layers, typing guidance, live chord release previews and buffered braille cells instead of key counts and raw reports.
+- Releases provide separate Toucan and Paintbrush install ZIPs with three matching images, a flash helper, instructions, generated ASCII keymaps and a plain-text braille reference.
+
+### Fixed
+
+- Firmware and UF2 builds now stay below the stock bootloader's reserved flash region; the flash helper waits for bootloader disconnect instead of reporting success on copy alone.
 
 ## [0.1.1] - 2026-11-14
 

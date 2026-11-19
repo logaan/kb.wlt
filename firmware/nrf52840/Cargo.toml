@@ -65,6 +65,6 @@ required-features = ["toucan-dongle", "usb", "prospector-display"]
 [profile.release]
 codegen-units = 1
 lto = "fat"
-opt-level = "s"
+opt-level = "z"
 debug = 2
 panic = "abort"

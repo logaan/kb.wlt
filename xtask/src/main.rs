@@ -1,4 +1,5 @@
 mod heap;
+mod install_kit;
 mod probe;
 
 use kb_component_build::{Contract, compile};
@@ -32,6 +33,7 @@ fn run() -> Result {
         [command, elf, output] if command == "uf2" => convert(elf, output, STOCK_APPLICATION_START),
         [command, elf, output, option] if command == "uf2" && option == "--nosd" => convert(elf, output, NOSD_APPLICATION_START),
         [command, elf, output, option] if command == "uf2" && option == "--s140v7" => convert(elf, output, S140_V7_APPLICATION_START),
+        [command, board, images, output] if command == "install-kit" => install_kit::generate(board, Path::new(images), Path::new(output)),
         [command, name, options @ ..] if command == "build" => build(name, options),
         [command] if command == "check" => check(),
         [command, directory] if command == "verify-release" => {

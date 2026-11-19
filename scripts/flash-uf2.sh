@@ -18,5 +18,14 @@ if ! grep -Eqi 'nrf52840|nice.?nano|xiao' "$volume/INFO_UF2.TXT"; then
   exit 1
 fi
 printf 'Board identified as nRF52840. Copying firmware; this may take a moment...\n'
-cp -v "$image" "$volume/$(basename "$image")"
-printf 'Copied %s to %s. The board should reboot.\n' "$image" "$volume"
+copied=true
+COPYFILE_DISABLE=1 cp -v "$image" "$volume/$(basename "$image")" || copied=false
+for ((i=0; i<30; i++)); do
+  if [[ ! -f "$volume/INFO_UF2.TXT" ]]; then
+    printf 'Bootloader disconnected. Verify that the board starts in its normal role.\n'
+    exit 0
+  fi
+  sleep 1
+done
+printf 'Bootloader still mounted (copy completed: %s). Flash not confirmed. Re-enter boot mode before retrying.\n' "$copied" >&2
+exit 1

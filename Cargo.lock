@@ -1241,6 +1241,7 @@ dependencies = [
  "kb-component-build",
  "kb-component-runtime",
  "kb-core",
+ "kb-display",
  "wit-parser",
 ]
 

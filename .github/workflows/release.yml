@@ -83,6 +83,10 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Build firmware
         run: bash scripts/build-artifacts.sh
+      - name: Build and verify board install kits
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: python3 scripts/package-release.py "$VERSION"
       - name: Commit and tag release
         env:
           VERSION: ${{ steps.version.outputs.value }}
@@ -93,16 +97,11 @@ jobs:
           git commit -m "Release v$VERSION"
           git tag -a "v$VERSION" -m "kb.wlt v$VERSION"
           git push --atomic origin HEAD:master "refs/tags/v$VERSION"
-      - name: Package and publish release
+      - name: Publish board install kits
         env:
           VERSION: ${{ steps.version.outputs.value }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          cargo xtask verify-release dist/release
-          mkdir -p "dist/bundle/kb.wlt-$VERSION"
-          git archive HEAD | tar -x -C "dist/bundle/kb.wlt-$VERSION"
-          mkdir -p "dist/bundle/kb.wlt-$VERSION/dist"
-          cp dist/release/*.uf2 "dist/bundle/kb.wlt-$VERSION/dist/"
-          tar -czf "dist/release/kb.wlt-$VERSION.tar.gz" -C dist/bundle "kb.wlt-$VERSION"
-          (cd dist/release && sha256sum -- *.uf2 *.tar.gz > SHA256SUMS)
-          gh release create "v$VERSION" dist/release/*.uf2 dist/release/*.tar.gz dist/release/SHA256SUMS --verify-tag --title "kb.wlt v$VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+          cd dist/packages
+          sha256sum -c SHA256SUMS
+          gh release create "v$VERSION" "kb.wlt-paintbrush-$VERSION.zip" "kb.wlt-toucan-$VERSION.zip" SHA256SUMS --verify-tag --title "kb.wlt v$VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"

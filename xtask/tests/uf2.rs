@@ -92,7 +92,7 @@ fn rejects_unsafe_or_corrupt_firmware() {
 #[test]
 fn padding_does_not_cross_bootloader_boundary() {
     let image = FirmwareImage {
-        base_address: 0xf3f00,
+        base_address: xtask::FLASH_END - 256,
         data: vec![0; 257],
     };
     assert!(image.uf2().is_err());
