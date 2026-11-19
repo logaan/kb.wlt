@@ -49,7 +49,7 @@ jobs:
         with:
           targets: thumbv7em-none-eabihf
           components: rustfmt
-      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+      - run: bash scripts/ci-clang.sh
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           workspaces: |
