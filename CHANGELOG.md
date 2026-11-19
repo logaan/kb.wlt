@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-20
+
 ### Added
 
 - Toucan Prospector now switches between conventional and braille typing with left outer thumb + P, including the Space+qq menu, saved bindings and UEB Grade 1.
