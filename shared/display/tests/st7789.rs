@@ -134,6 +134,111 @@ fn keyboard_uses_clockwise_landscape_and_restores_portrait_for_other_views() {
 }
 
 #[test]
+fn chord_updates_reconstruct_the_full_frame_within_a_30_hz_wire_budget() {
+    use kb_core::KeyStroke;
+    use kb_display::{
+        KeyboardStatus,
+        keyboard::{self, LiveBraille, release_label},
+    };
+    let idle = Status {
+        keyboard: Some(KeyboardStatus {
+            layer: keyboard::BRAILLE_LAYER,
+            active_keys: 0,
+        }),
+        braille: Some(LiveBraille::default()),
+        connected: true,
+        ..Status::default()
+    };
+    let pressed = Status {
+        chord: 1,
+        braille: Some(LiveBraille {
+            release: release_label(&[KeyStroke::new(4, 0)], false, false),
+            ..Default::default()
+        }),
+        ..idle
+    };
+    let buffered = Status {
+        braille: Some(LiveBraille {
+            buffered: [1, 0, 0, 0, 0, 0, 0],
+            ..Default::default()
+        }),
+        ..idle
+    };
+    for (before, after, budget) in [
+        (idle, pressed, 4_000_000 / 8 / 30),
+        (pressed, buffered, 4_000_000 / 8 / 30),
+        (pressed, pressed, 0),
+        (
+            pressed,
+            Status {
+                connected: false,
+                ..pressed
+            },
+            280 * 240 * 2,
+        ),
+        (
+            pressed,
+            Status {
+                faulted: true,
+                ..pressed
+            },
+            280 * 240 * 2 + 1000,
+        ),
+    ] {
+        let bus = futures::executor::block_on(async {
+            let mut panel = St7789::new(Bus::default());
+            panel.present(before).await.unwrap();
+            panel.present(after).await.unwrap();
+            panel.into_inner()
+        });
+        let size = keyboard::WIDTH * keyboard::HEIGHT * 2;
+        let mut image = bus.pixels[..size].to_vec();
+        let mut data = &bus.pixels[size..];
+        let bytes = data.len() + (bus.commands.len() - 4) / 3 * 11;
+        assert!(bytes <= budget, "{bytes} exceeds {budget}");
+        println!("dashboard update: {bytes} wire bytes");
+        for window in bus.commands[4..].chunks_exact(3) {
+            let bounds = |b: &[u8]| {
+                (
+                    usize::from(u16::from_be_bytes([b[0], b[1]])),
+                    usize::from(u16::from_be_bytes([b[2], b[3]])),
+                )
+            };
+            let (l, r) = bounds(&window[0].1);
+            let (t, b) = bounds(&window[1].1);
+            let len = (r - l + 1) * 2;
+            for y in t..=b {
+                let start = (y * keyboard::WIDTH + l - 20) * 2;
+                image[start..start + len].copy_from_slice(&data[..len]);
+                data = &data[len..];
+            }
+        }
+        assert!(data.is_empty());
+        let frame = keyboard::render(after);
+        for (y, line) in image.chunks_exact(keyboard::WIDTH * 2).enumerate() {
+            let mut expected = [0; keyboard::WIDTH * 2];
+            keyboard::render_row(&frame, after, y, &mut expected);
+            assert_eq!(line, expected, "row {y}");
+        }
+    }
+}
+
+#[test]
+fn returning_from_a_menu_invalidates_the_dashboard_cache() {
+    futures::executor::block_on(async {
+        let mut panel = St7789::new(Bus::default());
+        let status = Status {
+            keyboard: Some(Default::default()),
+            ..Default::default()
+        };
+        panel.present(status).await.unwrap();
+        panel.present_menu(&Default::default()).await.unwrap();
+        panel.present(status).await.unwrap();
+        assert_eq!(panel.into_inner().pixels.len(), 3 * 280 * 240 * 2);
+    });
+}
+
+#[test]
 fn bus_errors_are_propagated() {
     futures::executor::block_on(async {
         let mut panel = St7789::new(Bus {

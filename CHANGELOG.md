@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Toucan Prospector redraws changed dashboard regions rather than streaming a full screen for each chord, and shows the menu gesture as two braille cells.
+
 ## [0.2.0] - 2026-11-20
 
 ### Added

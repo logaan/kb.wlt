@@ -98,7 +98,8 @@ fn toucan_map() -> Result<String> {
         );
         out.push('\n');
     }
-    out.push_str("Left outer thumb, then P : Typing <-> Braille\nSpace + S D F J K twice  : Menu (keep Space held; release letters between chords)\n");
+    out.push_str("Left outer thumb, then P : Typing <-> Braille\n");
+    out.push_str(&menu_cells());
     Ok(out)
 }
 
@@ -117,13 +118,31 @@ fn paintbrush_map() -> String {
     out
 }
 
+fn menu_cells() -> String {
+    let mut text = String::from("Menu: hold Space\n");
+    for row in 0..3 {
+        let dot = |bit: usize| {
+            if LEADER & (1u16 << bit) != 0 {
+                'o'
+            } else {
+                '.'
+            }
+        };
+        let pair = format!("{} {}", dot(row), dot(row + 3));
+        writeln!(text, "  {pair}    {pair}").unwrap();
+    }
+    text.push_str("  1st    2nd   (release dots between cells; within 2 s)\n");
+    text
+}
+
 fn braille_reference() -> Result<String> {
     let mut braille = BrailleComponent::new(include_bytes!(
         "../../clients/components/generated/braille.core.wasm"
     ))
     .map_err(|e| format!("braille: {e:?}"))?;
-    let mut out = String::from(
-        "DOTS         MENU\n1 4          Hold Space; chord q (12345), release dots; second chord within 2 s\n2 5          q  Main           r  Reference\n3 6          c  Configuration  b  Bindings      d  Diagnostics\n7 8\n\nMENU CONTROLS (hold Space)\n1 / 4   Previous / Next      3 / 6   Previous page / Next page\n7       Select               12      Back\n\nCOMPUTER 8\nDots             Output\n",
+    let mut out = String::from("DOTS\n1 4\n2 5\n3 6\n7 8\n\n");
+    out.push_str(&menu_cells());
+    out.push_str("Second cell: q Main | r Reference | c Configuration | b Bindings | d Diagnostics\n\nMENU CONTROLS (hold Space)\n1 / 4   Previous / Next      3 / 6   Previous page / Next page\n7       Select               12      Back\n\nCOMPUTER 8\nDots             Output\n",
     );
     for cell in 1..=511 {
         let packed = braille

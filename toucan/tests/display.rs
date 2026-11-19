@@ -103,6 +103,30 @@ fn braille_preview_changes_with_the_result_and_buffer_even_if_dots_stay_the_same
 }
 
 #[test]
+fn menu_hint_shows_two_six_dot_leader_cells() {
+    let image = pixels(Status {
+        keyboard: Some(KeyboardStatus {
+            layer: kb_display::keyboard::BRAILLE_LAYER,
+            active_keys: 0,
+        }),
+        ..Default::default()
+    });
+    for x in [102, 116] {
+        for (row, col, filled) in [
+            (0, 0, true),
+            (0, 1, true),
+            (1, 0, true),
+            (1, 1, true),
+            (2, 0, true),
+            (2, 1, false),
+        ] {
+            let i = 2 * ((108 + 4 * row + 1) * 2 * WIDTH + 2 * (x + 5 * col + 1));
+            assert_eq!(image[i..i + 2] == [255, 255], filled);
+        }
+    }
+}
+
+#[test]
 fn header_text_stays_inside_rounded_corner_inset() {
     for pairing_unsaved in [false, true] {
         let image = pixels(Status {

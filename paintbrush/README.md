@@ -32,7 +32,7 @@ Only the receiver executes the client. For a custom client, use `cargo xtask bui
 
 ## Receiver menus
 
-Hold Space, chord **q** (dots 1+2+3+4+5), release the dots, then chord **q** again within two seconds. For direct access, replace the second chord with **r** (reference), **c** (configuration), **b** (bindings), or **d** (diagnostics).
+Main menu: **hold Space → ⠟ → ⠟**. Release the dots between cells; enter the second within two seconds. For direct access, replace the second chord with **r** (reference), **c** (configuration), **b** (bindings), or **d** (diagnostics).
 
 In menus, Space+1/4 moves the selection, Space+3/6 changes pages, Space+7 selects, and Space+12 goes back. Menu chords stay on the receiver. Release all keys before resuming typing. Configuration and bindings save asynchronously; wait for the unsaved indicator to clear before powering off. Bluetooth reconnection and pairing reset remain available in the receiver's configuration menu; separate reset firmware is not required.
 

@@ -27,6 +27,8 @@ The Waveshare 1.69-inch Touch LCD Module uses an ST7789V2, with 240×280 native 
 
 Normal firmware uses SPI2 at 4 MHz. Hardware testing found a blank LCD with the former SPI3/16 MHz configuration; slow software SPI and then SPI2 displayed content successfully. Initialization explicitly enables extended register writes and configures the panel before leaving sleep. Backlight GPIO control is active-high, despite the upstream overlay's initial PWM inversion setting.
 
+Toucan chord previews use partial ST7789 address windows at up to 30 updates/s, not 30 full frames/s. At 4 MHz a 280×240 RGB565 frame takes at least 269 ms; a 33 ms update has about 16.6 KB of wire time. Unchanged dashboard pixels need no full-frame transfer. Menu/page transitions still require a redraw. Update rate on physical hardware has not been measured.
+
 References: [upstream Prospector XIAO overlay](https://github.com/carrefinho/prospector-zmk-module/blob/main/boards/shields/prospector_adapter/boards/seeeduino_xiao_ble.overlay), [Waveshare panel](https://www.waveshare.com/product/displays/lcd-oled/lcd-oled-3/1.69inch-touch-lcd-module.htm), and [Waveshare Arduino demo](https://files.waveshare.com/wiki/1.69inch-Touch-LCD-Module/1.69inch_Touch_LCD_Arduino.zip).
 
 The temporary software-SPI diagnostic and standalone pairing-reset images have been removed. Their successful display fixes remain in the shared driver. Pairing management remains part of the keyboard applications.

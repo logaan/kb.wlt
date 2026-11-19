@@ -36,7 +36,7 @@ Toucan starts in conventional typing. Hold the left outer thumb for navigation. 
 
 In braille mode, **A S D F** are dots **7 3 2 1**; **J K L ;** are **4 5 6 8**. Use the normal Space thumb for Braille Space. Try holding **F**: the display previews **a** before you release it. Chord keys together and release to type. The preview follows Computer 8 or UEB Grade 1 and your saved bindings; waiting cells appear oldest first.
 
-For the menu, keep Space held and chord **S D F J K** (braille **q**). Release the letters, chord them again within two seconds, then release everything. The gesture stays on the receiver. In the menu use Space+dot 1/4 for previous/next, Space+7 to select and Space+1+2 to go back. Configuration changes the braille code; Reference explains chords and Bindings lets you edit expansions.
+For the menu: **hold Space → ⠟ → ⠟**. Release the dots between cells; enter the second within two seconds, then release everything. The gesture stays on the receiver. In the menu use Space+dot 1/4 for previous/next, Space+7 to select and Space+1+2 to go back. Configuration changes the braille code; Reference explains chords and Bindings lets you edit expansions.
 
 The two-half/Prospector configuration was accepted by the user after typing, display, cross-half modifier, reconnection, and power-cycle checks. The new braille integration, menu and display preview still need hardware regression testing. Direct Bluetooth HID, display-free left halves, and composed-firmware variants are not supported.
 

@@ -15,6 +15,7 @@ pub trait PanelBus {
 pub struct St7789<B> {
     bus: B,
     landscape: bool,
+    keyboard: Option<(crate::keyboard::Frame, Status)>,
 }
 
 impl<B: PanelBus> St7789<B> {
@@ -22,10 +23,12 @@ impl<B: PanelBus> St7789<B> {
         Self {
             bus,
             landscape: false,
+            keyboard: None,
         }
     }
 
     pub async fn initialize(&mut self) -> Result<(), B::Error> {
+        self.keyboard = None;
         self.bus.reset().await;
         self.landscape = false;
         self.bus.command(0x01, &[]).await?;
@@ -76,21 +79,69 @@ impl<B: PanelBus> St7789<B> {
 
     pub async fn present(&mut self, status: Status) -> Result<(), B::Error> {
         if status.keyboard.is_some() {
+            let prior = self.keyboard.take();
             self.orientation(true).await?;
             let frame = crate::keyboard::render(status);
-            self.bus.command(0x2a, &[0, 20, 1, 43]).await?;
-            self.bus.command(0x2b, &[0, 0, 0, 239]).await?;
-            self.bus.command(0x2c, &[]).await?;
-            let mut row = [0; crate::keyboard::WIDTH * 2];
-            for y in 0..crate::keyboard::HEIGHT {
-                crate::keyboard::render_row(&frame, status, y, &mut row);
-                self.bus.data(&row).await?;
+            if let Some((old, previous)) = prior.as_ref() {
+                for y in (0..crate::keyboard::HEIGHT).step_by(8) {
+                    if let Some(span) =
+                        crate::keyboard::changed_span(old, previous, &frame, &status, y)
+                    {
+                        self.keyboard_region(&frame, &status, span, y..y + 8)
+                            .await?;
+                    }
+                }
+            } else {
+                self.keyboard_region(
+                    &frame,
+                    &status,
+                    0..crate::keyboard::WIDTH,
+                    0..crate::keyboard::HEIGHT,
+                )
+                .await?;
             }
+            self.keyboard = Some((frame, status));
             return Ok(());
         }
+        self.keyboard = None;
         let frame = render(status);
         self.present_rows(|y, row| render_row(&frame, status, y, row))
             .await
+    }
+
+    async fn keyboard_region(
+        &mut self,
+        frame: &crate::keyboard::Frame,
+        status: &Status,
+        x: core::ops::Range<usize>,
+        y: core::ops::Range<usize>,
+    ) -> Result<(), B::Error> {
+        let left = x.start + 20;
+        let right = x.end - 1 + 20;
+        self.bus
+            .command(
+                0x2a,
+                &[
+                    (left >> 8) as u8,
+                    left as u8,
+                    (right >> 8) as u8,
+                    right as u8,
+                ],
+            )
+            .await?;
+        self.bus
+            .command(0x2b, &[0, y.start as u8, 0, (y.end - 1) as u8])
+            .await?;
+        self.bus.command(0x2c, &[]).await?;
+        let stride = x.len() * 2;
+        let mut bytes = [0; crate::keyboard::WIDTH * 2 * 2];
+        for start in y.step_by(2) {
+            for (i, row) in bytes[..2 * stride].chunks_exact_mut(stride).enumerate() {
+                crate::keyboard::render_span(frame, status, start + i, x.start, row);
+            }
+            self.bus.data(&bytes[..2 * stride]).await?;
+        }
+        Ok(())
     }
 
     pub async fn present_reference(
@@ -110,6 +161,7 @@ impl<B: PanelBus> St7789<B> {
         &mut self,
         render: impl Fn(usize, &mut [u8; PANEL_WIDTH * 2]),
     ) -> Result<(), B::Error> {
+        self.keyboard = None;
         if !self.landscape {
             return self.present_rows(render).await;
         }

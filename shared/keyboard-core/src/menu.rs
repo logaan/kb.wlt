@@ -50,7 +50,7 @@ impl Notice {
             Self::TextFull => "Text limit: 24 characters",
             Self::EmptyText => "Enter expansion text",
             Self::DuplicateTrigger => "Trigger already assigned",
-            Self::ReservedChord => "Space+q is reserved",
+            Self::ReservedChord => "Menu shortcut is reserved",
             Self::EmptySlot => "Choose a trigger length",
             Self::BluetoothRequested => "Bluetooth action requested",
         }

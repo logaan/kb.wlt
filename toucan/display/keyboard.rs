@@ -1,6 +1,6 @@
 use crate::{
     Status,
-    reference::{Label, dot_label, label},
+    reference::{Label, label},
 };
 use core::fmt::Write;
 use embedded_graphics::{
@@ -72,7 +72,7 @@ pub fn release_label(strokes: &[KeyStroke], waiting: bool, leader: bool) -> Labe
 }
 
 pub struct Frame {
-    bytes: [u8; 140 * 120 / 8],
+    bytes: [u8; 18 * 120],
 }
 
 impl OriginDimensions for Frame {
@@ -93,7 +93,7 @@ impl DrawTarget for Frame {
             if !(0..140).contains(&point.x) || !(0..120).contains(&point.y) {
                 continue;
             }
-            let index = point.y as usize * 140 + point.x as usize;
+            let index = point.y as usize * 144 + point.x as usize;
             let mask = 1 << (index % 8);
             match color {
                 BinaryColor::On => self.bytes[index / 8] |= mask,
@@ -104,15 +104,37 @@ impl DrawTarget for Frame {
     }
 }
 
+fn draw_cell(frame: &mut Frame, cell: u16, x: i32, y: i32, rows: usize) {
+    for (i, bit) in [0, 3, 1, 4, 2, 5, 6, 7]
+        .into_iter()
+        .take(rows * 2)
+        .enumerate()
+    {
+        let dx = x + (i % 2) as i32 * 5;
+        let dy = y + (i / 2) as i32 * 4;
+        let size = if cell & (1 << bit) != 0 { 3 } else { 1 };
+        for row in 0..size {
+            for col in 0..size {
+                let _ = frame.draw_iter([Pixel(Point::new(dx + col, dy + row), BinaryColor::On)]);
+            }
+        }
+    }
+}
+
 pub fn render(status: Status) -> Frame {
-    let mut frame = Frame { bytes: [0; 2100] };
+    let mut frame = Frame {
+        bytes: [0; 18 * 120],
+    };
     let small = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let layer = status.keyboard.unwrap_or_default().layer;
     let title = if status.pairing_unsaved {
         "PAIRING UNSAVED"
     } else {
         match layer {
-            BRAILLE_LAYER => "TOUCAN / BRAILLE",
+            BRAILLE_LAYER => match status.braille.map(|live| live.mode) {
+                Some(BrailleMode::Ueb1) => "BRAILLE / UEB 1",
+                _ => "BRAILLE / COMPUTER 8",
+            },
             1 => "TOUCAN / NAVIGATION",
             _ => "TOUCAN / TYPING",
         }
@@ -133,82 +155,58 @@ pub fn render(status: Status) -> Frame {
     } else {
         "WAITING FOR HALVES"
     };
-    let _ = Text::new(link, Point::new(4, 26), small).draw(&mut frame);
-    if let Some(live) = status.braille {
-        if status.chord != 0 || live.buffered[0] != 0 {
-            let mut top = Label::new();
-            let _ = write!(
-                top,
-                "{}: {}",
-                live.mode.name(),
-                dot_label(status.chord).as_str()
-            );
-            for (line, y) in [
-                (top.as_str(), 40),
-                ("On release:", 52),
-                (
-                    live.release
-                        .as_str()
-                        .get(..21)
-                        .unwrap_or(live.release.as_str()),
-                    64,
-                ),
-                (live.release.as_str().get(21..).unwrap_or(""), 75),
-                (
-                    if live.buffered[0] == 0 {
-                        "Buffer: empty"
-                    } else {
-                        "Buffer (oldest first)"
-                    },
-                    89,
-                ),
-            ] {
-                let _ = Text::new(line, Point::new(4, y), small).draw(&mut frame);
-            }
-            for (i, cell) in live
-                .buffered
-                .into_iter()
-                .take_while(|cell| *cell != 0)
-                .enumerate()
-            {
-                let x = 6 + i as i32 * 18;
-                for (bit, dx, dy) in [
-                    (0, 0, 0),
-                    (1, 0, 4),
-                    (2, 0, 8),
-                    (6, 0, 12),
-                    (3, 5, 0),
-                    (4, 5, 4),
-                    (5, 5, 8),
-                    (7, 5, 12),
-                ] {
-                    let on = cell & (1 << bit) != 0;
-                    for (a, b) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
-                        if on || a + b == 0 {
-                            let _ = frame.draw_iter([Pixel(
-                                Point::new(x + dx + a, 94 + dy + b),
-                                BinaryColor::On,
-                            )]);
-                        }
-                    }
-                }
-                if cell & 256 != 0 {
-                    let _ = Text::new("S", Point::new(x, 118), small).draw(&mut frame);
-                }
-            }
-            return frame;
+    if layer == BRAILLE_LAYER {
+        let live = status.braille.unwrap_or_default();
+        let result = live.release.as_str();
+        let buffer = if live.buffered[0] == 0 {
+            "Buffer: empty"
+        } else {
+            "Buffer:"
+        };
+        for (line, y) in [
+            (
+                if status.connected {
+                    "Exit: left outer + P"
+                } else {
+                    link
+                },
+                26,
+            ),
+            ("A S D F    J K L ;", 40),
+            ("7 3 2 1    4 5 6 8", 50),
+            ("On release:", 65),
+            (result.get(..21).unwrap_or(result), 77),
+            (result.get(21..).unwrap_or(""), 88),
+            (buffer, 103),
+            ("Menu: hold Space", 117),
+        ] {
+            let _ = Text::new(line, Point::new(4, y), small).draw(&mut frame);
         }
+        if status.chord != 0 {
+            draw_cell(&mut frame, status.chord, 80, 54, 4);
+        }
+        if status.chord & 256 != 0 {
+            let _ = Text::new("Space", Point::new(92, 65), small).draw(&mut frame);
+        }
+        for (i, cell) in live
+            .buffered
+            .into_iter()
+            .take_while(|cell| *cell != 0)
+            .enumerate()
+        {
+            let x = 49 + i as i32 * 13;
+            draw_cell(&mut frame, cell, x, 91, 4);
+            if cell & 256 != 0 {
+                let _ = Text::new("S", Point::new(x + 7, 102), small).draw(&mut frame);
+            }
+        }
+        for x in [102, 116] {
+            draw_cell(&mut frame, kb_core::reference::LEADER, x, 108, 3);
+        }
+        return frame;
     }
-    let dots = status.braille.map_or("", |live| live.mode.name());
+    let _ = Text::new(link, Point::new(4, 26), small).draw(&mut frame);
     let lines = match layer {
-        BRAILLE_LAYER => [
-            "A S D F    J K L ;",
-            "7 3 2 1    4 5 6 8",
-            dots,
-            "Menu: hold Space",
-            "Chord SDFJK twice",
-            "Exit: left outer + P",
-        ],
         1 => [
             "W Left      O Right",
             "R Up        I Down",
@@ -232,22 +230,56 @@ pub fn render(status: Status) -> Frame {
     frame
 }
 
-pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; WIDTH * 2]) {
-    for x in 0..WIDTH {
-        let index = (y / 2) * 140 + x / 2;
-        let color: u16 = if frame.bytes[index / 8] & (1 << (index % 8)) != 0 {
-            0xffff
-        } else if status.faulted {
-            0x7800
-        } else if status.pairing_unsaved && y < 58 {
-            0x6200
-        } else if y < 58 {
-            if status.connected { 0x0184 } else { 0x1082 }
-        } else if y == 58 || y == 140 {
-            0x632c
-        } else {
-            0x0000
-        };
-        row[x * 2..x * 2 + 2].copy_from_slice(&color.to_be_bytes());
+fn background(status: &Status, y: usize) -> u16 {
+    if status.faulted {
+        0x7800
+    } else if status.pairing_unsaved && y < 58 {
+        0x6200
+    } else if y < 58 {
+        if status.connected { 0x0184 } else { 0x1082 }
+    } else if y == 58 {
+        0x632c
+    } else {
+        0
     }
+}
+
+pub(crate) fn changed_span(
+    old: &Frame,
+    previous: &Status,
+    frame: &Frame,
+    status: &Status,
+    y: usize,
+) -> Option<core::ops::Range<usize>> {
+    if (y..y + 8).any(|row| background(previous, row) != background(status, row)) {
+        return Some(0..WIDTH);
+    }
+    let mut start = 18;
+    let mut end = 0;
+    for row in y / 2..y / 2 + 4 {
+        for col in 0..18 {
+            let i = row * 18 + col;
+            if old.bytes[i] != frame.bytes[i] {
+                start = start.min(col);
+                end = end.max(col + 1);
+            }
+        }
+    }
+    (end != 0).then_some(start * 16..(end * 16).min(WIDTH))
+}
+
+pub(crate) fn render_span(frame: &Frame, status: &Status, y: usize, start: usize, row: &mut [u8]) {
+    let bg = background(status, y).to_be_bytes();
+    for (i, pixel) in row.chunks_exact_mut(2).enumerate() {
+        let x = (start + i) / 2;
+        pixel.copy_from_slice(if frame.bytes[(y / 2) * 18 + x / 8] & (1 << (x % 8)) != 0 {
+            &[255, 255]
+        } else {
+            &bg
+        });
+    }
+}
+
+pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; WIDTH * 2]) {
+    render_span(frame, &status, y, 0, row);
 }

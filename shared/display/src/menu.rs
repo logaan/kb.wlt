@@ -53,25 +53,30 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
     text(&mut row, subtitle.as_str(), 10, 35, MUTED, false);
     match page.mode {
         Mode::Main => {
-            for (index, label) in [
-                "qr  Braille reference",
-                "qc  Configuration",
-                "qb  Chords / contractions",
-                "qd  Diagnostics",
+            for (index, (dots, label)) in [
+                (kb_core::reference::REFERENCE, "Braille reference"),
+                (0x109, "Configuration"),
+                (0x103, "Chords / contractions"),
+                (0x119, "Diagnostics"),
             ]
             .iter()
             .enumerate()
             {
-                text(&mut row, label, 14, 65 + index as i32 * 29, WHITE, false);
+                let top = 52 + index as i32 * 29;
+                for (x, dots) in [(14, kb_core::reference::LEADER), (34, *dots)] {
+                    cell(
+                        &mut row,
+                        Entry {
+                            cell: dots,
+                            packed: 0,
+                        },
+                        x,
+                        top,
+                    );
+                }
+                text(&mut row, label, 58, top + 13, WHITE, false);
             }
-            text(
-                &mut row,
-                "Hold Space for q then q/r/c/b/d.",
-                10,
-                193,
-                MUTED,
-                false,
-            );
+            text(&mut row, "Shortcuts: hold Space.", 10, 193, MUTED, false);
         }
         Mode::Config => {
             let mut mode = Label::new();
@@ -203,22 +208,19 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
                 MUTED,
                 false,
             );
-            text(
-                &mut row,
-                "Space+q remains reserved.",
-                10,
-                193,
-                SPACE_COLOR,
-                false,
-            );
-            text(
-                &mut row,
-                "Space+q then Space+q cancels.",
-                10,
-                215,
-                MUTED,
-                false,
-            );
+            text(&mut row, "Reserved: Space +", 10, 193, SPACE_COLOR, false);
+            text(&mut row, "Cancel: hold Space +", 10, 215, MUTED, false);
+            for (x, y) in [(125, 181), (142, 203), (162, 203)] {
+                cell(
+                    &mut row,
+                    Entry {
+                        cell: kb_core::reference::LEADER,
+                        packed: 0,
+                    },
+                    x,
+                    y,
+                );
+            }
         }
         Mode::BindingText => {
             let mut prompt = Label::new();
@@ -360,11 +362,22 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
         }
         text(
             &mut row,
-            "Space+12:back  Space+q twice:home",
+            "Space+12:back  Home: Space +",
             10,
             274,
             MUTED,
             false,
         );
+        for x in [186, 206] {
+            cell(
+                &mut row,
+                Entry {
+                    cell: kb_core::reference::LEADER,
+                    packed: 0,
+                },
+                x,
+                259,
+            );
+        }
     }
 }

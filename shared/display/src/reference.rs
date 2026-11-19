@@ -294,47 +294,36 @@ pub fn render_row(page: &Page, y: usize, bytes: &mut [u8; 480]) {
     text(&mut row, "BRAILLE REFERENCE", 10, 18, ACCENT, true);
     if page.mode == Mode::Namespace {
         text(&mut row, "QuickBrailleFox", 10, 57, WHITE, true);
-        text(&mut row, "Space + q received", 10, 82, MUTED, false);
         text(
             &mut row,
-            "Press Space + q for the menu",
+            "Keep Space held. Next cell:",
             10,
-            115,
-            ACCENT,
-            false,
-        );
-        text(
-            &mut row,
-            "r: Reference   c: Configuration",
-            10,
-            141,
-            WHITE,
-            false,
-        );
-        text(
-            &mut row,
-            "b: Bindings    d: Diagnostics",
-            10,
-            157,
-            WHITE,
-            false,
-        );
-        text(
-            &mut row,
-            "Keep Space held, or release",
-            10,
-            191,
+            80,
             MUTED,
             false,
         );
-        text(
-            &mut row,
-            "and press it for each chord.",
-            10,
-            207,
-            MUTED,
-            false,
-        );
+        for (index, (dots, name)) in [
+            (kb_core::reference::LEADER, "Menu"),
+            (kb_core::reference::REFERENCE, "Reference"),
+            (0x109, "Configuration"),
+            (0x103, "Bindings"),
+            (0x119, "Diagnostics"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let top = 92 + index as i32 * 28;
+            cell(
+                &mut row,
+                Entry {
+                    cell: dots,
+                    packed: 0,
+                },
+                12,
+                top,
+            );
+            text(&mut row, name, 38, top + 12, WHITE, false);
+        }
         text(
             &mut row,
             "Typing is captured here.",

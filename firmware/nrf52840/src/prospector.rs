@@ -1,6 +1,6 @@
 use embassy_nrf::{gpio::Output, spim::Spim};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Duration, Timer, with_timeout};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use kb_display::{
     Status, Transport,
     st7789::{PanelBus, St7789},
@@ -97,6 +97,7 @@ pub async fn run<'a>(
             if let Some(next) = VIEW.try_take() {
                 view = next;
             }
+            let next_frame = Instant::now() + Duration::from_hz(30);
             let present = async {
                 match view {
                     View::Status(status) => panel.present(status).await,
@@ -111,7 +112,7 @@ pub async fn run<'a>(
                 break;
             }
             view = VIEW.wait().await;
-            Timer::after_millis(50).await;
+            Timer::at(next_frame).await;
         }
     }
 }
