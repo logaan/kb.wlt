@@ -71,6 +71,26 @@ fn native_round_strokes_clip_consistently_and_survive_mip_quantization() {
 }
 
 #[test]
+fn drawing_arcs_and_labels_through_repeated_frames_keeps_the_draw_heap_available() {
+    let commands = [
+        6, 32, 0, 31, 0, 24, 0, 225, 0, 5, 3, 90, 6, 32, 0, 31, 0, 17, 0, 225, 0, 5, 3, 90, 6, 32,
+        0, 31, 0, 10, 0, 225, 0, 5, 3, 90, 3, 62, 0, 5, 0, 1, 2, 3, b'8', b'0', b'%',
+    ];
+    let scene = Scene::from_bytes(&commands).unwrap();
+    let mut strip = Strip::<{ TFT_WIDTH * 8 }>::EMPTY;
+    let expected = strip.render(Profile::Tft, &scene, 16..24).unwrap().to_vec();
+    for _ in 0..120 {
+        for top in (0..48).step_by(8) {
+            assert!(strip.render(Profile::Mip, &scene, top..top + 8).is_some());
+            let frame = strip.render(Profile::Tft, &scene, top..top + 8).unwrap();
+            if top == 16 {
+                assert_eq!(frame, expected);
+            }
+        }
+    }
+}
+
+#[test]
 fn renders_labels_and_both_dot_styles_across_strip_boundaries() {
     let scene = Scene::from_bytes(&[
         4, 0, 0, 0, 0, 16, 0, 20, 0, 0x01, 3, 0x42, 4, 16, 0, 0, 0, 16, 0, 20, 0, 0x01, 0x84, 0x42,

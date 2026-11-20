@@ -40,12 +40,10 @@ void kb_lvgl_begin(uint16_t *pixels, uint16_t width, uint16_t top, uint16_t rows
     drawing_display.color_format = LV_COLOR_FORMAT_RGB565;
 }
 
-void kb_lvgl_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
-                  uint32_t rgb, uint8_t radius, uint8_t outline)
+static void draw_rectangle(const lv_area_t *area, lv_color_t color, int32_t radius, bool outline)
 {
-    lv_area_t area = {x, y, x + width - 1, y + height - 1};
     lv_area_t intersection;
-    if (!lv_area_intersect(&intersection, &layer._clip_area, &area)) {
+    if (!lv_area_intersect(&intersection, &layer._clip_area, area)) {
         return;
     }
 
@@ -54,14 +52,21 @@ void kb_lvgl_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
     rectangle.radius = radius;
     if (outline) {
         rectangle.bg_opa = LV_OPA_TRANSP;
-        rectangle.border_color = lv_color_hex(rgb);
+        rectangle.border_color = color;
         rectangle.border_width = 1;
     }
     else {
-        rectangle.bg_color = lv_color_hex(rgb);
+        rectangle.bg_color = color;
     }
-    lv_draw_rect(&layer, &rectangle, &area);
+    lv_draw_rect(&layer, &rectangle, area);
     dispatch();
+}
+
+void kb_lvgl_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                  uint32_t rgb, uint8_t radius, uint8_t outline)
+{
+    lv_area_t area = {x, y, x + width - 1, y + height - 1};
+    draw_rectangle(&area, lv_color_hex(rgb), radius, outline);
 }
 
 void kb_lvgl_line(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2,
@@ -90,6 +95,21 @@ void kb_lvgl_line(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2,
     lv_refr_set_disp_refreshing(NULL);
 }
 
+static int32_t rounded_trig(int32_t position)
+{
+    int32_t half = 1 << (LV_TRIGO_SHIFT - 1);
+    return (position + half) >> LV_TRIGO_SHIFT;
+}
+
+static void draw_arc_cap(const lv_draw_arc_dsc_t *arc, int32_t angle)
+{
+    int32_t radius = arc->radius - arc->width / 2;
+    int32_t x = arc->center.x + rounded_trig(radius * lv_trigo_cos(angle)) - arc->width / 2;
+    int32_t y = arc->center.y + rounded_trig(radius * lv_trigo_sin(angle)) - arc->width / 2;
+    lv_area_t area = {x, y, x + arc->width - 1, y + arc->width - 1};
+    draw_rectangle(&area, arc->color, LV_RADIUS_CIRCLE, false);
+}
+
 void kb_lvgl_arc(uint16_t x, uint16_t y, uint16_t radius, uint16_t start,
                  uint8_t sweep, uint32_t rgb, uint8_t width)
 {
@@ -108,9 +128,10 @@ void kb_lvgl_arc(uint16_t x, uint16_t y, uint16_t radius, uint16_t start,
     arc.start_angle = start;
     arc.end_angle = start + sweep;
     arc.color = lv_color_hex(rgb);
-    arc.rounded = true;
     lv_draw_arc(&layer, &arc);
     dispatch();
+    draw_arc_cap(&arc, start);
+    draw_arc_cap(&arc, start + sweep);
 }
 
 void kb_lvgl_text(uint16_t x, uint16_t y, uint32_t rgb, uint8_t size, const char *text)
