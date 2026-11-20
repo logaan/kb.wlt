@@ -14,7 +14,7 @@ Def base-usage Fn {position: u16}
   to-u8(get([43 20 26 8 21 23 28 24 12 18 19 41
              224 4 22 7 9 10 11 13 14 15 51 52
              225 29 27 6 25 5 17 16 54 55 56 45
-             0 42 227 44 40 225] position))
+             0 42 227 44 40 0] position))
 
 Def initial-state Fn {state: list(u8)}
   If eq(len(state) 42) state map(Fn {n: s64} The u8 0 range(0 42))

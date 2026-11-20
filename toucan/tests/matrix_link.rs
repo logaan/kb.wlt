@@ -1,6 +1,6 @@
 use kb_core::matrix_link::{
-    BRAILLE_THUMB, BrailleSwitch, DisplayFeedback, KEYS_MASK, LINK_TIMEOUT_MS, PacketError,
-    Receiver, Side, Snapshot,
+    BRAILLE_THUMB, BRAILLE_THUMBS, BrailleSwitch, DisplayFeedback, KEYS_MASK, LINK_TIMEOUT_MS,
+    PacketError, Receiver, Side, Snapshot,
 };
 use kb_core::pipeline::{Action, Key};
 use kb_core::report_state::ReportState;
@@ -35,14 +35,42 @@ fn a_chord_activates_braille_early_and_disconnect_cancels_the_hold() {
 }
 
 #[test]
+fn either_outer_thumb_can_latch_or_hold_braille() {
+    for thumb in [1 << BRAILLE_THUMB, 1 << 41] {
+        let mut mode = BrailleSwitch::default();
+        assert!(!mode.update(10, Some(thumb)));
+        assert!(!mode.update(209, Some(thumb)));
+        assert!(mode.update(210, Some(thumb)));
+        assert!(!mode.update(211, Some(0)));
+        assert!(!mode.update(220, Some(thumb)));
+        assert!(mode.update(221, Some(0)));
+    }
+}
+
+#[test]
+fn overlapping_outer_thumbs_behave_like_one_key() {
+    let left = 1 << BRAILLE_THUMB;
+    let right = 1 << 41;
+    let mut mode = BrailleSwitch::default();
+    assert!(!mode.update(10, Some(left)));
+    assert!(!mode.update(20, Some(BRAILLE_THUMBS)));
+    assert!(!mode.update(30, Some(right)));
+    assert!(mode.update(40, Some(0)));
+    assert!(mode.update(200, Some(right)));
+    assert!(mode.update(250, Some(BRAILLE_THUMBS)));
+    assert!(mode.update(310, Some(left)));
+    assert!(mode.update(400, Some(left)));
+    assert!(mode.update(410, Some(0)));
+    assert!(mode.update(420, Some(left)));
+    assert!(!mode.update(430, Some(0)));
+}
+
+#[test]
 fn home_row_and_space_map_to_braille_and_qq_opens_main_menu() {
     use kb_core::{
         matrix_link::braille_keys,
         reference::{Mode, State},
     };
-    for (dot, pos) in [16, 15, 14, 19, 20, 21, 13, 22, 39].into_iter().enumerate() {
-        assert_eq!(braille_keys(1 << pos), 1 << dot);
-    }
     assert_eq!(braille_keys((1 << BRAILLE_THUMB) | (1 << 10)), 0);
     let q = [14, 15, 16, 19, 20]
         .into_iter()
@@ -326,58 +354,84 @@ fn sequence_and_clock_wrap_preserve_freshness_without_accepting_replays() {
 
 #[test]
 fn raw_left_thumb_and_dot_pins_join_the_right_snapshot() {
-    use kb_core::matrix_link::{
-        BRAILLE_THUMB, ROUTE_THUMBS, RouteSwitch, braille_keys, joined_matrix,
-    };
+    use kb_core::matrix_link::{braille_keys, joined_matrix};
 
     let left = (1 << 18) | (1 << 10);
     let right = Side::Right.map(1 << 9);
     let matrix = joined_matrix(left, right);
     assert_eq!(matrix & (1 << BRAILLE_THUMB), 1 << BRAILLE_THUMB);
     assert_eq!(braille_keys(matrix), 0b0010_0001);
-
-    let route = joined_matrix(0b111 << 18, 0);
-    assert_eq!(route, ROUTE_THUMBS);
-    let mut switch = RouteSwitch::new();
-    assert!(!switch.update(0, route));
-    assert!(!switch.update(1999, route));
-    assert!(switch.update(2000, route));
-    assert!(!switch.update(2200, route));
-    assert!(!switch.update(2201, route ^ (1 << BRAILLE_THUMB)));
-    assert!(switch.blocked());
-    assert!(!switch.update(2202, route));
-    assert!(!switch.update(4302, route));
-    assert!(!switch.update(4303, 0));
-    assert!(!switch.blocked());
-    assert!(!switch.update(2300, 0));
-    assert!(!switch.update(2400, route));
-    assert!(switch.update(4400, route));
 }
 
 #[test]
-fn route_gesture_does_not_latch_braille_after_the_outer_thumb_leads() {
-    use kb_core::matrix_link::{BrailleSwitch, RouteSwitch, braille_keys, joined_matrix};
+fn either_half_can_enter_all_eight_dots() {
+    use kb_core::matrix_link::{braille_keys, joined_matrix};
 
-    let mut route = RouteSwitch::new();
-    let mut layer = BrailleSwitch::default();
-    for (time, local, expected_route) in [
-        (0, 0b001, false),
-        (20, 0b011, false),
-        (30, 0b111, false),
-        (2030, 0b111, true),
-        (2040, 0b101, false),
-        (2050, 0b001, false),
-        (2060, 0b000, false),
-    ] {
-        let keys = joined_matrix(local << 18, 0);
-        assert_eq!(route.update(time, keys), expected_route);
-        let braille = layer.update(time, (!route.blocked()).then_some(keys));
-        if braille {
-            assert_eq!(braille_keys(keys), 0);
+    let left = [10, 9, 8, 16, 15, 14, 7, 13];
+    let right = [13, 14, 15, 7, 8, 9, 16, 10];
+    for cell in 0..=255 {
+        let half_mask = |positions: [u32; 8]| {
+            positions
+                .into_iter()
+                .enumerate()
+                .filter(|(dot, _)| cell & (1 << dot) != 0)
+                .fold(0, |keys, (_, position)| keys | (1 << position))
+        };
+        let left = half_mask(left);
+        let right = Side::Right.map(half_mask(right));
+        assert_eq!(braille_keys(joined_matrix(left, 0)), cell);
+        assert_eq!(braille_keys(joined_matrix(0, right)), cell);
+        assert_eq!(braille_keys(joined_matrix(left, right)), cell);
+    }
+    assert_eq!(braille_keys(Side::Right.map(1 << 18)), 1 << 8);
+}
+
+#[test]
+fn either_inner_thumb_can_enter_space_and_lead_a_menu_chord() {
+    use kb_core::{
+        matrix_link::{braille_keys, joined_matrix},
+        reference::{Mode, State},
+    };
+
+    let left_q = 0b0001_1100 << 6 | 0b011 << 15;
+    let right_q = Side::Right.map(0b11 << 7 | 0b111 << 13);
+    let left_space = 1 << 20;
+    let right_space = Side::Right.map(1 << 18);
+    for (left, right) in [(left_space, 0), (0, right_space), (left_space, right_space)] {
+        assert_eq!(braille_keys(joined_matrix(left, right)), 1 << 8);
+        for (dot_left, dot_right) in [(left_q, 0), (0, right_q), (left_q, right_q)] {
+            let space = joined_matrix(left, right);
+            let chord = space | joined_matrix(dot_left, dot_right);
+            let mut state = State::new();
+            for (time, keys) in [space, chord, space, chord, space, 0]
+                .into_iter()
+                .enumerate()
+            {
+                state = state.step(braille_keys(keys), time as u32).state;
+            }
+            assert_eq!(state.mode, Mode::Main);
         }
     }
-    assert!(!route.blocked());
-    assert!(!layer.update(2070, Some(0)));
+}
+
+#[test]
+fn duplicate_dot_stays_pressed_when_its_other_key_releases() {
+    use kb_core::matrix_link::{braille_keys, joined_matrix};
+
+    let left_dot_one = 1 << 10;
+    let right_dot_one = Side::Right.map(1 << 13);
+    let right_dot_six = Side::Right.map(1 << 9);
+    let dot_one_and_six = 0b0010_0001;
+    let sampled = [
+        (left_dot_one, 0, 1),
+        (left_dot_one, right_dot_one | right_dot_six, dot_one_and_six),
+        (0, right_dot_one | right_dot_six, dot_one_and_six),
+        (0, right_dot_six, 0b0010_0000),
+        (0, 0, 0),
+    ];
+    for (left, right, cell) in sampled {
+        assert_eq!(braille_keys(joined_matrix(left, right)), cell);
+    }
 }
 
 #[test]

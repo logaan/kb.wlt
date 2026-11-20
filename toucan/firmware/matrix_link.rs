@@ -6,51 +6,8 @@ pub const DISPLAY_TIMEOUT_MS: u32 = 600;
 pub const LINK_TIMEOUT_MS: u32 = 500;
 pub const KEYS_MASK: u32 = (1 << 21) - 1;
 pub const BRAILLE_THUMB: u8 = 36;
-pub const ROUTE_THUMBS: u64 = 7 << BRAILLE_THUMB;
+pub const BRAILLE_THUMBS: u64 = (1 << BRAILLE_THUMB) | (1 << 41);
 const BRAILLE_HOLD_MS: u32 = 200;
-
-#[derive(Default)]
-pub struct RouteSwitch {
-    since: Option<u32>,
-    fired: bool,
-    blocked: bool,
-}
-
-impl RouteSwitch {
-    pub const fn new() -> Self {
-        Self {
-            since: None,
-            fired: false,
-            blocked: false,
-        }
-    }
-
-    pub const fn active(matrix: u64) -> bool {
-        matrix & ROUTE_THUMBS == ROUTE_THUMBS
-    }
-
-    pub fn blocked(&self) -> bool {
-        self.blocked
-    }
-
-    pub fn update(&mut self, now_ms: u32, matrix: u64) -> bool {
-        let active = Self::active(matrix);
-        self.blocked = active || (self.blocked && matrix & ROUTE_THUMBS != 0);
-        if !active {
-            self.since = None;
-            if !self.blocked {
-                self.fired = false;
-            }
-            return false;
-        }
-        let since = *self.since.get_or_insert(now_ms);
-        if !self.fired && now_ms.wrapping_sub(since) >= 2000 {
-            self.fired = true;
-            return true;
-        }
-        false
-    }
-}
 
 #[derive(Default)]
 pub struct BrailleSwitch {
@@ -61,11 +18,11 @@ pub struct BrailleSwitch {
 
 impl BrailleSwitch {
     pub fn update(&mut self, now: u32, keys: Option<u64>) -> bool {
-        let thumb = 1 << BRAILLE_THUMB;
         match keys {
-            Some(keys) if keys & thumb != 0 => {
+            Some(keys) if keys & BRAILLE_THUMBS != 0 => {
                 let start = *self.pressed_at.get_or_insert(now);
-                self.held |= now.wrapping_sub(start) >= BRAILLE_HOLD_MS || keys & !thumb != 0;
+                self.held |=
+                    now.wrapping_sub(start) >= BRAILLE_HOLD_MS || keys & !BRAILLE_THUMBS != 0;
             }
             Some(_) => {
                 if let Some(start) = self.pressed_at.take() {
@@ -86,7 +43,7 @@ impl BrailleSwitch {
 
 pub fn braille_transition_blocked(entering: bool, previous: u64, keys: u64) -> u64 {
     if entering {
-        previous & keys & !(1 << BRAILLE_THUMB)
+        previous & keys & !BRAILLE_THUMBS
     } else {
         keys
     }
@@ -97,12 +54,22 @@ pub fn joined_matrix(left: u32, right: u64) -> u64 {
 }
 
 pub fn braille_keys(matrix: u64) -> u16 {
-    [16, 15, 14, 19, 20, 21, 13, 22, 39]
-        .into_iter()
-        .enumerate()
-        .fold(0, |cell, (dot, position)| {
-            cell | ((((matrix >> position) & 1) as u16) << dot)
-        })
+    [
+        (16, 31),
+        (15, 32),
+        (14, 33),
+        (28, 19),
+        (27, 20),
+        (26, 21),
+        (13, 34),
+        (25, 22),
+        (38, 39),
+    ]
+    .into_iter()
+    .enumerate()
+    .fold(0, |cell, (dot, (left, right))| {
+        cell | (u16::from(matrix & ((1 << left) | (1 << right)) != 0) << dot)
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
