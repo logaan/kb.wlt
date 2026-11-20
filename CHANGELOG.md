@@ -21,6 +21,7 @@
 
 ### Fixed
 
+- Braille chords forget keys released for 50 ms or more, so you can correct an extra key while holding the intended chord.
 - The Toucan route gesture cancels in-progress chords, and Bluetooth input resumes with neutral reports after protocol or suspend changes.
 - Keep the Toucan receiver's component loader off the display poll stack and reserve display buffers in place so partial refresh does not exhaust startup RAM.
 

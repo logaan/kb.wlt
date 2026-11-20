@@ -1,5 +1,51 @@
 pub const SPACE_DOT: u16 = 0x100;
 pub const CHORD_MASK: u16 = 0x1ff;
+pub const RELEASE_GRACE_MS: u32 = 50;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RecentChord {
+    held: u16,
+    released: u16,
+    released_at: [u32; 9],
+}
+
+impl RecentChord {
+    pub const fn new() -> Self {
+        Self {
+            held: 0,
+            released: 0,
+            released_at: [0; 9],
+        }
+    }
+
+    pub fn held(&self) -> u16 {
+        self.held
+    }
+
+    pub fn clear_released(&mut self) {
+        self.released = 0;
+    }
+
+    pub fn update(&mut self, keys: u16, now: u32) -> u16 {
+        let keys = keys & CHORD_MASK;
+        let edges = self.held & !keys;
+        let mut released = (self.released | edges) & !keys;
+        let mut pending = released;
+        while pending != 0 {
+            let index = pending.trailing_zeros() as usize;
+            let bit = 1 << index;
+            pending &= !bit;
+            if edges & bit != 0 {
+                self.released_at[index] = now;
+            } else if now.wrapping_sub(self.released_at[index]) >= RELEASE_GRACE_MS {
+                released &= !bit;
+            }
+        }
+        self.held = keys;
+        self.released = if keys == 0 { 0 } else { released };
+        keys | released
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PhysicalKey {

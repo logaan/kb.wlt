@@ -104,7 +104,7 @@ fn toucan_map() -> Result<String> {
         out.push('\n');
     }
     out.push_str("Tap the left outer thumb to toggle Braille. Hold it for momentary Braille.\n");
-    out.push_str("Hold all three left thumbs for two seconds to switch between Prospector USB and direct Bluetooth.\n\n");
+    out.push_str("Hold the outer left thumb first, add the other two, and hold all three for two seconds to switch hosts.\n\n");
     out.push_str(&menu_cells());
     Ok(out)
 }
@@ -126,7 +126,7 @@ fn paintbrush_map() -> String {
 
 fn menu_cells() -> String {
     format!(
-        "Main menu    {0} {0}\nKeep Space held and release the other keys between cells.\n",
+        "Braille menu  {0}\nMain Menu     {0} {0}\nKeep Space held and release the other keys between cells.\n",
         dots(LEADER)
     )
 }

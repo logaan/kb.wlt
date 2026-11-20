@@ -5,6 +5,7 @@ pub mod labels;
 use core::fmt::Write;
 use kb_core::{
     KeyStroke,
+    chord::{CHORD_MASK, RecentChord, SPACE_DOT},
     menu::{BluetoothAction, Effect, Notice, State},
     pipeline::Bounded,
     preferences::{BrailleMode, Engine, Fallback, Output, Settings},
@@ -82,10 +83,8 @@ pub struct Session {
     engine: Engine,
     held: u16,
     chord: u16,
-    keys: u16,
-    menu_dots: u16,
-    space: bool,
-    consumed: bool,
+    capture: RecentChord,
+    space_consumed: bool,
     guard: bool,
     fallback: Fallback,
     preview: Label,
@@ -104,10 +103,8 @@ impl Session {
             engine: Engine::default(),
             held: 0,
             chord: 0,
-            keys: 0,
-            menu_dots: 0,
-            space: false,
-            consumed: false,
+            capture: RecentChord::new(),
+            space_consumed: false,
             guard: false,
             fallback: Fallback::default(),
             preview: Label::new(),
@@ -150,25 +147,20 @@ impl Session {
         change
     }
 
-    fn chord_event(&mut self, keys: u16) -> Option<u16> {
-        if self.keys == 0 && keys != 0 {
-            self.consumed = false;
+    fn menu_chord(&mut self, previous: u16, keys: u16, candidate: u16) -> Option<u16> {
+        const DOTS: u16 = CHORD_MASK ^ SPACE_DOT;
+        if previous & DOTS != 0 && keys & DOTS == 0 && (self.screen != 1 || candidate == LEADER) {
+            self.capture.clear_released();
+            self.space_consumed = keys != 0;
+            return Some(candidate);
         }
-        self.menu_dots |= keys & 255;
-        self.space |= keys & 256 != 0;
-        if self.menu_dots != 0 && keys & 255 == 0 {
-            let event = core::mem::take(&mut self.menu_dots) | (u16::from(self.space) << 8);
-            self.space = keys != 0;
-            self.consumed = true;
-            Some(event)
-        } else if self.keys != 0 && keys == 0 {
-            let event = (self.space && !self.consumed).then_some(256);
-            self.space = false;
-            self.consumed = false;
-            event
-        } else {
-            None
+        if previous != 0 && keys == 0 {
+            let consumed = core::mem::take(&mut self.space_consumed);
+            if self.screen != 1 && !consumed && candidate == SPACE_DOT {
+                return Some(SPACE_DOT);
+            }
         }
+        None
     }
 
     pub fn update<G: Guest>(
@@ -177,15 +169,15 @@ impl Session {
         now: u32,
         client: &mut G,
     ) -> Result<Change, G::Error> {
-        let keys = keys & 511;
+        let keys = keys & CHORD_MASK;
         let mut change = Change::default();
         if self.guard {
             self.guard = keys != 0;
             return Ok(change);
         }
-        let previous = self.keys;
-        let cell = self.chord_event(keys);
-        self.keys = keys;
+        let previous = self.capture.held();
+        let candidate = self.capture.update(keys, now);
+        let cell = self.menu_chord(previous, keys, candidate);
         if self.screen == 1 && cell == Some(LEADER) {
             self.held = 0;
             self.chord = 0;
@@ -202,39 +194,58 @@ impl Session {
                     self.cancel(keys);
                 }
             }
-        } else if keys != previous {
-            let (held, chord, stroke) = client.step(self.held, self.chord, keys)?;
-            let released = self.chord;
+        } else {
+            change.strokes = self.type_chord(previous, keys, candidate, now, client)?;
+        }
+        Ok(change)
+    }
+
+    fn type_chord<G: Guest>(
+        &mut self,
+        previous: u16,
+        keys: u16,
+        candidate: u16,
+        now: u32,
+        client: &mut G,
+    ) -> Result<Output, G::Error> {
+        let known = self.chord & candidate;
+        let changed = keys != previous || candidate != self.chord;
+        if known != self.chord {
+            self.fallback = Fallback::default();
+        }
+        if keys != previous {
+            let (held, _, stroke) = client.step(self.held, known, keys)?;
             self.held = held;
-            self.chord = chord;
             if let Some(stroke) = stroke {
                 let _ = self.fallback.push(stroke);
             }
-            if keys == 0 {
-                change.strokes = self.engine.accept_batch(
-                    &self.settings,
-                    released,
-                    core::mem::take(&mut self.fallback),
-                    now,
-                );
-                self.preview = Label::new();
-            } else {
-                let mut preview_engine = self.engine;
-                let mut batch = self.fallback;
-                if let Some(stroke) = KeyStroke::from_packed(client.map_cell(chord)?) {
-                    let _ = batch.push(stroke);
-                }
-                let result = preview_engine.accept_batch(&self.settings, chord, batch, now);
-                self.preview = release_label(
-                    result.as_slice(),
-                    preview_engine.buffered_cells()[0] != 0,
-                    chord == LEADER,
-                );
-            }
-        } else {
-            change.strokes = self.engine.poll(&self.settings, now);
         }
-        Ok(change)
+        if keys == 0 && previous != 0 {
+            self.chord = 0;
+            self.preview = Label::new();
+            return Ok(self.engine.accept_batch(
+                &self.settings,
+                candidate,
+                core::mem::take(&mut self.fallback),
+                now,
+            ));
+        }
+        self.chord = candidate;
+        let output = self.engine.poll(&self.settings, now);
+        if keys != 0 && (changed || !output.is_empty()) {
+            let mut engine = self.engine;
+            let mut batch = self.fallback;
+            if let Some(stroke) = KeyStroke::from_packed(client.map_cell(candidate)?) {
+                let _ = batch.push(stroke);
+            }
+            let result = engine.accept_batch(&self.settings, candidate, batch, now);
+            self.preview = release_label(
+                result.as_slice(),
+                engine.buffered_cells()[0] != 0,
+                candidate == LEADER,
+            );
+        }
+        Ok(output)
     }
 
     fn visible_rows(&self) -> u8 {
@@ -346,7 +357,7 @@ impl Session {
             .position(|cell| *cell == 0)
             .unwrap_or(buffer.len());
         let selected = self.selected.to_le_bytes();
-        let held = self.held.to_le_bytes();
+        let held = self.capture.held().to_le_bytes();
         let chord = self.chord.to_le_bytes();
         model.bytes = Bounded::from_slice(
             &[

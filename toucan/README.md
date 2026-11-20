@@ -37,9 +37,9 @@ A  S  D  F      J  K  L  ;
 ⡀  ⠄  ⠂  ⠁      ⠈  ⠐  ⠠  ⢀
 ```
 
-Chord keys together and release to type. Hold **F** to preview **a** before releasing it. The display previews the active Computer 8 or UEB Grade 1 result, including saved bindings. Buffered cells appear oldest first.
+Chord keys together and release to type. Keys released less than 50 ms before the final release still count toward the chord. To correct an extra key, release it while holding the intended chord for at least 50 ms. Hold **F** to preview **a** before releasing it. The display previews the active Computer 8 or UEB Grade 1 result, including saved bindings. Buffered cells appear oldest first.
 
-Hold Space and chord **⠟** twice to open the main menu. Release the other keys between cells. Space+**⠁** goes to the previous item, Space+**⠈** goes to the next item, Space+**⡀** opens the selected item, and Space+**⠃** goes back. **⠓** opens Help. Reference, Configuration, and Bindings are available on the left MIP when using either transport.
+Hold Space and chord **⠟** to open the Braille menu. Release the dots to choose another chord while keeping Space held. Space+**⠁** goes to the previous item, Space+**⠈** goes to the next item, Space+**⠑** opens the selected item, and Space+**⠃** goes back. **⠓** opens Help. Reference, Configuration, and Bindings are available on the left MIP when using either transport.
 
 ## Displays and hardware status
 

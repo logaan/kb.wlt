@@ -1,5 +1,6 @@
 use crate::{BrailleComponent, BrailleState, Error};
 use kb_core::{
+    chord::{CHORD_MASK, RecentChord},
     preferences::{Engine, Fallback, Output as StrokeBatch, Settings},
     transport::FaultLatch,
 };
@@ -8,7 +9,7 @@ pub struct BrailleTyping {
     component: BrailleState,
     engine: Engine,
     buffer_until_release: bool,
-    held: u16,
+    capture: RecentChord,
     chord: u16,
     tentative: Fallback,
 }
@@ -19,7 +20,7 @@ impl BrailleTyping {
             component: BrailleState::default(),
             engine: Engine::default(),
             buffer_until_release,
-            held: 0,
+            capture: RecentChord::new(),
             chord: 0,
             tentative: Fallback::default(),
         }
@@ -30,7 +31,7 @@ impl BrailleTyping {
     }
 
     pub fn held(&self) -> u16 {
-        self.held
+        self.capture.held()
     }
 
     pub fn chord(&self) -> u16 {
@@ -66,13 +67,25 @@ impl BrailleTyping {
         if component.is_faulted() {
             return StrokeBatch::default();
         }
-        if keys == self.held {
+        let keys = keys & CHORD_MASK;
+        let previous = self.capture.held();
+        let candidate = self.capture.update(keys, now);
+        let known = self.chord & candidate;
+        if known != self.chord {
+            self.tentative = Fallback::default();
+        }
+        self.chord = if keys == 0 { 0 } else { candidate };
+        if keys == previous {
             return self.engine.poll(settings, now);
         }
-        self.held = keys;
-        self.chord |= keys;
         let result = component.call(|component| -> Result<_, Error> {
-            let output = component.step(self.component, keys)?;
+            let output = component.step(
+                BrailleState {
+                    chord: known,
+                    ..self.component
+                },
+                keys,
+            )?;
             self.component = output.state;
             let fallback = output.stroke();
             if self.buffer_until_release {
@@ -86,16 +99,15 @@ impl BrailleTyping {
         });
         match result {
             Ok(fallback) if keys == 0 => {
-                let cell = core::mem::take(&mut self.chord);
                 if self.buffer_until_release {
                     self.engine.accept_batch(
                         settings,
-                        cell,
+                        candidate,
                         core::mem::take(&mut self.tentative),
                         now,
                     )
                 } else {
-                    self.engine.accept(settings, cell, fallback, now)
+                    self.engine.accept(settings, candidate, fallback, now)
                 }
             }
             Ok(Some(stroke)) => self.engine.accept_action(settings, stroke, now),

@@ -345,3 +345,155 @@ fn toucan_help_teaches_the_on_keyboard_host_switch() {
         ],
     );
 }
+
+#[test]
+fn live_preview_and_release_use_the_same_recent_held_chord() {
+    use kb_core::chord::RELEASE_GRACE_MS;
+
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    for mode in [BrailleMode::Computer8, BrailleMode::Ueb1] {
+        let mut session = Session::new(Settings {
+            mode,
+            ..Settings::default()
+        });
+        for (keys, time, prospective) in [
+            (3, 0, "b"),
+            (1, 10, "b"),
+            (1, 10 + RELEASE_GRACE_MS - 1, "b"),
+            (1, 10 + RELEASE_GRACE_MS, "a"),
+        ] {
+            assert!(
+                session
+                    .update(keys, time, &mut guest)
+                    .unwrap()
+                    .strokes
+                    .is_empty()
+            );
+            let model = session.model(Links::default());
+            assert_eq!(model.detail.as_str(), prospective);
+            let scene = guest
+                .render(144, 168, model.bytes.as_slice(), model.detail.as_str())
+                .unwrap();
+            assert_eq!(
+                masks(scene.as_slice())[0],
+                (if keys == 3 { 5 } else { 1 }, false)
+            );
+            assert_eq!(labels(scene.as_slice()), [prospective]);
+        }
+        let emitted = session
+            .update(0, 11 + RELEASE_GRACE_MS, &mut guest)
+            .unwrap();
+        assert_eq!(
+            emitted.strokes.as_slice(),
+            &[KeyStroke::from_ascii(b'a').unwrap()]
+        );
+        assert!(
+            session
+                .update(0, 12 + RELEASE_GRACE_MS, &mut guest)
+                .unwrap()
+                .strokes
+                .is_empty()
+        );
+        assert!(session.model(Links::default()).detail.as_str().is_empty());
+    }
+}
+
+#[test]
+fn quick_staggered_releases_stay_together_but_cancel_drops_the_remaining_chord() {
+    use kb_core::chord::RELEASE_GRACE_MS;
+
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    for (elapsed, expected) in [(RELEASE_GRACE_MS - 1, b'b'), (RELEASE_GRACE_MS, b'a')] {
+        session.update(3, 0, &mut guest).unwrap();
+        session.update(1, 5, &mut guest).unwrap();
+        let emitted = session.update(0, 5 + elapsed, &mut guest).unwrap();
+        assert_eq!(
+            emitted.strokes.as_slice(),
+            &[KeyStroke::from_ascii(expected).unwrap()]
+        );
+    }
+
+    session.update(3, 100, &mut guest).unwrap();
+    session.update(1, 110, &mut guest).unwrap();
+    session.cancel(1);
+    assert!(
+        session
+            .update(0, 120, &mut guest)
+            .unwrap()
+            .strokes
+            .is_empty()
+    );
+    assert_eq!(
+        tap(&mut session, &mut guest, 1).strokes.as_slice(),
+        &[KeyStroke::from_ascii(b'a').unwrap()]
+    );
+}
+
+#[test]
+fn correction_matches_saved_contractions_and_held_space_menu_commands() {
+    use kb_core::chord::RELEASE_GRACE_MS;
+
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    session.settings.set_binding(0, &[1, 3], b"about").unwrap();
+    assert!(tap(&mut session, &mut guest, 1).strokes.is_empty());
+    session.update(7, 20, &mut guest).unwrap();
+    session.update(3, 30, &mut guest).unwrap();
+    let completed = session
+        .update(0, 30 + RELEASE_GRACE_MS, &mut guest)
+        .unwrap();
+    let expansion: Vec<_> = b"about"
+        .iter()
+        .map(|byte| KeyStroke::from_ascii(*byte).unwrap())
+        .collect();
+    assert_eq!(completed.strokes.as_slice(), expansion);
+
+    session.update(LEADER | 64, 100, &mut guest).unwrap();
+    session.update(LEADER, 110, &mut guest).unwrap();
+    assert!(
+        session
+            .update(SPACE, 110 + RELEASE_GRACE_MS, &mut guest)
+            .unwrap()
+            .reset
+    );
+    assert_eq!(screen(&session), (2, 0));
+    session.update(LEADER, 170, &mut guest).unwrap();
+    assert!(
+        session
+            .update(SPACE, 180, &mut guest)
+            .unwrap()
+            .strokes
+            .is_empty()
+    );
+    assert_eq!(screen(&session), (6, 0));
+    assert!(
+        session
+            .update(0, 185, &mut guest)
+            .unwrap()
+            .strokes
+            .is_empty()
+    );
+
+    session.update(19 | 4, 200, &mut guest).unwrap();
+    session.update(19, 210, &mut guest).unwrap();
+    session
+        .update(0, 210 + RELEASE_GRACE_MS, &mut guest)
+        .unwrap();
+    assert_eq!(screen(&session), (13, 0));
+}
+
+#[test]
+fn a_released_space_expires_before_the_rest_of_the_chord() {
+    use kb_core::chord::RELEASE_GRACE_MS;
+
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    session.update(SPACE | 1, 0, &mut guest).unwrap();
+    session.update(1, 5, &mut guest).unwrap();
+    let completed = session.update(0, 5 + RELEASE_GRACE_MS, &mut guest).unwrap();
+    assert_eq!(
+        completed.strokes.as_slice(),
+        &[KeyStroke::from_ascii(b'a').unwrap()]
+    );
+}

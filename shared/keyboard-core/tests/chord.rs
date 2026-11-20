@@ -138,3 +138,32 @@ fn split_sources_own_their_keys_and_disconnect_discards_partial_chords() {
     right.pressed = false;
     assert_eq!(state.transition(right).unwrap().1, None);
 }
+
+#[test]
+fn released_dots_expire_independently_while_held_dots_remain() {
+    use kb_core::chord::{RELEASE_GRACE_MS, RecentChord};
+
+    let mut chord = RecentChord::new();
+    assert_eq!(chord.update(7, 0), 7);
+    assert_eq!(chord.update(5, 5), 7);
+    assert_eq!(chord.update(1, 20), 7);
+    assert_eq!(chord.update(1, 5 + RELEASE_GRACE_MS), 5);
+    assert_eq!(chord.update(1, 20 + RELEASE_GRACE_MS), 1);
+    assert_eq!(chord.held(), 1);
+    assert_eq!(chord.update(0, 10_000), 1);
+    assert_eq!(chord.update(0, 10_001), 0);
+}
+
+#[test]
+fn grace_uses_the_latest_release_and_handles_time_wrap() {
+    use kb_core::chord::{RELEASE_GRACE_MS, RecentChord};
+
+    let mut chord = RecentChord::new();
+    let start = u32::MAX - RELEASE_GRACE_MS / 2;
+    assert_eq!(chord.update(3, start), 3);
+    assert_eq!(chord.update(1, start + 1), 3);
+    assert_eq!(chord.update(3, start + 2), 3);
+    assert_eq!(chord.update(1, start + 3), 3);
+    assert_eq!(chord.update(1, start.wrapping_add(RELEASE_GRACE_MS + 2)), 3);
+    assert_eq!(chord.update(0, start.wrapping_add(RELEASE_GRACE_MS + 3)), 1);
+}

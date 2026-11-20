@@ -32,8 +32,8 @@ Only the receiver executes the client. For a custom client, use `cargo xtask bui
 
 ## Receiver menus
 
-For the main menu, hold Space and chord **⠟** twice. Release the other keys between cells. The first chord opens the menu shortcuts.
+Hold Space and chord **⠟** to open the Braille menu. Release the dots to choose another chord while keeping Space held.
 
-In menus, Space+**⠁** goes to the previous item, Space+**⠈** goes to the next item, Space+**⡀** opens the selected item, and Space+**⠃** goes back. **⠓** opens Help. Menu chords stay on the receiver. Release all keys before resuming typing. Settings and bindings save asynchronously. Bluetooth reconnection and pairing reset are available in Configuration.
+In menus, Space+**⠁** goes to the previous item, Space+**⠈** goes to the next item, Space+**⠑** opens the selected item, and Space+**⠃** goes back. **⠓** opens Help. Menu chords stay on the receiver. Release all keys before resuming typing. Settings and bindings save asynchronously. Bluetooth reconnection and pairing reset are available in Configuration.
 
 The Prospector uses the shared landscape ST7789 driver and LVGL renderer. Touch, trackpad input, and automatic brightness are unavailable.
