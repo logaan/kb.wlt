@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 
-use kb_client_session::{Change, Guest, Links, Model, Session};
+use kb_client_session::{Change, Guest, Links, Model, Session, Viewport};
 use kb_core::KeyStroke;
 use kb_core::braille_hid::{Report, stroke_reports};
 use kb_core::matrix_link::{
@@ -16,7 +16,14 @@ use kb_core::report_state::ReportState;
 unsafe extern "C" {
     fn guest_step(held: u16, chord: u16, keys: u16) -> u64;
     fn guest_map_cell(cell: u16) -> u32;
-    fn guest_navigate(screen: u8, selected: u16, cell: u16, visible: u8) -> u32;
+    fn guest_navigate(
+        screen: u8,
+        selected: u16,
+        cell: u16,
+        width: u16,
+        height: u16,
+        host_switch: bool,
+    ) -> u32;
     fn keyboard_report(report: u64);
     fn consumer_report(report: u16);
 }
@@ -49,9 +56,18 @@ impl Guest for BrowserGuest {
         screen: u8,
         selected: u16,
         cell: u16,
-        visible: u8,
+        view: Viewport,
     ) -> Result<u32, Self::Error> {
-        Ok(unsafe { guest_navigate(screen, selected, cell, visible) })
+        Ok(unsafe {
+            guest_navigate(
+                screen,
+                selected,
+                cell,
+                view.width,
+                view.height,
+                view.host_switch,
+            )
+        })
     }
 }
 

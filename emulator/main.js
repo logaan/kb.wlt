@@ -181,7 +181,8 @@ async function run() {
     host: {
       guest_step: (held, chord, keys) => stepResult(braille.step({ held, chord }, keys)),
       guest_map_cell: braille.mapCell,
-      guest_navigate: display.navigate,
+      guest_navigate: (screen, selected, cell, width, height, hostSwitch) =>
+        display.navigate(screen, selected, cell, { width, height, hostSwitch: !!hostSwitch }),
       keyboard_report: report => {
         if (hostReady()) sink.keyboard_report(report);
       },

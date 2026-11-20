@@ -12,6 +12,7 @@ keyboard = []
 [dependencies]
 cortex-m-rt = "0.7.5"
 kb-component-runtime = { path = "../.." }
+kb-client-session = { path = "../../../../clients/session" }
 kb-core = { path = "../../../../shared/keyboard-core" }
 kb-display = { path = "../../../../shared/display", features = ["lvgl"] }
 

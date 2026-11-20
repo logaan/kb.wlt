@@ -1,5 +1,5 @@
 use crate::{BrailleComponent, BrailleState, Error, KeyboardComponent, Runtime};
-use kb_client_session::Guest;
+use kb_client_session::{Guest, Viewport};
 use kb_core::{KeyStroke, pipeline::Bounded};
 
 pub trait DisplayGuest: Guest<Error = Error> {
@@ -39,9 +39,9 @@ macro_rules! display_guest {
                 screen: u8,
                 selected: u16,
                 cell: u16,
-                visible: u8,
+                view: Viewport,
             ) -> Result<u32, Error> {
-                self.with_runtime(|runtime| runtime.navigate(screen, selected, cell, visible))
+                self.with_runtime(|runtime| runtime.navigate(screen, selected, cell, view))
             }
         }
 
@@ -81,14 +81,21 @@ impl Runtime {
         screen: u8,
         selected: u16,
         cell: u16,
-        visible: u8,
+        view: Viewport,
     ) -> Result<u32, Error> {
         self.set_fuel(crate::CALL_FUEL)?;
         let navigate =
-            self.func::<(i32, i32, i32, i32), i32>("kb:firmware/display@0.1.0#navigate")?;
+            self.func::<(i32, i32, i32, i32, i32, i32), i32>("kb:firmware/display@0.1.0#navigate")?;
         let value = navigate.call(
             self,
-            (screen.into(), selected.into(), cell.into(), visible.into()),
+            (
+                screen.into(),
+                selected.into(),
+                cell.into(),
+                view.width.into(),
+                view.height.into(),
+                i32::from(view.host_switch),
+            ),
         )?;
         self.func::<i32, ()>("cabi_post_kb:firmware/display@0.1.0#navigate")?
             .call(self, value)?;

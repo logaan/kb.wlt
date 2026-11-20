@@ -46,6 +46,10 @@ Def display-get-wide Fn {model: list(u8) index: s64}
 Def display-bit Fn {flags: u8 bit: s64}
   eq(rem(div(to-s64(flags) bit) 2) 1)
 
+DefType viewport {width: u16 height: u16 host-switch: bool}
+
+Def display-width Fn {width: u16} to-s64(max(128 width))
+Def display-height Fn {height: u16} to-s64(max(144 height))
 Def display-wide Fn {w: s64} ge(w 220)
 Def display-header-h Fn {w: s64} If display-wide(w) 40 25
 Def display-footer-h Fn {w: s64} If display-wide(w) 34 25
@@ -534,13 +538,16 @@ Def display-reference-cols Fn {section: s64 wide: bool}
 Def display-reference-row-h Fn {section: s64 w: s64}
   If display-wide(w) 35 If ge(section 6) 44 24
 
-Def display-visible-rows Fn {screen: u8 selected: s64 w: s64 h: s64}
-  Let {available: sub(h add(add(display-header-h(w) display-footer-h(w)) 6))}
-    If eq(screen 4)
-      Let {section: div(selected 256)}
-        If lt(section 4) 4
-          max(1 min(6 div(sub(available If ge(section 6) display-footer-h(w) 0) display-reference-row-h(section w))))
-      max(1 min(8 div(available display-menu-row-h(w))))
+Def display-row-space Fn {w: s64 h: s64}
+  sub(h add(add(display-header-h(w) display-footer-h(w)) 6))
+
+Def display-reference-rows Fn {section: s64 w: s64 h: s64}
+  If lt(section 4) 4
+    Let {legend: If ge(section 6) display-footer-h(w) 0}
+      max(1 min(6 div(sub(display-row-space(w h) legend) display-reference-row-h(section w))))
+
+Def display-reference-page Fn {section: s64 w: s64 h: s64}
+  mul(display-reference-cols(section display-wide(w)) display-reference-rows(section w h))
 
 Def display-selection Fn {frame: display-frame x: s64 y: s64 w: s64 h: s64 wide: bool}
   display-box(frame If wide The u8 1 The u8 2 x y w h 8 3)
@@ -623,8 +630,8 @@ Def display-grid Fn {w: s64 h: s64 model: list(u8) selected: s64}
   Let {section: div(selected 256)
        index: rem(selected 256)
        cols: display-reference-cols(section display-wide(w))
-       rows: display-visible-rows(4 selected w h)
-       page: mul(cols rows)
+       rows: display-reference-rows(section w h)
+       page: display-reference-page(section w h)
        start: mul(div(index page) page)
        count: min(page max(0 sub(display-section-length(section) start)))
        cell-w: div(sub(w 8) cols)
@@ -664,7 +671,7 @@ Def display-detail Fn {w: s64 h: s64 model: list(u8) selected: s64}
           display-bar(frame w h 5))]
 
 Def display-menu-count Fn {screen: u8}
-  Match screen [(2 4) (3 display-section-count) (6 4) (7 3) (8 12) (10 6) (13 10) (_ 0)]
+  Match screen [(2 4) (3 display-section-count) (6 4) (7 3) (8 12) (10 6) (_ 0)]
 
 Def display-menu-title Fn {screen: u8 w: s64}
   Match screen [
@@ -704,15 +711,24 @@ Def display-menu-label Fn {screen: u8 index: s64 ueb: bool wide: bool}
       (3 "(D)iagnostics")
       (_ "")])]
 
+Def display-menu-preview-h Fn {screen: u8} If eq(screen 8) 50 0
+
+Def display-menu-list-row-h Fn {screen: u8 w: s64 h: s64}
+  If If display-wide(w) If eq(screen 2) true eq(screen 6) false
+    max(display-menu-row-h(w) div(sub(h add(add(display-header-h(w) 3) display-footer-h(w))) 4))
+    display-menu-row-h(w)
+
+Def display-menu-rows Fn {screen: u8 w: s64 h: s64}
+  Let {available: sub(display-row-space(w h) display-menu-preview-h(screen))}
+    max(1 min(8 div(available display-menu-list-row-h(screen w h))))
+
 Def display-menu-list Fn {frame: display-frame screen: u8 w: s64 h: s64 selected: s64 ueb: bool}
-  Let {rows: display-visible-rows(screen selected w h)
+  Let {rows: display-menu-rows(screen w h)
        start: mul(div(selected rows) rows)
        count: min(rows max(0 sub(display-menu-count(screen) start)))
        wide: display-wide(w)
        top: add(display-header-h(w) 3)
-       row-h: If If wide If eq(screen 2) true eq(screen 6) false
-         max(display-menu-row-h(w) div(sub(h add(top display-footer-h(w))) 4))
-         display-menu-row-h(w)
+       row-h: display-menu-list-row-h(screen w h)
        text-offset: div(sub(row-h display-body-h(w)) 2)}
     fold(Fn {acc: display-frame offset: s64}
       Let {y: add(top mul(offset row-h))
@@ -754,7 +770,7 @@ Def display-menu Fn {screen: u8 w: s64 h: s64 model: list(u8) selected: s64 deta
        top: add(display-header-h(w) 7)
        step: add(display-body-h(w) 4)
        frame: Match screen [
-         (8 Let {frame: display-menu-list(frame screen w sub(h 50) selected display-bit(flags 8))
+         (8 Let {frame: display-menu-list(frame screen w h selected display-bit(flags 8))
                   frame: display-triggers(frame w sub(h add(bar 52)) model)}
               display-text(frame 8 sub(h add(bar 19)) 2 3 If eq(len(detail) 0) "Empty slot" display-compact-text(detail w)))
          (9 Let {frame: display-text(frame 8 top 1 0 If display-bit(flags 16)
@@ -787,12 +803,17 @@ Def display-host-help Fn {w: s64 h: s64}
        frame: display-text(frame 7 add(top mul(step 3)) 1 0 "for 2 seconds")}
     display-bar(frame w h 13)
 
+Def display-help-rows The s64 4
+Def display-help-entry-count The s64 10
+Def display-host-help-index
+  mul(div(add(display-help-entry-count sub(display-help-rows 1)) display-help-rows) display-help-rows)
+
 Def display-help Fn {w: s64 h: s64 selected: s64}
   Let {frame: display-heading(display-empty w "Help")
-       start: mul(div(min(selected 9) 4) 4)
-       count: min(4 sub(10 start))
+       start: mul(div(min(selected sub(display-help-entry-count 1)) display-help-rows) display-help-rows)
+       count: min(display-help-rows sub(display-help-entry-count start))
        top: add(display-header-h(w) 4)
-       row-h: div(sub(h add(top mul(2 display-footer-h(w)))) 4)
+       row-h: div(sub(h add(top mul(2 display-footer-h(w)))) display-help-rows)
        frame: fold(Fn {acc: display-frame i: s64}
          Let {index: add(start i)
               entry: Match index [
@@ -812,7 +833,7 @@ Export {iface: "kb:firmware/display@0.1.0"
         params: {width: u16 height: u16 model: list(u8) detail: string}
         result: tuple(list(command) list(string))}
 Def render Fn {width: u16 height: u16 model: list(u8) detail: string}
-  Let {w: to-s64(max(128 width)) h: to-s64(max(144 height))
+  Let {w: display-width(width) h: display-height(height)
        screen: display-get(model 0 0)
        selected: to-s64(display-get-wide(model 1))
        frame: Match screen [
@@ -820,7 +841,7 @@ Def render Fn {width: u16 height: u16 model: list(u8) detail: string}
          (1 display-typing(w h model detail))
          (4 display-grid(w h model selected))
          (5 display-detail(w h model selected))
-         (13 If If ge(selected 12) display-bit(display-get(model 7 0) 32) false
+         (13 If If ge(selected display-host-help-index) display-bit(display-get(model 7 0) 32) false
                display-host-help(w h)
                display-help(w h selected))
          (_ display-menu(screen w h model selected detail))]}
@@ -879,13 +900,13 @@ Def display-menu-back Fn {screen: u8 selected: u16}
     (13 display-result(6 0 2))
     (_ display-result(6 0 2))]
 
-Def display-menu-move Fn {screen: u8 selected: u16 command: s64 visible: u8}
+Def display-menu-move Fn {screen: u8 selected: u16 command: s64 page: s64}
   Let {last: max(0 sub(display-menu-count(screen) 1))
        index: Match command [
          (1 sub(to-s64(selected) 1)) (2 add(to-s64(selected) 1))
          (3 sub(to-s64(selected) 1)) (4 add(to-s64(selected) 1))
          (5 0) (6 last)
-         (7 sub(to-s64(selected) max(1 to-s64(visible)))) (8 add(to-s64(selected) max(1 to-s64(visible))))
+         (7 sub(to-s64(selected) page)) (8 add(to-s64(selected) page))
          (_ to-s64(selected))]}
     display-result(screen to-u16(min(last max(0 index))) 0)
 
@@ -896,15 +917,16 @@ Def display-letter-index Fn {cell: u16 fallback: s64}
     (31 16) (23 17) (14 18) (30 19) (37 20) (39 21) (58 22) (45 23)
     (61 24) (53 25) (_ fallback)]
 
-Def display-reference-move Fn {screen: u8 selected: u16 command: s64 cell: u16 visible: u8}
+Def display-reference-move Fn {screen: u8 selected: u16 command: s64 cell: u16 w: s64 h: s64}
   Let {section: min(div(to-s64(selected) 256) sub(display-section-count 1)) index: rem(to-s64(selected) 256)
        last: sub(display-section-length(section) 1)
-       cols: If lt(section 4) max(1 div(to-s64(visible) 4)) 1
+       cols: If eq(screen 5) 1 display-reference-cols(section display-wide(w))
+       page: If eq(screen 5) 1 display-reference-page(section w h)
        moved: Match command [
          (1 sub(index 1)) (2 add(index 1))
          (3 sub(index cols)) (4 add(index cols))
          (5 0) (6 last)
-         (7 sub(index max(cols to-s64(visible)))) (8 add(index max(cols to-s64(visible))))
+         (7 sub(index page)) (8 add(index page))
          (_ If lt(section 2) display-letter-index(cell index) index)]}
     Match command [
       (9 If eq(screen 5) display-result(4 selected 0) display-result(3 to-u16(section) 0))
@@ -913,38 +935,45 @@ Def display-reference-move Fn {screen: u8 selected: u16 command: s64 cell: u16 v
          If eq(cell 15) display-result(screen to-u16(mul(256 rem(add(section sub(display-section-count 1)) display-section-count))) 0)
          display-result(screen to-u16(add(mul(section 256) max(0 min(last moved)))) 0))]
 
-Def display-help-move Fn {selected: u16 command: s64 cell: u16 visible: u8}
-  Let {last: If gt(visible 4) 12 9
+Def display-help-move Fn {selected: u16 command: s64 cell: u16 host-switch: bool}
+  Let {last-entry: sub(display-help-entry-count 1)
+       last: If host-switch display-host-help-index last-entry
        current: to-s64(selected)
-       next: If eq(cell 29) add(current 4)
-             If eq(cell 15) sub(current 4)
+       page: display-help-rows
+       next: If eq(cell 29) add(current page)
+             If eq(cell 15) sub(current page)
              Match command [
                (1 sub(current 1)) (2 add(current 1))
                (3 sub(current 1)) (4 add(current 1))
                (5 0) (6 last)
-               (7 sub(current 4)) (8 add(current 4))
-               (_ current)]}
+               (7 sub(current page)) (8 add(current page))
+               (_ current)]
+       next: If If gt(next last-entry) lt(next display-host-help-index) false
+         If gt(next current) display-host-help-index last-entry
+         next}
     If eq(command 9) display-menu-back(13 selected)
       display-result(13 to-u16(min(last max(0 next))) 0)
 
 Export {iface: "kb:firmware/display@0.1.0"
         name: navigate
-        params: {screen: u8 selected: u16 cell: u16 visible: u8}
+        params: {screen: u8 selected: u16 cell: u16 view: viewport}
         result: u32}
-Def navigate Fn {screen: u8 selected: u16 cell: u16 visible: u8}
-  Let {command: display-command(cell)
+Def navigate Fn {screen: u8 selected: u16 cell: u16 view: viewport}
+  Match view [({width: width height: height host-switch: host-switch}
+  Let {w: display-width(width) h: display-height(height)
+       command: display-command(cell)
        shortcut: display-menu-shortcut(cell)
        editor: If eq(screen 11) true eq(screen 12)}
     If eq(cell 0) display-result(screen selected 0)
     If lt(screen 2)
       If eq(cell 287) display-result(2 0 6) display-result(screen selected 0)
-    If eq(screen 13) display-help-move(selected command cell visible)
+    If eq(screen 13) display-help-move(selected command cell host-switch)
     If If editor eq(cell 275) eq(cell 19)
       display-result(13 0 4)
     If eq(cell 287)
       If eq(screen 2) display-result(6 0 0) display-result(2 0 6)
-    If eq(screen 4) display-reference-move(screen selected command cell visible)
-    If eq(screen 5) display-reference-move(screen selected command cell visible)
+    If eq(screen 4) display-reference-move(screen selected command cell w h)
+    If eq(screen 5) display-reference-move(screen selected command cell w h)
     If eq(command 9) display-menu-back(screen selected)
     If editor
       If If eq(screen 12) eq(command 10) false
@@ -953,4 +982,4 @@ Def navigate Fn {screen: u8 selected: u16 cell: u16 visible: u8}
     If If eq(screen 2) gt(shortcut 0) If eq(screen 6) gt(shortcut 0) false
       display-result(shortcut 0 0)
     If eq(command 10) display-menu-open(screen selected)
-      display-menu-move(screen selected command visible)
+      display-menu-move(screen selected command display-menu-rows(screen w h)))]

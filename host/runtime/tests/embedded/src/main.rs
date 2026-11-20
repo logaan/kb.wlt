@@ -3,7 +3,9 @@
 
 use core::{fmt::Write, panic::PanicInfo};
 use cortex_m_rt::entry;
+use kb_client_session::Viewport;
 use kb_component_runtime::DisplayGuest;
+use kb_core::reference::SPACE;
 use kb_display::{
     Scene,
     lvgl::{Profile, Strip, TFT_WIDTH},
@@ -125,6 +127,37 @@ fn display(guest: &mut impl DisplayGuest) {
     }
 }
 
+fn navigation(guest: &mut impl DisplayGuest) {
+    for (width, height, reference_page, binding_page) in [(144, 168, 12, 2), (280, 240, 16, 3)] {
+        let view = Viewport {
+            width,
+            height,
+            host_switch: false,
+        };
+        for (screen, selected, expected) in [
+            (4, 256, 256 + reference_page),
+            (5, 256, 257),
+            (8, 0, binding_page),
+            (13, 8, 9),
+        ] {
+            let result = guest.navigate(screen, selected, SPACE | 57, view).unwrap();
+            assert_eq!((result >> 8) as u16, expected);
+        }
+        let help = guest
+            .navigate(
+                13,
+                8,
+                SPACE | 57,
+                Viewport {
+                    host_switch: true,
+                    ..view
+                },
+            )
+            .unwrap();
+        assert_eq!((help >> 8) as u16, 12);
+    }
+}
+
 unsafe extern "C" {
     fn kb_embedded_begin(fuel: u32) -> u32;
     fn kb_embedded_memory_len() -> usize;
@@ -157,11 +190,12 @@ fn traps() {
 fn run() -> ! {
     let mut guest = typing();
     display(&mut guest);
+    navigation(&mut guest);
     drop(guest);
     traps();
     let _ = writeln!(
         Output,
-        "Embedded typing, display, fuel, and memory checks passed"
+        "Embedded typing, display, navigation, fuel, and memory checks passed"
     );
     exit(0)
 }

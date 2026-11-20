@@ -85,7 +85,13 @@ interface display {
     }
 
     render: func(width: u16, height: u16, model: list<u8>, detail: string) -> tuple<list<command>, list<string>>;
-    navigate: func(screen: u8, selected: u16, cell: u16, visible: u8) -> u32;
+    record viewport {
+        width: u16,
+        height: u16,
+        host-switch: bool,
+    }
+
+    navigate: func(screen: u8, selected: u16, cell: u16, view: viewport) -> u32;
 }
 
 world keyboard-display {

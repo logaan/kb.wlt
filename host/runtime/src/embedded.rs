@@ -41,7 +41,7 @@ impl Runtime {
             "kb:firmware/braille@0.1.0#map-cell" => (1, 1, 1),
             "kb:firmware/braille@0.1.0#step" => (2, 3, 1),
             "kb:firmware/display@0.1.0#render" => (3, 6, 1),
-            "kb:firmware/display@0.1.0#navigate" => (4, 4, 1),
+            "kb:firmware/display@0.1.0#navigate" => (4, 6, 1),
             "kb:firmware/keyboard@0.1.0#process" => (5, 5, 1),
             "kb:firmware/keyboard@0.1.0#transform-output" => (6, 4, 1),
             "cabi_post_kb:firmware/braille@0.1.0#map-cell" => (7, 1, 0),

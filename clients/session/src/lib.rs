@@ -27,8 +27,15 @@ pub trait Guest {
         screen: u8,
         selected: u16,
         cell: u16,
-        visible: u8,
+        view: Viewport,
     ) -> Result<u32, Self::Error>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Viewport {
+    pub width: u16,
+    pub height: u16,
+    pub host_switch: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -112,7 +119,7 @@ impl Session {
     }
 
     pub fn set_viewport(&mut self, width: u16, height: u16) {
-        self.viewport = (width.max(128), height.max(144));
+        self.viewport = (width, height);
     }
 
     pub fn enable_host_switch(&mut self) {
@@ -248,35 +255,6 @@ impl Session {
         Ok(output)
     }
 
-    fn visible_rows(&self) -> u8 {
-        if self.screen == 13 {
-            return if self.host_switch { 5 } else { 4 };
-        }
-        let (width, height) = self.viewport;
-        let wide = width >= 220;
-        let footer = if wide { 34 } else { 25 };
-        let header = if wide { 40 } else { 25 };
-        let available = height.saturating_sub(header + footer + 6);
-        let section = self.selected / 256;
-        if matches!(self.screen, 4 | 5) {
-            if section < 4 {
-                return if wide { 16 } else { 12 };
-            }
-            let row_height = if wide {
-                35
-            } else if section >= 6 {
-                44
-            } else {
-                24
-            };
-            let legend = if section >= 6 { footer } else { 0 };
-            return (available.saturating_sub(legend) / row_height).clamp(1, 6) as u8;
-        }
-        let preview = if self.screen == 8 { 50 } else { 0 };
-        let row_height = if wide { 34 } else { 23 };
-        (available.saturating_sub(preview) / row_height).clamp(1, 8) as u8
-    }
-
     fn navigate<G: Guest>(
         &mut self,
         cell: u16,
@@ -284,8 +262,13 @@ impl Session {
         change: &mut Change,
     ) -> Result<(), G::Error> {
         let previous = (self.screen, self.selected);
-        let visible = self.visible_rows();
-        let packed = client.navigate(self.screen, self.selected, cell, visible)?;
+        let (width, height) = self.viewport;
+        let view = Viewport {
+            width,
+            height,
+            host_switch: self.host_switch,
+        };
+        let packed = client.navigate(self.screen, self.selected, cell, view)?;
         let action = (packed >> 24) as u8;
         self.screen = packed as u8;
         self.selected = (packed >> 8) as u16;

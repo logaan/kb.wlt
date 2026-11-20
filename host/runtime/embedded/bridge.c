@@ -153,7 +153,7 @@ uint32_t kb_embedded_call(uint32_t operation, const uint32_t *arguments, uint32_
         *output = w2c_kb__guest_kb0x3Afirmware0x2Fdisplay0x4000x2E10x2E00x23render(&instance, arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]);
         break;
     case DisplayNavigate:
-        *output = w2c_kb__guest_kb0x3Afirmware0x2Fdisplay0x4000x2E10x2E00x23navigate(&instance, arguments[0], arguments[1], arguments[2], arguments[3]);
+        *output = w2c_kb__guest_kb0x3Afirmware0x2Fdisplay0x4000x2E10x2E00x23navigate(&instance, arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]);
         break;
 #ifdef KB_EMBEDDED_KEYBOARD
     case KeyboardProcess:

@@ -1,4 +1,4 @@
-use kb_client_session::{Change, Guest, Links, Model, Session};
+use kb_client_session::{Change, Guest, Links, Model, Session, Viewport};
 use kb_component_runtime::{BrailleComponent, DisplayGuest, KeyboardComponent};
 use kb_core::{
     KeyStroke,
@@ -230,7 +230,20 @@ fn reference_fills_responsive_pairs_and_preserves_navigation() {
         (29, (4, 512, 0)),
     ] {
         assert_eq!(
-            transition(guest.navigate(4, 256, cell, 16).unwrap()),
+            transition(
+                guest
+                    .navigate(
+                        4,
+                        256,
+                        cell,
+                        Viewport {
+                            width: 280,
+                            height: 240,
+                            host_switch: false
+                        }
+                    )
+                    .unwrap()
+            ),
             expected,
         );
     }
