@@ -1,7 +1,7 @@
 use super::{relay, right_link, route};
 use crate::usb_hid::Output;
 use kb_client_session::{
-    BOOTLOADER_LEFT, BOOTLOADER_PROSPECTOR, BOOTLOADER_RIGHT, Links, Model, Session,
+    BOOTLOADER_LEFT, BOOTLOADER_PROSPECTOR, BOOTLOADER_RIGHT, Change, Links, Model, Session,
 };
 use kb_component_runtime::{DisplayGuest, Error, KeyboardComponent};
 use kb_core::{
@@ -91,6 +91,7 @@ pub(super) async fn process_keys() {
     let mut switch = BrailleSwitch::default();
     let mut base = Base::new();
     let mut braille = false;
+    let mut touch_menu = false;
     let mut blocked = 0;
     let mut previous_keys = 0;
     let mut last_model = None;
@@ -100,11 +101,13 @@ pub(super) async fn process_keys() {
             app.settings = previous;
             app.cancel_for_link_change(braille_keys(sample.keys));
         }
-        let viewport = if relay::docked() {
-            (280, 240)
-        } else {
-            (144, 168)
-        };
+        let docked = relay::docked();
+        if touch_menu && !docked {
+            app.cancel(braille_keys(sample.keys));
+            blocked |= sample.keys;
+            touch_menu = false;
+        }
+        let viewport = if docked { (280, 240) } else { (144, 168) };
         app.set_viewport(viewport.0, viewport.1);
         let right_bootloader = right_link::BOOTLOADER
             .available()
@@ -142,11 +145,11 @@ pub(super) async fn process_keys() {
         };
         let mut final_change = Ok(None);
         if transition {
-            if braille {
+            if braille && !touch_menu {
                 final_change = app
                     .finish_momentary(input.keys.map(braille_keys), sample.now, guest)
                     .map(Some);
-            } else {
+            } else if !touch_menu {
                 app.cancel(0);
             }
             blocked |= braille_transition_blocked(next, previous_keys, keys);
@@ -157,9 +160,9 @@ pub(super) async fn process_keys() {
         }
         previous_keys = keys;
         if input.keys.is_some() || transition {
-            let result = if transition && !braille {
+            let result = if transition && !braille && !touch_menu {
                 final_change
-            } else if braille {
+            } else if braille || touch_menu {
                 app.update(braille_keys(keys), sample.now, guest).map(Some)
             } else {
                 base.process(guest, keys, sample.now).await.map(|()| None)
@@ -172,65 +175,51 @@ pub(super) async fn process_keys() {
                     continue;
                 }
                 Ok(Some(change)) => {
-                    if change.bootloader != 0 {
-                        let generation = route::invalidate_pending_reports();
-                        gate.observe(generation, true, keys, true);
-                        app.cancel_for_link_change(braille_keys(keys));
-                        let accepted =
-                            enter_bootloaders(change.bootloader, right_bootloader, dock_bootloader)
-                                .await;
-                        app.bootloader_result(change.bootloader, accepted);
-                    }
-                    if let Some(target) = change.target {
-                        if !route::switch(target, &mut app.settings).await {
-                            app.busy();
-                        }
-                        app.set_host_target(route::target());
-                    }
-                    if change.reset {
-                        gate.acknowledge_generation(route::invalidate_pending_reports());
-                    }
-                    if change.save && !route::save(&app.settings) {
-                        app.busy();
-                    }
-                    if let Some(effect) = change.bluetooth {
-                        let control = match effect {
-                            BluetoothAction::Reconnect => {
-                                crate::settings::BluetoothControl::Reconnect
-                            }
-                            BluetoothAction::ClearBonds => {
-                                crate::settings::BluetoothControl::ClearBonds
-                            }
-                        };
-                        if !crate::settings::request_bluetooth(control) {
-                            app.busy();
-                        }
-                    }
-                    if let Some(token) = route::connection().token() {
-                        for stroke in change.strokes.as_slice() {
-                            if !route::send(token, Output::Stroke(*stroke)).await {
-                                break;
-                            }
-                        }
-                    }
+                    apply_change(
+                        change,
+                        &mut app,
+                        &mut gate,
+                        keys,
+                        right_bootloader,
+                        dock_bootloader,
+                    )
+                    .await;
                 }
                 Ok(None) => {}
             }
         }
-        let links = Links {
-            online: 1
-                | (u8::from(sample.right_connected) << 1)
-                | (u8::from(route::connection().ready()) << 2)
-                | (u8::from(route::target().is_bluetooth()) << 4),
-            battery: [crate::battery::level(), sample.right_battery],
-            target: route::target(),
-            connection: route::status(relay::docked()),
-        };
-        let model = if braille {
-            app.model(links)
-        } else {
-            Model::home(links)
-        };
+        if touch_menu && !app.menu_open() {
+            blocked |= keys;
+            touch_menu = false;
+        }
+        let mut model = display_model(&app, &sample, braille || touch_menu);
+        if let Some(command) = relay::take_touch(model) {
+            let opening = !app.menu_open();
+            let Ok(change) = app.navigate_action(command, guest) else {
+                super::COMPONENT_FAILED.store(true, core::sync::atomic::Ordering::Relaxed);
+                route::invalidate_pending_reports();
+                client.take();
+                continue;
+            };
+            if change.reset {
+                base = Base::new();
+                gate.observe(route::connection().generation(), true, keys, true);
+            }
+            apply_change(
+                change,
+                &mut app,
+                &mut gate,
+                keys,
+                right_bootloader,
+                dock_bootloader,
+            )
+            .await;
+            if touch_menu && !app.menu_open() {
+                blocked |= keys;
+            }
+            touch_menu = (touch_menu || opening) && app.menu_open();
+            model = display_model(&app, &sample, braille || touch_menu);
+        }
         if last_model != Some(model) {
             relay::publish(model);
             if let Ok(scene) = guest.render(144, 168, model.bytes.as_slice(), model.detail.as_str())
@@ -239,6 +228,69 @@ pub(super) async fn process_keys() {
                     crate::toucan_display::present(scene);
                     last_model = Some(model);
                 }
+            }
+        }
+    }
+}
+
+fn display_model(app: &Session, sample: &right_link::Sample, open: bool) -> Model {
+    let links = Links {
+        online: 1
+            | (u8::from(sample.right_connected) << 1)
+            | (u8::from(route::connection().ready()) << 2)
+            | (u8::from(route::target().is_bluetooth()) << 4),
+        battery: [crate::battery::level(), sample.right_battery],
+        target: route::target(),
+        connection: route::status(relay::docked()),
+    };
+    if open {
+        app.model(links)
+    } else {
+        Model::home(links)
+    }
+}
+
+async fn apply_change(
+    change: Change,
+    app: &mut Session,
+    gate: &mut InputGate,
+    keys: u64,
+    right_bootloader: Option<u32>,
+    dock_bootloader: Option<u32>,
+) {
+    if change.bootloader != 0 {
+        let generation = route::invalidate_pending_reports();
+        gate.observe(generation, true, keys, true);
+        app.cancel_for_link_change(braille_keys(keys));
+        let accepted =
+            enter_bootloaders(change.bootloader, right_bootloader, dock_bootloader).await;
+        app.bootloader_result(change.bootloader, accepted);
+    }
+    if let Some(target) = change.target {
+        if !route::switch(target, &mut app.settings).await {
+            app.busy();
+        }
+        app.set_host_target(route::target());
+    }
+    if change.reset {
+        gate.acknowledge_generation(route::invalidate_pending_reports());
+    }
+    if change.save && !route::save(&app.settings) {
+        app.busy();
+    }
+    if let Some(effect) = change.bluetooth {
+        let control = match effect {
+            BluetoothAction::Reconnect => crate::settings::BluetoothControl::Reconnect,
+            BluetoothAction::ClearBonds => crate::settings::BluetoothControl::ClearBonds,
+        };
+        if !crate::settings::request_bluetooth(control) {
+            app.busy();
+        }
+    }
+    if let Some(token) = route::connection().token() {
+        for stroke in change.strokes.as_slice() {
+            if !route::send(token, Output::Stroke(*stroke)).await {
+                break;
             }
         }
     }

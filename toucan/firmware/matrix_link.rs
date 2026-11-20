@@ -264,6 +264,22 @@ impl DisplayFeedback {
     }
 }
 
+pub struct DisplayTouch;
+
+impl DisplayTouch {
+    pub const IDLE: [u8; 3] = [0, 0, u8::MAX];
+
+    pub const fn encode(sequence: u16, command: u8) -> [u8; 3] {
+        let [low, high] = sequence.to_le_bytes();
+        [low, high, command]
+    }
+
+    pub fn decode(bytes: [u8; 3], sequence: u16) -> Option<u8> {
+        let [low, high, command] = bytes;
+        (u16::from_le_bytes([low, high]) == sequence && command != u8::MAX).then_some(command)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Receiver {
     snapshot: Option<Snapshot>,

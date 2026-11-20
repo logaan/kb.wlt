@@ -1,6 +1,6 @@
 use kb_core::matrix_link::{
-    BRAILLE_THUMB, BRAILLE_THUMBS, BrailleSwitch, DisplayFeedback, KEYS_MASK, LINK_TIMEOUT_MS,
-    PacketError, Receiver, Side, Snapshot,
+    BRAILLE_THUMB, BRAILLE_THUMBS, BrailleSwitch, DisplayFeedback, DisplayTouch, KEYS_MASK,
+    LINK_TIMEOUT_MS, PacketError, Receiver, Side, Snapshot,
 };
 use kb_core::pipeline::{Action, Key};
 use kb_core::report_state::ReportState;
@@ -140,6 +140,16 @@ fn display_feedback_round_trips_and_rejects_invalid_packets() {
         DisplayFeedback::decode(&packet.as_slice()[..9]),
         Err(PacketError::Length)
     );
+}
+
+#[test]
+fn display_touch_only_applies_to_the_frame_that_was_tapped() {
+    assert_eq!(DisplayTouch::decode(DisplayTouch::IDLE, 0), None);
+    for frame in [0, 15, 256, u16::MAX] {
+        let touch = DisplayTouch::encode(frame, 4);
+        assert_eq!(DisplayTouch::decode(touch, frame), Some(4));
+        assert_eq!(DisplayTouch::decode(touch, frame.wrapping_add(1)), None);
+    }
 }
 
 #[test]

@@ -4,11 +4,14 @@ use crate::{
 };
 #[cfg(feature = "toucan-display")]
 use core::future::Future;
+#[cfg(feature = "toucan-display")]
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer, with_timeout};
+#[cfg(feature = "toucan-display")]
 use kb_client_session::Model;
-use kb_core::matrix_link::{DISPLAY_PACKET_LEN, DisplayFeedback};
+use kb_client_session::Navigation;
+use kb_core::matrix_link::{DISPLAY_PACKET_LEN, DisplayFeedback, DisplayTouch};
 use trouble_host::prelude::*;
 
 const fn uuid_bytes(id: u8) -> [u8; 16] {
@@ -23,6 +26,7 @@ const DISPLAY: Uuid = Uuid::new_long(uuid_bytes(3));
 const USB: Uuid = Uuid::new_long(uuid_bytes(4));
 const PREFERENCES: Uuid = Uuid::new_long(uuid_bytes(5));
 const BOOTLOADER_UUID: Uuid = Uuid::new_long(uuid_bytes(6));
+const TOUCH_UUID: Uuid = Uuid::new_long(uuid_bytes(7));
 use kb_core::preferences::ENCODED_LEN;
 
 #[cfg(feature = "toucan-display")]
@@ -41,7 +45,7 @@ mod left {
         cell::Cell,
         sync::atomic::{AtomicBool, Ordering},
     };
-    use embassy_sync::blocking_mutex::Mutex;
+    use embassy_sync::{blocking_mutex::Mutex, channel::Channel};
     use kb_core::host_target::Target;
     use kb_core::pipeline::Bounded;
     use kb_core::preferences::Settings;
@@ -61,11 +65,22 @@ mod left {
     impl Drop for DockConnection {
         fn drop(&mut self) {
             DOCKED.store(false, Ordering::Relaxed);
+            TOUCH.clear();
         }
     }
 
     static VIEW: Mutex<CriticalSectionRawMutex, Cell<Option<Model>>> = Mutex::new(Cell::new(None));
     static CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+    static TOUCH: Channel<CriticalSectionRawMutex, (Model, Navigation), 4> = Channel::new();
+
+    pub(crate) fn take_touch(model: Model) -> Option<Navigation> {
+        while let Ok((source, command)) = TOUCH.try_receive() {
+            if source == model && docked() {
+                return Some(command);
+            }
+        }
+        None
+    }
 
     pub(crate) fn publish(model: Model) {
         VIEW.lock(|v| v.set(Some(model)));
@@ -148,6 +163,8 @@ mod left {
             let usb = request(client.characteristic_by_uuid::<[u8; 5]>(service, &USB)).await?;
             let bootloader =
                 request(client.characteristic_by_uuid::<u8>(service, &BOOTLOADER_UUID)).await;
+            let mut touch =
+                request(client.characteristic_by_uuid::<[u8; 3]>(service, &TOUCH_UUID)).await;
             let boot_session = BOOTLOADER.session();
             DOCKED.store(true, Ordering::Relaxed);
             let _session = DockConnection;
@@ -177,7 +194,7 @@ mod left {
             }
             let mut remote = None;
             let mut last_view = None;
-            let mut sequence = 0;
+            let mut sequence = 0u16;
             let mut poll = true;
             let mut last_poll = embassy_time::Instant::now();
             loop {
@@ -192,6 +209,20 @@ mod left {
                     }
                     remote = Some(generation);
                     route::set_transport_ready(Target::Prospector, state[0] == 1);
+                    if let Some(characteristic) = touch.as_ref() {
+                        let mut packet = DisplayTouch::IDLE;
+                        let reply =
+                            request(client.read_characteristic(characteristic, &mut packet)).await;
+                        if reply != Some(packet.len()) {
+                            touch = None;
+                        } else if let (Some(model), Some(command)) = (
+                            last_view,
+                            DisplayTouch::decode(packet, sequence.wrapping_sub(1))
+                                .and_then(Navigation::from_byte),
+                        ) {
+                            let _ = TOUCH.try_send((model, command));
+                        }
+                    }
                     last_poll = embassy_time::Instant::now();
                 }
                 let model = VIEW.lock(Cell::get);
@@ -239,7 +270,9 @@ mod left {
                         match out {
                             Output::Release(_) => {
                                 packet[4] = 1;
-                                packet[5..9].copy_from_slice(&kb_core::KeyStroke::default().held().packed().to_le_bytes());
+                                packet[5..9].copy_from_slice(
+                                    &kb_core::KeyStroke::default().held().packed().to_le_bytes(),
+                                );
                             }
                             Output::Held(bytes) => packet[5..].copy_from_slice(&bytes),
                             Output::Stroke(stroke) => {
@@ -273,14 +306,21 @@ mod left {
 }
 
 #[cfg(feature = "toucan-display")]
-pub(super) use left::{BOOTLOADER, advertise, docked, is_peer, publish};
+pub(super) use left::{BOOTLOADER, advertise, docked, is_peer, publish, take_touch};
 
 #[cfg(feature = "toucan-dongle")]
 mod dock {
     use super::*;
     use crate::toucan::receiver::REPORTS;
-    use embassy_futures::join::join;
-    use embassy_sync::channel::Channel;
+    use core::{
+        cell::Cell,
+        sync::atomic::{AtomicBool, Ordering},
+    };
+    use embassy_futures::{
+        join::join,
+        select::{Either3, select3},
+    };
+    use embassy_sync::{blocking_mutex::Mutex, channel::Channel};
     use kb_client_session::Links;
     use kb_component_runtime::{DisplayGuest, KeyboardComponent};
     use kb_core::KeyStroke;
@@ -288,6 +328,29 @@ mod dock {
 
     static ADS: Channel<CriticalSectionRawMutex, Address, 4> = Channel::new();
     static VIEW: Signal<CriticalSectionRawMutex, Option<DisplayFeedback>> = Signal::new();
+    static TOUCH: Channel<CriticalSectionRawMutex, [u8; 3], 4> = Channel::new();
+    static TOUCH_FRAME: Mutex<CriticalSectionRawMutex, Cell<Option<u16>>> =
+        Mutex::new(Cell::new(None));
+    static TOUCH_SUPPORTED: AtomicBool = AtomicBool::new(false);
+    static LINKED: AtomicBool = AtomicBool::new(false);
+
+    static LOCAL_TOUCH: Channel<CriticalSectionRawMutex, Navigation, 4> = Channel::new();
+
+    pub(crate) fn navigate(command: Navigation) {
+        if !linked_display() {
+            let _ = LOCAL_TOUCH.try_send(command);
+            return;
+        }
+        if TOUCH_SUPPORTED.load(Ordering::Relaxed) {
+            if let Some(frame) = TOUCH_FRAME.lock(Cell::get) {
+                let _ = TOUCH.try_send(DisplayTouch::encode(frame, command as u8));
+            }
+        }
+    }
+
+    pub(crate) fn linked_display() -> bool {
+        LINKED.load(Ordering::Relaxed)
+    }
 
     pub(crate) struct Discovery;
     impl EventHandler for Discovery {
@@ -332,40 +395,55 @@ mod dock {
         preferences: [u8; ENCODED_LEN],
         #[characteristic(uuid=BOOTLOADER_UUID,read,write,permissions(encrypted))]
         bootloader: u8,
+        #[characteristic(uuid=TOUCH_UUID,value=DisplayTouch::IDLE,read,permissions(encrypted))]
+        touch: [u8; 3],
     }
 
     async fn screen() {
         let Ok(mut guest) = KeyboardComponent::new_embedded() else {
             return;
         };
+        let mut standalone = crate::prospector_touch::Standalone::new();
         let mut latest: Option<DisplayFeedback> = None;
         let mut previous = None;
         loop {
-            let home = Model::home(Links {
+            let home = standalone.model(Links {
                 online: u8::from(crate::usb_hid::connection().ready()) << 2,
                 target: Target::Unknown,
                 connection: TargetConnection::Offline,
                 ..Default::default()
             });
-            let (model, detail) = latest
-                .as_ref()
-                .map_or((home.bytes.as_slice(), ""), |packet| {
-                    (
-                        packet.model.as_slice(),
-                        core::str::from_utf8(packet.detail.as_slice()).unwrap_or(""),
-                    )
-                });
-            let current = (latest, home.bytes);
+            let (model, detail) =
+                latest
+                    .as_ref()
+                    .map_or((home.bytes.as_slice(), home.detail.as_str()), |packet| {
+                        (
+                            packet.model.as_slice(),
+                            core::str::from_utf8(packet.detail.as_slice()).unwrap_or(""),
+                        )
+                    });
+            let current = (latest, home);
             if previous != Some(current) {
                 if let Ok(bytes) = guest.render(280, 240, model, detail) {
                     if let Some(scene) = kb_display::Scene::from_bytes(bytes.as_slice()) {
                         crate::prospector::present(scene);
+                        TOUCH_FRAME.lock(|frame| frame.set(latest.map(|model| model.sequence)));
                         previous = Some(current);
                     }
                 }
             }
-            if let Either::First(next) = select(VIEW.wait(), Timer::after_millis(100)).await {
-                latest = next;
+            match select3(VIEW.wait(), LOCAL_TOUCH.receive(), Timer::after_millis(100)).await {
+                Either3::First(next) => {
+                    if latest.is_some() != next.is_some() {
+                        standalone = crate::prospector_touch::Standalone::new();
+                        LOCAL_TOUCH.clear();
+                    }
+                    latest = next;
+                }
+                Either3::Second(command) if !linked_display() => {
+                    standalone.update(command, &mut guest).await;
+                }
+                _ => {}
             }
         }
     }
@@ -473,6 +551,12 @@ mod dock {
                             .await;
                             continue;
                         }
+                        GattEvent::Read(read) if read.handle() == server.relay.touch.handle => {
+                            TOUCH_SUPPORTED.store(true, Ordering::Relaxed);
+                            let command = TOUCH.try_receive().unwrap_or(DisplayTouch::IDLE);
+                            let _ = conn.set(&server.relay.touch, &command);
+                            read.accept()
+                        }
                         GattEvent::Read(read) if read.handle() == server.relay.usb.handle => {
                             let usb = crate::usb_hid::connection();
                             let mut status = [0; 5];
@@ -492,6 +576,7 @@ mod dock {
                                 break;
                             };
                             relaying = true;
+                            LINKED.store(true, Ordering::Relaxed);
                             VIEW.signal(Some(model));
                             write.accept_unprocessed()
                         }
@@ -523,6 +608,10 @@ mod dock {
             }
         }
         conn.raw().disconnect();
+        LINKED.store(false, Ordering::Relaxed);
+        TOUCH_SUPPORTED.store(false, Ordering::Relaxed);
+        TOUCH_FRAME.lock(|frame| frame.set(None));
+        TOUCH.clear();
         REPORTS.clear();
         crate::usb_hid::invalidate_pending_reports();
         VIEW.signal(None);
@@ -551,4 +640,4 @@ mod dock {
 }
 
 #[cfg(feature = "toucan-dongle")]
-pub(super) use dock::{Discovery, connect};
+pub(super) use dock::{Discovery, connect, linked_display, navigate};
