@@ -142,35 +142,6 @@ fn toucan_keymap_emits_qwerty_presses_and_releases() {
 }
 
 #[test]
-fn toucan_layers_preserve_the_original_key_when_released() {
-    let component = KeyboardComponent::new(TOUCAN).unwrap();
-    let input = Input::<8>::with_events(
-        0,
-        &[
-            event(36, KeyState::Pressed),
-            event(1, KeyState::Pressed),
-            event(36, KeyState::Released),
-            event(1, KeyState::Released),
-        ],
-    )
-    .unwrap();
-    let output = component.process::<64, 8, 8>(&[], &input).unwrap();
-    assert_eq!(
-        output.actions.as_slice(),
-        &[
-            Action::Press(Key {
-                usage: 43,
-                modifiers: 0
-            }),
-            Action::Release(Key {
-                usage: 43,
-                modifiers: 0
-            }),
-        ]
-    );
-}
-
-#[test]
 fn toucan_ignores_duplicate_edges_and_passes_unmapped_positions() {
     let component = KeyboardComponent::new(TOUCAN).unwrap();
     let events = [
@@ -194,7 +165,7 @@ fn toucan_accepts_all_physical_keys_in_one_scan() {
         .collect();
     let input = Input::<42>::with_events(0, &events).unwrap();
     let output = component.process::<64, 42, 42>(&[], &input).unwrap();
-    assert_eq!(output.actions.len(), 39);
+    assert_eq!(output.actions.len(), 41);
 }
 
 #[test]
@@ -212,26 +183,24 @@ fn toucan_duplicate_usage_survives_either_physical_release_order() {
         ),
     ])
     .unwrap();
-    for (first, last) in [(28, 37), (37, 28)] {
-        let input = Input::<6>::with_events(
+    for (first, last) in [(24, 41), (41, 24)] {
+        let input = Input::<4>::with_events(
             0,
             &[
-                event(36, KeyState::Pressed),
-                event(28, KeyState::Pressed),
-                event(37, KeyState::Pressed),
-                event(36, KeyState::Released),
+                event(24, KeyState::Pressed),
+                event(41, KeyState::Pressed),
                 event(first, KeyState::Released),
                 event(last, KeyState::Released),
             ],
         )
         .unwrap();
-        let plain = component.process::<64, 6, 4>(&[], &input).unwrap();
+        let plain = component.process::<64, 4, 4>(&[], &input).unwrap();
         let shifted = composed
-            .process::<64, 6, 4>(PipelineState::new(), input)
+            .process::<64, 4, 4>(PipelineState::new(), input)
             .unwrap();
         for actions in [plain.actions, shifted.actions] {
             let key = Key {
-                usage: 42,
+                usage: 225,
                 modifiers: 0,
             };
             assert_eq!(
@@ -244,7 +213,7 @@ fn toucan_duplicate_usage_survives_either_physical_release_order() {
                 ]
             );
             let mut reports = ReportState::<42>::new();
-            let held = [0, 0, 42, 0, 0, 0, 0, 0];
+            let held = [2, 0, 0, 0, 0, 0, 0, 0];
             for (action, expected) in actions.as_slice().iter().zip([held, held, held, [0; 8]]) {
                 assert_eq!(reports.apply(*action).unwrap().first, expected);
             }

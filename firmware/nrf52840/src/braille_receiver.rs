@@ -52,8 +52,12 @@ pub async fn run(mut next: impl AsyncFnMut(bool) -> Option<(kb_core::split::Upda
         ..Default::default()
     };
     loop {
-        let Some((update, peers)) = next(PENDING_CAPACITY - pending.len() >= BATCH_CAPACITY).await
-        else {
+        let accept = if cfg!(feature = "toucan-dongle") {
+            pending.is_empty()
+        } else {
+            PENDING_CAPACITY - pending.len() >= BATCH_CAPACITY
+        };
+        let Some((update, peers)) = next(accept).await else {
             return;
         };
         let now = Instant::now().as_millis() as u32;

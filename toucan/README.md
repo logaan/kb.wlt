@@ -32,7 +32,7 @@ The default application origin is stock XIAO S140 v7 at `0x27000`. Builds also a
 
 ## Current behavior and limits
 
-Toucan starts in conventional typing. Hold the left outer thumb for navigation. To switch to braille, hold that thumb first, press **P**, then release both. Repeat to return to conventional typing, including from a menu. Only the Prospector needs the updated firmware.
+Toucan starts in conventional typing. Tap the left outer thumb to switch between conventional and braille typing. Hold it for momentary braille typing. Only the Prospector needs the updated firmware.
 
 In braille mode, **A S D F** are dots **7 3 2 1**; **J K L ;** are **4 5 6 8**. Use the normal Space thumb for Braille Space. Try holding **F**: the display previews **a** before you release it. Chord keys together and release to type. The preview follows Computer 8 or UEB Grade 1 and your saved bindings; waiting cells appear oldest first.
 

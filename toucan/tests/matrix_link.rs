@@ -1,29 +1,49 @@
 use kb_core::matrix_link::{
-    DISPLAY_TIMEOUT_MS, DisplayFeedback, DisplayReceiver, DisplayStatus, KEYS_MASK,
-    LINK_TIMEOUT_MS, PacketError, Receiver, Side, Snapshot,
+    BRAILLE_THUMB, BrailleSwitch, DISPLAY_TIMEOUT_MS, DisplayFeedback, DisplayReceiver,
+    DisplayStatus, KEYS_MASK, LINK_TIMEOUT_MS, PacketError, Receiver, Side, Snapshot,
 };
 use kb_core::pipeline::{Action, Key};
 use kb_core::report_state::ReportState;
 
 #[test]
-fn layer_then_p_toggles_and_home_row_space_qq_opens_main_menu() {
+fn tapping_the_outer_thumb_toggles_braille_and_holding_is_momentary() {
+    let thumb = 1 << BRAILLE_THUMB;
+    let mut mode = BrailleSwitch::default();
+    assert!(!mode.update(0, Some(thumb)));
+    assert!(mode.update(100, Some(0)));
+    assert!(mode.update(200, Some(thumb)));
+    assert!(mode.update(400, Some(thumb)));
+    assert!(mode.update(401, Some(0)));
+    assert!(mode.update(500, Some(thumb)));
+    assert!(!mode.update(600, Some(0)));
+    assert!(!mode.update(700, Some(thumb)));
+    assert!(mode.update(900, Some(thumb)));
+    assert!(!mode.update(901, Some(0)));
+}
+
+#[test]
+fn a_chord_activates_braille_early_and_disconnect_cancels_the_hold() {
+    let thumb = 1 << BRAILLE_THUMB;
+    let mut mode = BrailleSwitch::default();
+    assert!(!mode.update(u32::MAX, Some(thumb)));
+    assert!(mode.update(1, Some(thumb | (1 << 16))));
+    assert!(!mode.update(2, Some(0)));
+    assert!(!mode.update(10, Some(thumb)));
+    assert!(mode.update(210, Some(thumb)));
+    assert!(!mode.update(211, None));
+    assert!(!mode.update(212, Some(0)));
+}
+
+#[test]
+fn home_row_and_space_map_to_braille_and_qq_opens_main_menu() {
     use kb_core::{
-        matrix_link::{braille_keys, switch_typing_mode},
+        matrix_link::braille_keys,
         reference::{Mode, State},
     };
-    let layer = 1 << 36;
-    let p = 1 << 10;
-    assert!(switch_typing_mode(layer, Some(layer | p)));
-    for previous in [0, p, layer | p] {
-        assert!(!switch_typing_mode(previous, Some(layer | p)));
-    }
-    for keys in [None, Some(p), Some(layer), Some(layer | p | 1)] {
-        assert!(!switch_typing_mode(layer, keys));
-    }
     for (dot, pos) in [16, 15, 14, 19, 20, 21, 13, 22, 39].into_iter().enumerate() {
         assert_eq!(braille_keys(1 << pos), 1 << dot);
     }
-    assert_eq!(braille_keys(layer | p), 0);
+    assert_eq!(braille_keys((1 << BRAILLE_THUMB) | (1 << 10)), 0);
     let q = [14, 15, 16, 19, 20]
         .into_iter()
         .fold(0, |keys, pos| keys | 1 << pos);
@@ -54,7 +74,7 @@ fn two_halves_cover_exactly_forty_two_positions() {
     let right = Side::Right.map(KEYS_MASK);
     assert_eq!(left & right, 0);
     assert_eq!(left | right, (1u64 << 42) - 1);
-    assert_eq!(Side::Left.position(18), Some(36));
+    assert_eq!(Side::Left.position(18), Some(BRAILLE_THUMB));
     assert_eq!(Side::Right.position(20), Some(41));
     assert_eq!(Side::Left.matrix_index(3, 2), None);
     assert_eq!(Side::Left.matrix_index(3, 3), Some(18));

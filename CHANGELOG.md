@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Toucan’s left outer thumb now toggles Braille on tap and activates it momentarily on hold. Removed the navigation layer.
+
 - Toucan Prospector redraws changed dashboard regions rather than streaming a full screen for each chord, and shows the menu gesture as two braille cells.
 
 ### Fixed

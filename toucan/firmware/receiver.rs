@@ -14,7 +14,7 @@ use embassy_usb::class::hid::{
 use embassy_usb::{Builder, Config};
 use kb_component_runtime::KeyboardComponent;
 use kb_core::hid::KEYBOARD_REPORT_DESCRIPTOR as REPORT_DESCRIPTOR;
-use kb_core::matrix_link::Receiver;
+use kb_core::matrix_link::{BrailleSwitch, Receiver, braille_keys};
 use kb_core::pipeline::Bounded;
 use kb_core::pipeline::{Input, KeyEvent, KeyState};
 use kb_core::report_state::ReportState;
@@ -334,6 +334,8 @@ pub(super) async fn process_keys() {
     let mut previous = 0;
     let mut input_gate = InputGate::new();
     let mut wake_at = None;
+    let mut braille_switch = BrailleSwitch::default();
+    let mut blocked_keys = 0;
     let mut display_status = kb_display::Status {
         transport: kb_display::Transport::Split,
         ..Default::default()
@@ -344,39 +346,89 @@ pub(super) async fn process_keys() {
         let session = transport();
         let ready = session.ready();
         let gate = input_gate.observe(session.generation(), ready, keys, invalidated);
-        if kb_core::matrix_link::switch_typing_mode(previous, gate.keys) {
+        if braille_switch.update(now, gate.keys) {
             drop(component.take());
             REPORTS.clear();
-            crate::usb_hid::invalidate_pending_reports();
-            let mut switch_gate = InputGate::new();
-            let mut last = keys;
+            let generation = crate::usb_hid::invalidate_pending_reports();
+            input_gate.acknowledge_generation(generation);
+            let mut seed = true;
+            let mut entry = Some(keys);
+            let mut blocked_dots = braille_keys(previous | blocked_keys);
+            let mut last = 0;
+            let mut exiting = false;
             crate::braille_receiver::run(async |accept| {
-                let (_, keys, invalidated) = poll_matrix(&mut receivers, accept).await;
-                let session = transport();
-                let gate = switch_gate.observe(0, session.ready(), keys, invalidated);
-                let exit = kb_core::matrix_link::switch_typing_mode(last, gate.keys);
-                let old = kb_core::matrix_link::braille_keys(last);
-                last = keys;
-                let dots = kb_core::matrix_link::braille_keys(keys);
-                let keys = if gate.keys.is_some() { dots } else { 0 };
-                (!exit).then_some((
-                    kb_core::split::Update {
+                let (dots, invalidated) = if exiting {
+                    if accept {
+                        return None;
+                    }
+                    Timer::after_millis(1).await;
+                    (0, false)
+                } else if core::mem::take(&mut seed) {
+                    (0, false)
+                } else if let Some(keys) = entry.take() {
+                    let valid = transport().accepts(generation);
+                    (
+                        if valid {
+                            braille_keys(keys) & !blocked_dots
+                        } else {
+                            0
+                        },
+                        !valid,
+                    )
+                } else {
+                    let (now, keys, invalidated) = poll_matrix(&mut receivers, accept).await;
+                    let session = transport();
+                    let gate = input_gate.observe(
+                        session.generation(),
+                        session.ready(),
                         keys,
-                        pressed: keys & !old,
-                        released: old & !keys,
+                        invalidated,
+                    );
+                    let dots = braille_keys(gate.keys.unwrap_or(0));
+                    if !braille_switch.update(now, gate.keys) {
+                        blocked_keys = keys;
+                        if !gate.cancel && (dots != 0 || last == 0) {
+                            return None;
+                        }
+                        exiting = true;
+                    }
+                    blocked_dots &= dots;
+                    (dots & !blocked_dots, invalidated)
+                };
+                let old = core::mem::replace(&mut last, dots);
+                Some((
+                    kb_core::split::Update {
+                        keys: dots,
+                        pressed: dots & !old,
+                        released: old & !dots,
                         cancel_chord: invalidated,
                     },
                     receivers.iter().filter(|r| r.connected()).count() as u8,
                 ))
             })
             .await;
+            if let Some(generation) = transport().token() {
+                REPORTS
+                    .send((
+                        generation,
+                        crate::usb_hid::Output::Stroke(kb_core::KeyStroke::default().held()),
+                    ))
+                    .await;
+            }
             component = KeyboardComponent::new(include_bytes!(env!("KB_KEYBOARD_WASM"))).ok();
-            REPORTS.clear();
-            crate::usb_hid::invalidate_pending_reports();
-            input_gate = InputGate::new();
+            state = Default::default();
+            reports.clear();
+            wake_at = None;
+            previous = 0;
+            display_status.keyboard = Some(kb_display::KeyboardStatus::default());
+            display_status.last_usage = 0;
+            display_status.last_modifiers = 0;
             crate::prospector::update(display_status);
+            previous_display = display_status;
             continue;
         }
+        blocked_keys &= keys;
+        let keys = keys & !blocked_keys;
         if gate.cancel {
             state = Default::default();
             reports.clear();
@@ -477,7 +529,7 @@ pub(super) async fn process_keys() {
             display_status.faulted = component.is_none();
             let keyboard = kb_display::KeyboardStatus {
                 active_keys: keys.count_ones() as u8,
-                layer: u8::from(keys & (1u64 << 36) != 0),
+                layer: 0,
             };
             display_status.keyboard = Some(keyboard);
             publish_feedback(display_status, keyboard, now);

@@ -5,8 +5,39 @@ pub const DISPLAY_PACKET_LEN: usize = 10;
 pub const DISPLAY_TIMEOUT_MS: u32 = 600;
 pub const LINK_TIMEOUT_MS: u32 = 500;
 pub const KEYS_MASK: u32 = (1 << 21) - 1;
-pub fn switch_typing_mode(previous: u64, current: Option<u64>) -> bool {
-    previous == 1 << 36 && current == Some((1 << 36) | (1 << 10))
+pub const BRAILLE_THUMB: u8 = 36;
+const BRAILLE_HOLD_MS: u32 = 200;
+
+#[derive(Default)]
+pub struct BrailleSwitch {
+    latched: bool,
+    pressed_at: Option<u32>,
+    held: bool,
+}
+
+impl BrailleSwitch {
+    pub fn update(&mut self, now: u32, keys: Option<u64>) -> bool {
+        let thumb = 1 << BRAILLE_THUMB;
+        match keys {
+            Some(keys) if keys & thumb != 0 => {
+                let start = *self.pressed_at.get_or_insert(now);
+                self.held |= now.wrapping_sub(start) >= BRAILLE_HOLD_MS || keys & !thumb != 0;
+            }
+            Some(_) => {
+                if let Some(start) = self.pressed_at.take() {
+                    if !self.held && now.wrapping_sub(start) < BRAILLE_HOLD_MS {
+                        self.latched = !self.latched;
+                    }
+                }
+                self.held = false;
+            }
+            None => {
+                self.pressed_at = None;
+                self.held = false;
+            }
+        }
+        self.latched || self.held
+    }
 }
 
 pub fn braille_keys(matrix: u64) -> u16 {

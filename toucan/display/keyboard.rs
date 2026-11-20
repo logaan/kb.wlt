@@ -145,7 +145,6 @@ pub(crate) fn render_into(status: Status, frame: &mut Frame) {
                 Some(BrailleMode::Ueb1) => "BRAILLE / UEB 1",
                 _ => "BRAILLE / COMPUTER 8",
             },
-            1 => "TOUCAN / NAVIGATION",
             _ => "TOUCAN / TYPING",
         }
     };
@@ -216,24 +215,11 @@ pub(crate) fn render_into(status: Status, frame: &mut Frame) {
         return;
     }
     let _ = Text::new(link, Point::new(4, 26), small).draw(frame);
-    let lines = match layer {
-        1 => [
-            "W Left      O Right",
-            "R Up        I Down",
-            "",
-            "P: enter braille",
-            "Release thumb to type",
-            "",
-        ],
-        _ => [
-            "Hold left outer thumb",
-            "for arrow keys.",
-            "",
-            "To enter braille:",
-            "Hold left outer thumb",
-            "then press P.",
-        ],
-    };
+    let lines = [
+        "Left outer thumb",
+        "Tap to toggle braille",
+        "Hold for braille",
+    ];
     for (i, line) in lines.iter().enumerate() {
         let _ = Text::new(line, Point::new(5, 42 + 14 * i as i32), small).draw(frame);
     }

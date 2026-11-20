@@ -2,7 +2,7 @@ use crate::{Result, targets::TARGETS};
 use kb_component_build::Contract;
 use kb_component_runtime::{BrailleComponent, KeyboardComponent};
 use kb_core::{
-    matrix_link::braille_keys,
+    matrix_link::{BRAILLE_THUMB, braille_keys},
     pipeline::{Action, Input, KeyEvent, KeyState},
     reference::{Entry, LEADER},
     split::Layout,
@@ -44,48 +44,41 @@ fn toucan_map() -> Result<String> {
     ))
     .map_err(|e| format!("keyboard: {e:?}"))?;
     let mut out = String::new();
-    for (layer, title) in ["TYPING", "NAVIGATION (hold left outer thumb)", "BRAILLE"]
-        .into_iter()
-        .enumerate()
-    {
+    for (braille, title) in [(false, "TYPING"), (true, "BRAILLE")] {
         writeln!(out, "{title}\n").unwrap();
         let mut keys = Vec::new();
         for pos in 0..42 {
-            let name = match (layer, pos) {
-                (0 | 1, 36) => "Nav".into(),
-                (1, 10) => "Braille".into(),
-                (2, _) => dots(braille_keys(1 << pos)),
-                _ => {
-                    let event = |position| KeyEvent {
-                        position,
+            let name = if pos == u16::from(BRAILLE_THUMB) {
+                "Braille".into()
+            } else if braille {
+                dots(braille_keys(1 << pos))
+            } else {
+                let input = Input::<1>::with_events(
+                    0,
+                    &[KeyEvent {
+                        position: pos,
                         state: KeyState::Pressed,
                         timestamp_ms: 0,
-                    };
-                    let events = if layer == 1 {
-                        vec![event(36), event(pos)]
-                    } else {
-                        vec![event(pos)]
-                    };
-                    let input =
-                        Input::<2>::with_events(0, &events).map_err(|e| format!("input: {e:?}"))?;
-                    let step = keyboard
-                        .process::<64, 2, 2>(&[], &input)
-                        .map_err(|e| format!("keymap: {e:?}"))?;
-                    let step = keyboard
-                        .transform_output::<64, 2>(step.state.as_slice(), step.actions.as_slice())
-                        .map_err(|e| format!("keymap output: {e:?}"))?;
-                    match step.actions.as_slice() {
-                        [Action::Press(key)] => label(Entry {
-                            cell: 0,
-                            packed: u32::from(key.usage) | (u32::from(key.modifiers) << 8),
-                        })
-                        .as_str()
-                        .trim_matches('\'')
-                        .to_string(),
-                        [] => "-".into(),
-                        actions => {
-                            return Err(format!("unexpected position {pos}: {actions:?}").into());
-                        }
+                    }],
+                )
+                .map_err(|e| format!("input: {e:?}"))?;
+                let step = keyboard
+                    .process::<64, 1, 1>(&[], &input)
+                    .map_err(|e| format!("keymap: {e:?}"))?;
+                let step = keyboard
+                    .transform_output::<64, 1>(step.state.as_slice(), step.actions.as_slice())
+                    .map_err(|e| format!("keymap output: {e:?}"))?;
+                match step.actions.as_slice() {
+                    [Action::Press(key)] => label(Entry {
+                        cell: 0,
+                        packed: u32::from(key.usage) | (u32::from(key.modifiers) << 8),
+                    })
+                    .as_str()
+                    .trim_matches('\'')
+                    .to_string(),
+                    [] => "-".into(),
+                    actions => {
+                        return Err(format!("unexpected position {pos}: {actions:?}").into());
                     }
                 }
             };
@@ -98,7 +91,7 @@ fn toucan_map() -> Result<String> {
         );
         out.push('\n');
     }
-    out.push_str("Left outer thumb, then P : Typing <-> Braille\n");
+    out.push_str("Left outer thumb: tap to toggle Braille, hold for momentary Braille\n");
     out.push_str(&menu_cells());
     Ok(out)
 }
@@ -242,7 +235,7 @@ mod tests {
         let paintbrush = paintbrush_map();
         let reference = braille_reference().unwrap();
         assert!(toucan.is_ascii() && paintbrush.is_ascii() && reference.is_ascii());
-        for name in ["NAVIGATION", "Left Ctrl", "Backspace", "Braille", "Space"] {
+        for name in ["Left Ctrl", "Backspace", "Braille", "Space"] {
             assert!(toucan.contains(name), "{name}");
         }
         assert!(
