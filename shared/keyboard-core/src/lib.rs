@@ -6,6 +6,7 @@ pub mod braille_hid;
 pub mod chord;
 pub mod debounce;
 pub mod hid;
+pub mod host_target;
 pub mod pipeline;
 pub mod split;
 pub mod storage;
