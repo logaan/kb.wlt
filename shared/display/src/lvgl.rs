@@ -61,6 +61,8 @@ impl Profile {
 unsafe extern "C" {
     fn kb_lvgl_begin(pixels: *mut u16, width: u16, top: u16, rows: u16, rgb: u32);
     fn kb_lvgl_rect(x: u16, y: u16, width: u16, height: u16, rgb: u32, radius: u8, outline: u8);
+    fn kb_lvgl_line(x1: u16, y1: u16, x2: u16, y2: u16, rgb: u32, width: u8);
+    fn kb_lvgl_arc(x: u16, y: u16, radius: u16, start: u16, sweep: u8, rgb: u32, width: u8);
     fn kb_lvgl_text(x: u16, y: u16, rgb: u32, size: u8, text: *const c_char);
 }
 
@@ -141,14 +143,36 @@ const FONT_HEIGHTS: [usize; 4] = [30, 40, 52, 30];
 
 #[cfg(feature = "lvgl-tft")]
 fn intersects(command: &Command<'_>, rows: &Range<usize>) -> bool {
-    let (y, height) = match *command {
+    let (top, bottom) = match *command {
         Command::Rect { y, height, .. } | Command::DotGrid { y, height, .. } => {
-            (y, usize::from(height))
+            (usize::from(y), usize::from(y) + usize::from(height))
         }
-        Command::Text { y, size, .. } => (y, FONT_HEIGHTS[usize::from(size)]),
+        Command::Text { y, size, .. } => (
+            usize::from(y),
+            usize::from(y) + FONT_HEIGHTS[usize::from(size)],
+        ),
+        Command::Line {
+            start: (_, y1),
+            end: (_, y2),
+            width,
+            ..
+        } => {
+            let margin = u16::from(width);
+            (
+                usize::from(y1.min(y2).saturating_sub(margin)),
+                usize::from(y1.max(y2) + margin) + 1,
+            )
+        }
+        Command::Arc {
+            center: (_, y),
+            radius,
+            ..
+        } => (
+            usize::from(y.saturating_sub(radius)),
+            usize::from(y + radius) + 1,
+        ),
     };
-    let top = usize::from(y);
-    top < rows.end && top + height > rows.start
+    top < rows.end && bottom > rows.start
 }
 
 #[cfg(feature = "lvgl-tft")]
@@ -218,6 +242,24 @@ fn draw(profile: Profile, command: Command<'_>) {
             color,
             (underline, extra_gap),
         ),
+        Command::Line {
+            start: (x1, y1),
+            end: (x2, y2),
+            color,
+            width,
+        } => unsafe {
+            kb_lvgl_line(x1, y1, x2, y2, profile.color(color), width);
+        },
+        Command::Arc {
+            center: (x, y),
+            radius,
+            start,
+            sweep,
+            color,
+            width,
+        } => unsafe {
+            kb_lvgl_arc(x, y, radius, start, sweep, profile.color(color), width);
+        },
     }
 }
 

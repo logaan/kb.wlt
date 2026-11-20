@@ -1,6 +1,9 @@
 use core::str;
 
 pub const CAPACITY: usize = 768;
+const MAX_STROKE_COORD: u16 = 512;
+const MAX_STROKE_WIDTH: u8 = 16;
+const MAX_ARC_RADIUS: u16 = 128;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scene {
@@ -74,6 +77,20 @@ pub(crate) enum Command<'a> {
         underline: bool,
         extra_gap: bool,
     },
+    Line {
+        start: (u16, u16),
+        end: (u16, u16),
+        color: u8,
+        width: u8,
+    },
+    Arc {
+        center: (u16, u16),
+        radius: u16,
+        start: u16,
+        sweep: u8,
+        color: u8,
+        width: u8,
+    },
 }
 
 impl<'a> Command<'a> {
@@ -142,6 +159,42 @@ impl<'a> Command<'a> {
                     },
                     rest,
                 ));
+            }
+            5 | 6
+                if x <= MAX_STROKE_COORD
+                    && y <= MAX_STROKE_COORD
+                    && width <= MAX_STROKE_COORD
+                    && height <= MAX_STROKE_COORD
+                    && *first < 10
+                    && (1..=MAX_STROKE_WIDTH).contains(second) =>
+            {
+                if *opcode == 5 {
+                    Self::Line {
+                        start: (x, y),
+                        end: (width, height),
+                        color: *first,
+                        width: *second,
+                    }
+                } else {
+                    let (&sweep, rest) = rest.split_first()?;
+                    if !(u16::from(*second)..=MAX_ARC_RADIUS).contains(&width)
+                        || height >= 360
+                        || sweep == 0
+                    {
+                        return None;
+                    }
+                    return Some((
+                        Self::Arc {
+                            center: (x, y),
+                            radius: width,
+                            start: height,
+                            sweep,
+                            color: *first,
+                            width: *second,
+                        },
+                        rest,
+                    ));
+                }
             }
             _ => return None,
         };

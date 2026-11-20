@@ -10,9 +10,9 @@ export function inlineScene(commands, strings) {
       const bytes = encoder.encode(text);
       if (bytes.length > 255) throw new Error("Display text exceeds the LVGL scene limit");
       result.push(first, second, bytes.length, ...bytes);
-    } else if (opcode === 1 || opcode === 2 || opcode === 4) {
+    } else if ([1, 2, 4, 5, 6].includes(opcode)) {
       result.push(w & 255, w >>> 8, h & 255, h >>> 8, first, second);
-      if (opcode === 4) result.push(third);
+      if (opcode === 4 || opcode === 6) result.push(third);
     } else {
       throw new Error(`Unknown display command ${opcode}`);
     }

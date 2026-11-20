@@ -13,8 +13,60 @@ fn rejects_invalid_draw_commands_before_the_panel_sees_them() {
         &[1, 0, 0, 0, 0, 1, 0, 1, 0, 10, 0],
         &[3, 0, 0, 0, 0, 1, 0, 1, 0xff],
         &[4, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2],
+        &[5, 0, 0, 0, 0, 16, 0, 16, 0, 5, 0],
+        &[6, 16, 0, 16, 0, 8, 0, 104, 1, 5, 3, 90],
+        &[6, 16, 0, 16, 0, 8, 0, 225, 0, 5, 3],
     ] {
         assert!(Scene::from_bytes(bytes).is_none());
+    }
+}
+
+#[test]
+fn native_round_strokes_clip_consistently_and_survive_mip_quantization() {
+    let scene = Scene::from_bytes(&[
+        6, 32, 0, 31, 0, 24, 0, 225, 0, 5, 3, 90, 6, 32, 0, 31, 0, 16, 0, 225, 0, 5, 3, 90, 5, 48,
+        0, 7, 0, 64, 0, 23, 0, 5, 3, 5, 64, 0, 7, 0, 48, 0, 23, 0, 5, 3,
+    ])
+    .unwrap();
+    assert!(!same_band(&scene, &Scene::EMPTY, 7..8));
+    assert!(same_band(&scene, &Scene::EMPTY, 56..64));
+    let mut strip = Strip::<{ TFT_WIDTH * 32 }>::EMPTY;
+    for profile in [Profile::Tft, Profile::Mip] {
+        let width = profile.dimensions().0;
+        let pixels = strip.render(profile, &scene, 0..32).unwrap().to_vec();
+        for top in (0..32).step_by(8) {
+            assert_eq!(
+                strip.render(profile, &scene, top..top + 8).unwrap(),
+                &pixels[top * width..(top + 8) * width]
+            );
+        }
+        let background = pixels[0];
+        let pixel = |x: usize, y: usize| pixels[y * width + x];
+        assert_ne!(pixel(32, 8), background);
+        assert_eq!(pixel(32, 12), background);
+        assert_ne!(pixel(32, 16), background);
+        for y in 7..=23 {
+            for x in [48 + y - 7, 64 - y + 7] {
+                assert!(
+                    (x - 1..=x + 1).any(|x| pixel(x, y) != background),
+                    "{x},{y} background={background}"
+                );
+            }
+        }
+        let shades = |columns: core::ops::Range<usize>| -> std::collections::BTreeSet<_> {
+            pixels
+                .chunks_exact(width)
+                .flat_map(|row| &row[columns.clone()])
+                .copied()
+                .collect()
+        };
+        match profile {
+            Profile::Tft => {
+                assert!(shades(12..46).len() > 2);
+                assert!(shades(46..70).len() > 2);
+            }
+            Profile::Mip => assert_eq!(shades(12..70), [0, u16::MAX].into()),
+        }
     }
 }
 

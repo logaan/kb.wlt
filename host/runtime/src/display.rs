@@ -175,8 +175,8 @@ impl Runtime {
                 output
                     .extend_from_slice(text)
                     .map_err(|_| Error::Capacity)?;
-            } else if matches!(command[0], 1 | 2 | 4) {
-                let end = if command[0] == 4 { 13 } else { 12 };
+            } else if matches!(command[0], 1 | 2 | 4..=6) {
+                let end = if matches!(command[0], 4 | 6) { 13 } else { 12 };
                 output
                     .extend_from_slice(&command[6..end])
                     .map_err(|_| Error::Capacity)?;

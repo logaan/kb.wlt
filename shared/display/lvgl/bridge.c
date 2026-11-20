@@ -1,8 +1,11 @@
 #include "lvgl.h"
+#include "src/core/lv_refr_private.h"
+#include "src/display/lv_display_private.h"
 #include "src/misc/lv_area_private.h"
 
 static lv_layer_t layer;
 static lv_draw_buf_t buffer;
+static lv_display_t drawing_display;
 
 static void dispatch(void)
 {
@@ -31,6 +34,10 @@ void kb_lvgl_begin(uint16_t *pixels, uint16_t width, uint16_t top, uint16_t rows
     layer._clip_area = area;
     layer.phy_clip_area = area;
     layer.color_format = LV_COLOR_FORMAT_RGB565;
+    drawing_display.hor_res = width;
+    drawing_display.ver_res = top + rows;
+    drawing_display.antialiasing = true;
+    drawing_display.color_format = LV_COLOR_FORMAT_RGB565;
 }
 
 void kb_lvgl_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
@@ -54,6 +61,55 @@ void kb_lvgl_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
         rectangle.bg_color = lv_color_hex(rgb);
     }
     lv_draw_rect(&layer, &rectangle, &area);
+    dispatch();
+}
+
+void kb_lvgl_line(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2,
+                  uint32_t rgb, uint8_t width)
+{
+    lv_area_t area = {LV_MIN(x1, x2) - width, LV_MIN(y1, y2) - width,
+                      LV_MAX(x1, x2) + width, LV_MAX(y1, y2) + width};
+    lv_area_t intersection;
+    if (!lv_area_intersect(&intersection, &layer._clip_area, &area)) {
+        return;
+    }
+
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.p1.x = x1;
+    line.p1.y = y1;
+    line.p2.x = x2;
+    line.p2.y = y2;
+    line.color = lv_color_hex(rgb);
+    line.width = width;
+    line.round_start = true;
+    line.round_end = true;
+    lv_refr_set_disp_refreshing(&drawing_display);
+    lv_draw_line(&layer, &line);
+    dispatch();
+    lv_refr_set_disp_refreshing(NULL);
+}
+
+void kb_lvgl_arc(uint16_t x, uint16_t y, uint16_t radius, uint16_t start,
+                 uint8_t sweep, uint32_t rgb, uint8_t width)
+{
+    lv_area_t area = {x - radius, y - radius, x + radius, y + radius};
+    lv_area_t intersection;
+    if (!lv_area_intersect(&intersection, &layer._clip_area, &area)) {
+        return;
+    }
+
+    lv_draw_arc_dsc_t arc;
+    lv_draw_arc_dsc_init(&arc);
+    arc.center.x = x;
+    arc.center.y = y;
+    arc.radius = radius;
+    arc.width = width;
+    arc.start_angle = start;
+    arc.end_angle = start + sweep;
+    arc.color = lv_color_hex(rgb);
+    arc.rounded = true;
+    lv_draw_arc(&layer, &arc);
     dispatch();
 }
 
