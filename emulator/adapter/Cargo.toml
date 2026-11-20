@@ -1,0 +1,14 @@
+[package]
+name = "kb-toucan-emulator"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+path = "../../toucan/emulator.rs"
+crate-type = ["cdylib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+kb-client-session = { path = "../../clients/session" }
+kb-core = { path = "../../shared/keyboard-core" }
+kb-display = { path = "../../shared/display", features = ["lvgl"] }

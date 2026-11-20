@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#191d20">
+  <title>Toucan Emulator · kb.wlt</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="main.js"></script>
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <div>
+        <p class="brand">kb.wlt<span> / </span>Workbench</p>
+        <h1>Toucan emulator</h1>
+      </div>
+      <p class="runtime-status" id="runtime" role="status">Loading components…</p>
+    </header>
+    <section class="workbench" aria-label="Toucan keyboard and Prospector">
+      <div class="desktop">
+        <figure class="receiver">
+          <button class="receiver-case screen-toggle" id="zoom-prospector" type="button" aria-controls="display-viewer" aria-expanded="false" aria-label="Enlarge Prospector display">
+            <canvas id="prospector" width="280" height="240" aria-hidden="true"></canvas>
+          </button>
+          <figcaption>Prospector</figcaption>
+        </figure>
+        <div class="boards">
+          <div class="board board-left" aria-label="Toucan left half">
+            <div class="key-bank" id="left-keys"></div>
+            <button class="satellite-display screen-toggle" id="zoom-nice-view" type="button" aria-controls="display-viewer" aria-expanded="false" aria-label="Enlarge left Toucan nice!view display">
+              <canvas id="nice-view" width="144" height="168" aria-hidden="true"></canvas>
+            </button>
+          </div>
+          <div class="board board-right" aria-label="Toucan right half">
+            <div class="key-bank" id="right-keys"></div>
+          </div>
+        </div>
+      </div>
+      <footer class="workbench-footer">
+        <p class="mode" id="mode" aria-live="polite">QWERTY</p>
+        <div class="instructions">
+          <p>Type or press the keycaps. Tap <kbd>]</kbd> to toggle braille, or hold it for momentary braille.</p>
+          <p id="reference-help" hidden>Hold <kbd>Space</kbd> + <kbd>F</kbd> <kbd>D</kbd> <kbd>S</kbd> <kbd>J</kbd> <kbd>K</kbd> for the menu, then <kbd>Space</kbd> + <kbd>F</kbd> <kbd>D</kbd> <kbd>S</kbd> <kbd>K</kbd> for Reference. <kbd>Space</kbd> + <kbd>A</kbd> opens the selected category.</p>
+        </div>
+        <fieldset class="transport">
+          <legend>Output via</legend>
+          <label><input name="transport" value="usb" type="radio" id="transport-usb" checked> Prospector USB</label>
+          <label><input name="transport" value="bluetooth" type="radio" id="transport-bluetooth"> Toucan Bluetooth</label>
+        </fieldset>
+      </footer>
+    </section>
+    <section class="preview" id="display-viewer" aria-labelledby="display-title" hidden>
+      <header>
+        <h2 id="display-title"></h2>
+        <button type="button" class="clear" id="close-viewer">Close</button>
+      </header>
+      <canvas id="enlarged-display" aria-hidden="true" tabindex="-1"></canvas>
+      <p id="viewer-reference-help" hidden>For Reference, chord Space + F D S J K, then Space + F D S K. Space + A opens the selected category.</p>
+    </section>
+    <details class="links">
+      <summary>Simulated connections</summary>
+      <div class="links-grid">
+        <label><input id="usb-link" type="checkbox" checked> Prospector USB</label>
+        <label><input id="bluetooth-link" type="checkbox" checked> Toucan Bluetooth</label>
+        <label><input id="left-link" type="checkbox" checked> Left half</label>
+        <label>Battery <input id="left-battery" aria-label="Left battery percentage" type="number" min="0" max="100" value="100"> %</label>
+        <label><input id="right-link" type="checkbox" checked> Right half</label>
+        <label>Battery <input id="right-battery" aria-label="Right battery percentage" type="number" min="0" max="100" value="100"> %</label>
+      </div>
+    </details>
+    <section class="output" aria-labelledby="output-heading">
+      <header>
+        <div class="output-label">
+          <h2 id="output-heading">USB output</h2>
+          <output id="last-report" aria-label="Last USB report"></output>
+        </div>
+        <button type="button" class="clear" id="clear">Clear output</button>
+      </header>
+      <textarea id="text-output" readonly aria-label="Typed text" spellcheck="false" placeholder="Typed characters appear here."></textarea>
+    </section>
+  </main>
+</body>
+</html>
