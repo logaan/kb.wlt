@@ -41,4 +41,5 @@ checksums = "".join(
 PYHASH
 find "$output_dir" -maxdepth 1 -type f -name '*.uf2' -delete
 cp "$staging"/*.uf2 "$output_dir/"
+mv -f "$staging/SHA256SUMS" "$output_dir/SHA256SUMS"
 "$xtask" verify-release "$output_dir"
