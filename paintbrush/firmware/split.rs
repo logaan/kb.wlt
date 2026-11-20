@@ -6,8 +6,11 @@ use crate::radio::{Host, Irqs, authenticate};
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_executor::Spawner;
 #[cfg(feature = "prospector-display")]
-use embassy_futures::{join::join, select::Either};
-use embassy_futures::{join::join3, select::select};
+use embassy_futures::select::Either;
+use embassy_futures::{
+    join::{join, join3},
+    select::select,
+};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 #[cfg(feature = "prospector-display")]
 use embassy_nrf::interrupt::InterruptExt;
@@ -285,6 +288,7 @@ pub async fn satellite(spawner: Spawner) {
                             boot,
                             sequence,
                             layout,
+                            battery: crate::battery::level(),
                             keys: KEYS.load(Ordering::Relaxed),
                         };
                         if server
@@ -351,12 +355,22 @@ pub async fn satellite(spawner: Spawner) {
             let _ = select(events, notify).await;
         }
     };
-    join3(runner.run(), connections, scan(inputs, indicator)).await;
+    let battery = crate::battery::monitor(
+        p.SAADC,
+        embassy_nrf::saadc::ChannelConfig::single_ended(embassy_nrf::saadc::VddhDiv5Input),
+        5,
+        1,
+    );
+    join3(
+        runner.run(),
+        connections,
+        join(scan(inputs, indicator), battery),
+    )
+    .await;
 }
 
 #[cfg(feature = "prospector-display")]
 pub async fn central(spawner: Spawner) {
-    crate::init_heap();
     let mut config = crate::clock_config();
     config.time_interrupt_priority = Priority::P3;
     let p = embassy_nrf::init(config);
@@ -587,7 +601,8 @@ async fn receive_snapshots(
 async fn process_keys() {
     let mut receiver = Receiver::<2>::new(LINK_TIMEOUT_MS);
     let mut sessions: [Option<Session>; 2] = [None; 2];
-    crate::braille_receiver::run(async |accept| {
+    let mut client = kb_component_runtime::BrailleComponent::new_embedded().ok();
+    crate::braille_receiver::run(&mut client, async |accept| {
         let now = Instant::now().as_millis() as u32;
         let (next, mut update) = receiver.expire(now);
         receiver = next;
@@ -640,7 +655,11 @@ async fn process_keys() {
         }
         Some((
             update,
-            u8::from(receiver.is_connected(0)) + u8::from(receiver.is_connected(1)),
+            kb_client_session::Links {
+                online: u8::from(receiver.is_connected(0))
+                    | (u8::from(receiver.is_connected(1)) << 1),
+                battery: [receiver.battery(0), receiver.battery(1)],
+            },
         ))
     })
     .await;

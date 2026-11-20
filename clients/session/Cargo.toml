@@ -1,0 +1,7 @@
+[package]
+name = "kb-client-session"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kb-core = { path = "../../shared/keyboard-core" }

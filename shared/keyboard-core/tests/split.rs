@@ -10,6 +10,7 @@ fn snapshot(node: u64, layout: Layout, sequence: u16, keys: u8) -> Snapshot {
         sequence,
         layout,
         keys,
+        battery: 75,
     }
 }
 

@@ -48,6 +48,7 @@ impl Binding {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Settings {
+    pub direct_bluetooth: bool,
     pub mode: BrailleMode,
     pub bindings: [Binding; BINDING_COUNT],
 }
@@ -129,7 +130,7 @@ impl Settings {
         output[..ENCODED_LEN].fill(0);
         output[..4].copy_from_slice(b"KBQF");
         output[4] = 1;
-        output[5] = self.mode as u8;
+        output[5] = self.mode as u8 | (u8::from(self.direct_bluetooth) << 7);
         for (index, binding) in validated.bindings.iter().enumerate() {
             let offset = 6 + index * 34;
             output[offset] = binding.trigger_len;
@@ -147,12 +148,13 @@ impl Settings {
         if bytes.len() != ENCODED_LEN || &bytes[..4] != b"KBQF" || bytes[4] != 1 {
             return Err(Error::InvalidEncoding);
         }
-        let mode = match bytes[5] {
+        let mode = match bytes[5] & 0x7f {
             0 => BrailleMode::Computer8,
             1 => BrailleMode::Ueb1,
             _ => return Err(Error::InvalidEncoding),
         };
         let mut settings = Self {
+            direct_bluetooth: bytes[5] & 0x80 != 0,
             mode,
             ..Self::default()
         };
@@ -291,6 +293,11 @@ impl Engine {
             *slot = cell;
         }
         cells
+    }
+
+    pub fn preview_timeout(&self, settings: &Settings) -> Output {
+        let mut preview = *self;
+        preview.poll(settings, self.updated_ms.wrapping_add(PREFIX_TIMEOUT_MS))
     }
 
     pub fn pending_len(&self) -> usize {

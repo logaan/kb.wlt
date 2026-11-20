@@ -28,7 +28,7 @@ A change confined to the conventional keymap runs on the left half. For a one-of
 
 Fresh installs use Prospector USB. Connect the Prospector to the computer with a data cable, then power both halves. The right half pairs with the left and the left pairs with Prospector automatically. The computer sees **kb.wlt Toucan Receiver** over USB.
 
-To type directly over Bluetooth, hold all three left thumb keys for two seconds. Pair **kb.wlt Toucan** with the computer using its Bluetooth settings. The halves work together while the Prospector is off. Hold the three left thumbs again to return to Prospector USB. The left half saves the selected route with its settings.
+To type directly over Bluetooth, press and hold the outer left Braille thumb first. Press the other two left thumb keys and hold all three for two seconds. Pair **kb.wlt Toucan** with the computer using its Bluetooth settings. The halves work together while the Prospector is off. Repeat the same gesture to return to Prospector USB. The left half saves the selected route with its settings.
 
 Tap the outer left thumb to switch between QWERTY and Braille. Hold it to use Braille momentarily. The cells below correspond to the named keys. Use the normal Space thumb for Braille Space.
 
@@ -43,6 +43,6 @@ Hold Space and chord **⠟** twice to open the main menu. Release the other keys
 
 ## Displays and hardware status
 
-The MIP uses SCK P1.13, MOSI P1.15, and active-high CS P0.03 at 1 MHz with VCOM maintenance. The Prospector uses SPI2 at 4 MHz and renders 280×240 landscape. Both use Wavelet scenes rendered through LVGL. Trackpad input is unavailable. [Toucan upgrade kit](https://shop.beekeeb.com/products/toucan-upgrade-kit) · [Beekeeb display overlay](https://github.com/beekeeb/zmk-keyboard-toucan/blob/main/boards/shields/nice_view_gem/nice_view_gem.overlay) · [Prospector hardware](../firmware/README.md)
+The MIP uses SCK P1.13, MOSI P1.15, and active-high CS P0.03 at 1 MHz with VCOM maintenance. The Prospector uses SPI2 at 4 MHz and renders 280×240 landscape. Both use Wavelet scenes rendered through LVGL. Trackpad input is unavailable. [Toucan upgrade kit](https://shop.beekeeb.com/products/toucan-upgrade-kit) · [Prospector hardware](../firmware/README.md)
 
 The previous USB-receiver firmware passed typing, display, cross-half modifier, reconnection, and power-cycle tests. The new pairing topology, direct Bluetooth, battery readings, and LVGL rendering still need hardware validation. The [browser emulator](../emulator/) exercises both typing routes and displays.

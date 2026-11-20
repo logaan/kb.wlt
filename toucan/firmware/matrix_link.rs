@@ -1,12 +1,56 @@
 use crate::split::sequence_is_newer;
 
 pub const PACKET_LEN: usize = 24;
-pub const DISPLAY_PACKET_LEN: usize = 10;
+pub const DISPLAY_PACKET_LEN: usize = 7 + 48 + 48;
 pub const DISPLAY_TIMEOUT_MS: u32 = 600;
 pub const LINK_TIMEOUT_MS: u32 = 500;
 pub const KEYS_MASK: u32 = (1 << 21) - 1;
 pub const BRAILLE_THUMB: u8 = 36;
+pub const ROUTE_THUMBS: u64 = 7 << BRAILLE_THUMB;
 const BRAILLE_HOLD_MS: u32 = 200;
+
+#[derive(Default)]
+pub struct RouteSwitch {
+    since: Option<u32>,
+    fired: bool,
+    blocked: bool,
+}
+
+impl RouteSwitch {
+    pub const fn new() -> Self {
+        Self {
+            since: None,
+            fired: false,
+            blocked: false,
+        }
+    }
+
+    pub const fn active(matrix: u64) -> bool {
+        matrix & ROUTE_THUMBS == ROUTE_THUMBS
+    }
+
+    pub fn blocked(&self) -> bool {
+        self.blocked
+    }
+
+    pub fn update(&mut self, now_ms: u32, matrix: u64) -> bool {
+        let active = Self::active(matrix);
+        self.blocked = active || (self.blocked && matrix & ROUTE_THUMBS != 0);
+        if !active {
+            self.since = None;
+            if !self.blocked {
+                self.fired = false;
+            }
+            return false;
+        }
+        let since = *self.since.get_or_insert(now_ms);
+        if !self.fired && now_ms.wrapping_sub(since) >= 2000 {
+            self.fired = true;
+            return true;
+        }
+        false
+    }
+}
 
 #[derive(Default)]
 pub struct BrailleSwitch {
@@ -38,6 +82,18 @@ impl BrailleSwitch {
         }
         self.latched || self.held
     }
+}
+
+pub fn braille_transition_blocked(entering: bool, previous: u64, keys: u64) -> u64 {
+    if entering {
+        previous & keys & !(1 << BRAILLE_THUMB)
+    } else {
+        keys
+    }
+}
+
+pub fn joined_matrix(left: u32, right: u64) -> u64 {
+    Side::Left.map(left) | right
 }
 
 pub fn braille_keys(matrix: u64) -> u16 {
@@ -113,6 +169,7 @@ pub struct Snapshot {
     pub sequence: u16,
     pub side: Side,
     pub keys: u32,
+    pub battery: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,6 +191,7 @@ impl Snapshot {
         bytes[10..14].copy_from_slice(&self.boot.to_le_bytes());
         bytes[14..16].copy_from_slice(&self.sequence.to_le_bytes());
         bytes[16..20].copy_from_slice(&self.keys.to_le_bytes());
+        bytes[20] = crate::battery::encode(self.battery);
         let crc = checksum(&bytes[..22]);
         bytes[22..24].copy_from_slice(&crc.to_le_bytes());
         bytes
@@ -152,13 +210,14 @@ impl Snapshot {
             _ => return Err(PacketError::Side),
         };
         let keys = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
-        if keys & !KEYS_MASK != 0 || bytes[20] != 0 || bytes[21] != 0 {
+        if keys & !KEYS_MASK != 0 || bytes[21] != 0 {
             return Err(PacketError::Keys);
         }
         if checksum(&bytes[..22]) != u16::from_le_bytes([bytes[22], bytes[23]]) {
             return Err(PacketError::Checksum);
         }
         Ok(Self {
+            battery: crate::battery::decode(bytes[20]).ok_or(PacketError::Status)?,
             node: u64::from_le_bytes(bytes[2..10].try_into().unwrap()),
             boot: u32::from_le_bytes(bytes[10..14].try_into().unwrap()),
             sequence: u16::from_le_bytes([bytes[14], bytes[15]]),
@@ -183,90 +242,58 @@ fn checksum(bytes: &[u8]) -> u16 {
     crc
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DisplayStatus {
-    pub connected: bool,
-    pub faulted: bool,
-    pub pairing_unsaved: bool,
-    pub active_keys: u8,
-    pub layer: u8,
-    pub last_usage: u8,
-    pub last_modifiers: u8,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayFeedback {
     pub sequence: u16,
-    pub status: DisplayStatus,
+    pub model: crate::pipeline::Bounded<u8, 48>,
+    pub detail: crate::pipeline::Bounded<u8, 48>,
 }
 
 impl DisplayFeedback {
-    pub fn encode(self) -> [u8; DISPLAY_PACKET_LEN] {
-        let status = self.status;
-        let mut bytes = [0; DISPLAY_PACKET_LEN];
-        bytes[0] = 1;
-        bytes[1] = u8::from(status.connected)
-            | u8::from(status.faulted) << 1
-            | u8::from(status.pairing_unsaved) << 2;
-        bytes[2..4].copy_from_slice(&self.sequence.to_le_bytes());
-        bytes[4..8].copy_from_slice(&[
-            status.active_keys,
-            status.layer,
-            status.last_usage,
-            status.last_modifiers,
-        ]);
-        let crc = checksum(&bytes[..8]);
-        bytes[8..].copy_from_slice(&crc.to_le_bytes());
+    pub fn encode(self) -> crate::pipeline::Bounded<u8, DISPLAY_PACKET_LEN> {
+        let [low, high] = self.sequence.to_le_bytes();
+        let mut bytes = crate::pipeline::Bounded::from_slice(
+            &[
+                2,
+                low,
+                high,
+                self.model.len() as u8,
+                self.detail.len() as u8,
+            ],
+            0,
+        )
+        .unwrap();
+        bytes.extend_from_slice(self.model.as_slice()).unwrap();
+        bytes.extend_from_slice(self.detail.as_slice()).unwrap();
+        bytes
+            .extend_from_slice(&checksum(bytes.as_slice()).to_le_bytes())
+            .unwrap();
         bytes
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, PacketError> {
-        if bytes.len() != DISPLAY_PACKET_LEN {
+        if bytes.len() < 7 || bytes.len() > DISPLAY_PACKET_LEN {
             return Err(PacketError::Length);
         }
-        if bytes[0] != 1 {
+        if bytes[0] != 2 {
             return Err(PacketError::Version);
         }
-        if checksum(&bytes[..8]) != u16::from_le_bytes([bytes[8], bytes[9]]) {
+        let m = usize::from(bytes[3]);
+        let d = usize::from(bytes[4]);
+        if m > 48 || d > 48 || bytes.len() != 7 + m + d {
+            return Err(PacketError::Length);
+        }
+        let (body, crc) = bytes.split_at(5 + m + d);
+        if checksum(body).to_le_bytes() != crc {
             return Err(PacketError::Checksum);
         }
-        let flags = bytes[1];
-        if flags & !0b111 != 0 || bytes[4] > 42 {
-            return Err(PacketError::Status);
-        }
+        let detail = &body[5 + m..];
+        core::str::from_utf8(detail).map_err(|_| PacketError::Status)?;
         Ok(Self {
-            sequence: u16::from_le_bytes([bytes[2], bytes[3]]),
-            status: DisplayStatus {
-                connected: flags & 1 != 0,
-                faulted: flags & 2 != 0,
-                pairing_unsaved: flags & 4 != 0,
-                active_keys: bytes[4],
-                layer: bytes[5],
-                last_usage: bytes[6],
-                last_modifiers: bytes[7],
-            },
+            sequence: u16::from_le_bytes([bytes[1], bytes[2]]),
+            model: crate::pipeline::Bounded::from_slice(&bytes[5..5 + m], 0).unwrap(),
+            detail: crate::pipeline::Bounded::from_slice(detail, 0).unwrap(),
         })
-    }
-}
-
-#[derive(Default)]
-pub struct DisplayReceiver {
-    last: Option<(DisplayFeedback, u32)>,
-}
-
-impl DisplayReceiver {
-    pub fn receive(&mut self, feedback: DisplayFeedback, now_ms: u32) {
-        if self
-            .last
-            .is_none_or(|(previous, _)| sequence_is_newer(feedback.sequence, previous.sequence))
-        {
-            self.last = Some((feedback, now_ms));
-        }
-    }
-
-    pub fn current(&self, now_ms: u32) -> Option<DisplayStatus> {
-        let (feedback, received_at) = self.last?;
-        (now_ms.wrapping_sub(received_at) < DISPLAY_TIMEOUT_MS).then_some(feedback.status)
     }
 }
 
@@ -295,6 +322,9 @@ impl Receiver {
     }
     pub const fn keys(&self) -> u64 {
         self.keys
+    }
+    pub fn battery(&self) -> u8 {
+        self.snapshot.map_or(255, |s| s.battery)
     }
     pub const fn connected(&self) -> bool {
         self.snapshot.is_some()

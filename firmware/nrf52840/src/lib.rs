@@ -11,7 +11,7 @@ compile_error!("the Toucan receiver requires USB and the Prospector display");
     not(any(
         feature = "toucan-dongle",
         feature = "toucan-right",
-        feature = "nice-view"
+        feature = "toucan-display"
     ))
 ))]
 compile_error!("the left Toucan satellite requires its MIP display");
@@ -36,17 +36,6 @@ compile_error!(
 compile_error!("a Paintbrush satellite has exactly one side");
 
 use embassy_nrf::config::{Config, HfclkSource, LfclkSource};
-use embedded_alloc::LlffHeap;
-
-#[global_allocator]
-static HEAP: LlffHeap = LlffHeap::empty();
-
-pub fn init_heap() {
-    unsafe {
-        embedded_alloc::init!(HEAP, 160 * 1024);
-    }
-}
-
 pub fn clock_config() -> Config {
     let mut config = Config::default();
     config.hfclk_source = HfclkSource::ExternalXtal;
@@ -70,17 +59,20 @@ pub mod split;
 #[cfg(feature = "prospector-display")]
 pub mod prospector;
 
+#[cfg(feature = "split")]
+mod battery;
+
 pub mod usb_hid;
 
-#[cfg(feature = "nice-view")]
-#[path = "../../../toucan/firmware/nice_view.rs"]
-pub mod nice_view;
+#[cfg(feature = "toucan-display")]
+#[path = "../../../toucan/firmware/display.rs"]
+pub mod toucan_display;
 
 #[cfg(feature = "toucan")]
 #[path = "../../../toucan/firmware/toucan.rs"]
 pub mod toucan;
 
-#[cfg(feature = "prospector-display")]
+#[cfg(all(feature = "prospector-display", not(feature = "toucan")))]
 mod braille_receiver;
-#[cfg(feature = "prospector-display")]
+#[cfg(any(feature = "prospector-display", feature = "toucan-display"))]
 pub mod settings;

@@ -1,66 +1,56 @@
 #[cfg(feature = "prospector-display")]
 use crate::radio::DisplayIrqs;
-use crate::radio::{Bonds, Host, address, device_id};
-#[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
-use core::cell::Cell;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use crate::radio::{Bonds, address};
+#[cfg(feature = "toucan-right")]
+use crate::radio::{Host, device_id};
+#[cfg(not(feature = "toucan-dongle"))]
+use core::sync::atomic::AtomicU32;
+use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
-#[cfg(feature = "nice-view")]
-use embassy_futures::select::Either;
+#[cfg(not(feature = "toucan-dongle"))]
 use embassy_futures::select::select;
 #[cfg(not(feature = "toucan-dongle"))]
-use embassy_nrf::gpio::Pull;
-use embassy_nrf::gpio::{Input as GpioInput, Level, Output as GpioOutput, OutputDrive};
-#[cfg(any(feature = "nice-view", feature = "prospector-display"))]
+use embassy_nrf::gpio::{Input as GpioInput, Pull};
+use embassy_nrf::gpio::{Level, Output as GpioOutput, OutputDrive};
+#[cfg(any(feature = "toucan-display", feature = "prospector-display"))]
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::interrupt::Priority;
-#[cfg(feature = "nice-view")]
+#[cfg(feature = "toucan-display")]
 use embassy_nrf::peripherals;
-#[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
-use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
-#[cfg(feature = "toucan-dongle")]
-use embassy_time::Duration;
+#[cfg(not(feature = "toucan-dongle"))]
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Instant, Timer};
+#[cfg(not(feature = "toucan-dongle"))]
 use kb_core::Debouncer;
-#[cfg(feature = "nice-view")]
-use kb_core::matrix_link::DisplayReceiver;
-use kb_core::matrix_link::{DISPLAY_PACKET_LEN, KEYS_MASK, PACKET_LEN, Side, Snapshot};
-#[cfg(any(
-    feature = "nice-view",
-    all(feature = "toucan-dongle", feature = "prospector-display")
-))]
-use kb_core::matrix_link::{DisplayFeedback, DisplayStatus};
+#[cfg(not(feature = "toucan-dongle"))]
+use kb_core::matrix_link::PACKET_LEN;
+#[cfg(feature = "toucan-right")]
+use kb_core::matrix_link::Snapshot;
+#[cfg(not(feature = "toucan-dongle"))]
+use kb_core::matrix_link::{KEYS_MASK, Side};
 use nrf_sdc::{self as sdc, mpsl};
 use trouble_host::prelude::*;
 
-#[cfg(feature = "nice-view")]
+#[cfg(feature = "toucan-display")]
 embassy_nrf::bind_interrupts!(struct DisplayIrqs {
     SPIM3 => embassy_nrf::spim::InterruptHandler<peripherals::SPI3>;
 });
 
+#[cfg(not(feature = "toucan-dongle"))]
 const SERVICE_BYTES: [u8; 16] = [
     0x43, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x22, 0x00, 0x17, 0x7a,
 ];
+#[cfg(not(feature = "toucan-dongle"))]
 const SERVICE_UUID: Uuid = Uuid::new_long(SERVICE_BYTES);
+#[cfg(not(feature = "toucan-dongle"))]
 const SNAPSHOT_UUID: Uuid = Uuid::new_long([
     0x44, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x22, 0x00, 0x17, 0x7a,
 ]);
-const DISPLAY_UUID: Uuid = Uuid::new_long([
-    0x45, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x22, 0x00, 0x17, 0x7a,
-]);
-const DISPLAY_CAPABILITY: u8 = 1;
-
-#[cfg(feature = "nice-view")]
-static DISPLAY_INPUT: Signal<CriticalSectionRawMutex, (DisplayFeedback, u32)> = Signal::new();
-#[cfg(all(feature = "toucan-dongle", feature = "prospector-display"))]
-static DISPLAY_OUTPUT: BlockingMutex<CriticalSectionRawMutex, Cell<Option<(DisplayStatus, u32)>>> =
-    BlockingMutex::new(Cell::new(None));
-
 static COMPONENT_FAILED: AtomicBool = AtomicBool::new(false);
+#[cfg(not(feature = "toucan-dongle"))]
 static KEYS: AtomicU32 = AtomicU32::new(0);
+#[cfg(not(feature = "toucan-dongle"))]
 static KEY_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -68,6 +58,7 @@ pub enum Role {
     Dongle,
 }
 
+#[cfg(feature = "toucan-right")]
 mod satellite_gatt {
     use super::*;
     #[gatt_server(connections_max = 1, attribute_table_size = 32)]
@@ -79,18 +70,19 @@ mod satellite_gatt {
     pub(super) struct KeyService {
         #[characteristic(uuid = SNAPSHOT_UUID, read, notify, permissions(encrypted))]
         pub(super) snapshot: [u8; PACKET_LEN],
-        #[characteristic(uuid = DISPLAY_UUID, write_without_response, permissions(encrypted))]
-        pub(super) display: [u8; DISPLAY_PACKET_LEN],
     }
 }
+#[cfg(feature = "toucan-right")]
 use satellite_gatt::SatelliteServer;
 
+#[cfg(not(feature = "toucan-dongle"))]
 struct Matrix {
     rows: [GpioInput<'static>; 4],
     columns: [GpioOutput<'static>; 6],
     side: Side,
 }
 
+#[cfg(not(feature = "toucan-dongle"))]
 impl Matrix {
     async fn read(&mut self) -> u64 {
         let mut keys = 0;
@@ -125,9 +117,6 @@ impl Matrix {
 }
 
 pub async fn run(spawner: Spawner, role: Role) {
-    if role != Role::Satellite {
-        crate::init_heap();
-    }
     let mut config = crate::clock_config();
     config.time_interrupt_priority = Priority::P3;
     let p = embassy_nrf::init(config);
@@ -146,6 +135,7 @@ pub async fn run(spawner: Spawner, role: Role) {
             Timer::after_millis(25).await;
         }
     };
+    #[cfg(not(feature = "toucan-dongle"))]
     let side = if cfg!(feature = "toucan-right") {
         Side::Right
     } else {
@@ -164,7 +154,7 @@ pub async fn run(spawner: Spawner, role: Role) {
         if side == Side::Right {
             columns.reverse();
         }
-        Some(Matrix {
+        Matrix {
             rows: [
                 GpioInput::new(p.P0_19, Pull::Down),
                 GpioInput::new(p.P0_28, Pull::Down),
@@ -173,11 +163,9 @@ pub async fn run(spawner: Spawner, role: Role) {
             ],
             columns,
             side,
-        })
+        }
     };
-    #[cfg(feature = "toucan-dongle")]
-    let mut matrix: Option<Matrix> = None;
-    #[cfg(feature = "nice-view")]
+    #[cfg(feature = "toucan-display")]
     let display = {
         embassy_nrf::interrupt::SPIM3.set_priority(Priority::P3);
         let mut config = embassy_nrf::spim::Config::default();
@@ -185,7 +173,7 @@ pub async fn run(spawner: Spawner, role: Role) {
         config.bit_order = embassy_nrf::spim::BitOrder::LsbFirst;
         let spi =
             embassy_nrf::spim::Spim::new_txonly(p.SPI3, DisplayIrqs, p.P1_13, p.P1_15, config);
-        crate::nice_view::run(
+        crate::toucan_display::run(
             spi,
             GpioOutput::new(p.P0_03, Level::Low, OutputDrive::Standard),
         )
@@ -205,9 +193,12 @@ pub async fn run(spawner: Spawner, role: Role) {
             GpioOutput::new(p.P1_11, Level::Low, OutputDrive::Standard),
         )
     };
-    let (central_count, peripheral_count) = match role {
-        Role::Satellite => (0, 1),
-        Role::Dongle => (2, 0),
+    let (central_count, peripheral_count) = if cfg!(feature = "toucan-display") {
+        (1, 1)
+    } else if role == Role::Dongle {
+        (1, 0)
+    } else {
+        (0, 1)
     };
     let (controller, mut bonds, boot) = crate::radio::radio(
         spawner,
@@ -221,21 +212,22 @@ pub async fn run(spawner: Spawner, role: Role) {
         central_count,
         peripheral_count,
     );
-    if let Some(matrix) = matrix.as_mut() {
-        if matrix.read().await == KEYS_MASK as u64 {
-            Timer::after_secs(2).await;
-            if matrix.read().await == KEYS_MASK as u64 {
-                bonds.forget().await;
-            }
+    #[cfg(not(feature = "toucan-dongle"))]
+    if matrix.read().await == u64::from(KEYS_MASK) {
+        Timer::after_secs(2).await;
+        if matrix.read().await == u64::from(KEYS_MASK) {
+            bonds.forget().await;
         }
     }
-    #[cfg(feature = "toucan-dongle")]
+    #[cfg(any(feature = "toucan-display", feature = "toucan-dongle"))]
     {
         let mut bytes = [0; 512];
         if let Ok(Some(n)) = bonds.load_config(&mut bytes) {
             crate::settings::initialize(Some(&bytes[..n]));
         }
     }
+    #[cfg(feature = "toucan-display")]
+    route::initialize();
     let saved = bonds.load_all().unwrap();
     let mut resources: HostResources<DefaultPacketPool, 2, 6> = HostResources::new();
     let stack = trouble_host::new(controller, &mut resources)
@@ -247,53 +239,78 @@ pub async fn run(spawner: Spawner, role: Role) {
     }
     let bonds = Bonds::new(bonds);
     let mut runner = stack.runner();
-    let scanner = async {
-        if let Some(matrix) = matrix {
-            matrix.scan().await;
-        } else {
-            core::future::pending::<()>().await;
-        }
-    };
-    #[cfg(feature = "toucan-dongle")]
-    spawner.spawn(receiver::process_keys().unwrap());
-    let application = async {
-        match role {
-            Role::Satellite => {
-                join(satellite(&stack, &bonds, side, boot), scanner).await;
-            }
-            Role::Dongle => {
-                #[cfg(feature = "toucan-dongle")]
-                join(
-                    join(
-                        crate::settings::run_saves(&bonds),
-                        crate::settings::run_controls(&stack, &bonds),
-                    ),
-                    join(
-                        join(
-                            receiver::peer_loop(&stack, &bonds, Side::Left),
-                            receiver::peer_loop(&stack, &bonds, Side::Right),
-                        ),
-                        receiver::run_usb(p.USBD),
-                    ),
-                )
-                .await;
-            }
-        }
-    };
-    #[cfg(feature = "toucan-dongle")]
-    let radio = runner.run_with_handler(&receiver::Discovery);
     #[cfg(not(feature = "toucan-dongle"))]
+    let battery = async {
+        let _divider = GpioOutput::new(p.P0_14, Level::Low, OutputDrive::Standard0Disconnect1);
+        crate::battery::monitor(
+            p.SAADC,
+            embassy_nrf::saadc::ChannelConfig::single_ended(p.P0_31),
+            1510,
+            510,
+        )
+        .await;
+    };
+    #[cfg(not(feature = "toucan-dongle"))]
+    let scanner = join(matrix.scan(), battery);
+    #[cfg(feature = "toucan-display")]
+    {
+        let _ = boot;
+        spawner.spawn(application::process_keys().unwrap());
+    }
+    #[cfg(feature = "toucan-display")]
+    let application = join(
+        scanner,
+        join(
+            join(
+                crate::settings::run_saves(&bonds),
+                crate::settings::run_controls(&stack, &bonds),
+            ),
+            join(right_link::run(&stack, &bonds), async {
+                loop {
+                    while !crate::settings::bluetooth_enabled() {
+                        Timer::after_millis(100).await;
+                    }
+                    let direct = route::direct();
+                    let _ = select(
+                        async {
+                            if direct {
+                                ble_hid::advertise(&stack, &bonds).await;
+                            } else {
+                                relay::advertise(&stack, &bonds).await;
+                            }
+                        },
+                        route::changed(direct),
+                    )
+                    .await;
+                    route::set_ready(false);
+                }
+            }),
+        ),
+    );
+    #[cfg(feature = "toucan-right")]
+    let application = join(satellite(&stack, &bonds, side, boot), scanner);
+    #[cfg(feature = "toucan-dongle")]
+    let application = {
+        let _ = boot;
+        join(relay::connect(&stack, &bonds), receiver::run_usb(p.USBD))
+    };
+
+    #[cfg(feature = "toucan-display")]
+    let radio = runner.run_with_handler(&right_link::Discovery);
+    #[cfg(feature = "toucan-dongle")]
+    let radio = runner.run_with_handler(&relay::Discovery);
+    #[cfg(feature = "toucan-right")]
     let radio = runner.run();
     let keyboard = join3(radio, application, diagnostic);
-    #[cfg(any(feature = "nice-view", feature = "prospector-display"))]
+    #[cfg(any(feature = "toucan-display", feature = "prospector-display"))]
     let _ = join(keyboard, display).await;
-    #[cfg(not(any(feature = "nice-view", feature = "prospector-display")))]
+    #[cfg(not(any(feature = "toucan-display", feature = "prospector-display")))]
     let _ = keyboard.await;
 }
 
+#[cfg(feature = "toucan-right")]
 async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
     let mut peripheral = stack.peripheral();
-    let display_capable = cfg!(feature = "nice-view") && side == Side::Left;
     let server = SatelliteServer::new_with_config(GapConfig::Peripheral(PeripheralConfig {
         name: "kb.wlt Toucan half",
         appearance: &appearance::human_interface_device::KEYBOARD,
@@ -306,28 +323,13 @@ async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
             AdStructure::CompleteServiceUuids128(&[SERVICE_BYTES]),
             AdStructure::ManufacturerSpecificData {
                 company_identifier: 0xffff,
-                payload: &[
-                    b'k',
-                    b'b',
-                    b'w',
-                    2,
-                    side as u8,
-                    if display_capable {
-                        DISPLAY_CAPABILITY
-                    } else {
-                        0
-                    },
-                ],
+                payload: &[b'k', b'b', b'w', 2, side as u8, 0],
             },
         ],
         &mut advertising,
     )
     .unwrap();
     loop {
-        #[cfg(feature = "nice-view")]
-        if display_capable {
-            show_remote_display(DisplayStatus::default());
-        }
         let advertisement = peripheral
             .advertise(
                 &Default::default(),
@@ -366,6 +368,7 @@ async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
                         boot,
                         sequence,
                         side,
+                        battery: crate::battery::level(),
                         keys: KEYS.load(Ordering::Relaxed),
                     };
                     if server
@@ -388,59 +391,14 @@ async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
                 crate::ble_bonds::TOUCAN_LINK_SCHEMA,
                 &connection,
                 bonds,
-                #[cfg(feature = "nice-view")]
-                display_capable.then_some(server.keys.display.handle),
             ),
             notify,
         );
-        #[cfg(feature = "nice-view")]
-        if display_capable {
-            DISPLAY_INPUT.reset();
-            let _ = select(connected, run_remote_display()).await;
-            continue;
-        }
         let _ = connected.await;
     }
 }
 
-#[cfg(feature = "nice-view")]
-fn show_remote_display(status: DisplayStatus) {
-    crate::nice_view::update(kb_display::Status {
-        transport: kb_display::Transport::Split,
-        connected: status.connected,
-        faulted: status.faulted,
-        pairing_unsaved: status.pairing_unsaved || crate::ble_bonds::storage_failed(),
-        last_usage: status.last_usage,
-        last_modifiers: status.last_modifiers,
-        keyboard: Some(kb_display::KeyboardStatus {
-            active_keys: status.active_keys,
-            layer: status.layer,
-        }),
-        ..Default::default()
-    });
-}
-
-#[cfg(feature = "nice-view")]
-async fn run_remote_display() {
-    let mut receiver = DisplayReceiver::default();
-    let mut previous = (DisplayStatus::default(), crate::ble_bonds::storage_failed());
-    loop {
-        if let Either::First((feedback, received_at)) =
-            select(DISPLAY_INPUT.wait(), Timer::after_millis(100)).await
-        {
-            receiver.receive(feedback, received_at);
-        }
-        let status = receiver
-            .current(Instant::now().as_millis() as u32)
-            .unwrap_or_default();
-        let next = (status, crate::ble_bonds::storage_failed());
-        if next != previous {
-            show_remote_display(status);
-            previous = next;
-        }
-    }
-}
-
+#[cfg(feature = "toucan-right")]
 async fn gatt_events<
     M: embassy_sync::blocking_mutex::raw::RawMutex,
     const AT: usize,
@@ -450,7 +408,6 @@ async fn gatt_events<
     schema: u32,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     bonds: &Bonds,
-    #[cfg(feature = "nice-view")] display_handle: Option<u16>,
 ) {
     loop {
         match connection.next().await {
@@ -471,24 +428,6 @@ async fn gatt_events<
                     .restore_client_table(server, connection.raw(), schema);
             }
             GattConnectionEvent::Gatt { event } => {
-                #[cfg(feature = "nice-view")]
-                let event = match event {
-                    GattEvent::Write(write) if display_handle == Some(write.handle()) => {
-                        let feedback = write.with_data(|offset, data| {
-                            (offset == 0)
-                                .then(|| DisplayFeedback::decode(data).ok())
-                                .flatten()
-                        });
-                        if let Some(feedback) = feedback {
-                            DISPLAY_INPUT.signal((feedback, Instant::now().as_millis() as u32));
-                        }
-                        if let Ok(reply) = write.accept_unprocessed() {
-                            reply.send().await;
-                        }
-                        continue;
-                    }
-                    event => event,
-                };
                 let changed = matches!(&event, GattEvent::Write(_));
                 if let Ok(reply) = event.accept() {
                     reply.send().await;
@@ -506,6 +445,21 @@ async fn gatt_events<
     }
 }
 
+#[cfg(feature = "toucan-display")]
+#[path = "application.rs"]
+mod application;
+#[cfg(feature = "toucan-display")]
+#[path = "ble_hid.rs"]
+mod ble_hid;
 #[cfg(feature = "toucan-dongle")]
 #[path = "receiver.rs"]
 pub(crate) mod receiver;
+#[cfg(any(feature = "toucan-display", feature = "toucan-dongle"))]
+#[path = "relay.rs"]
+mod relay;
+#[cfg(feature = "toucan-display")]
+#[path = "right_link.rs"]
+mod right_link;
+#[cfg(feature = "toucan-display")]
+#[path = "route.rs"]
+mod route;

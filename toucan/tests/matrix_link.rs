@@ -1,6 +1,6 @@
 use kb_core::matrix_link::{
-    BRAILLE_THUMB, BrailleSwitch, DISPLAY_TIMEOUT_MS, DisplayFeedback, DisplayReceiver,
-    DisplayStatus, KEYS_MASK, LINK_TIMEOUT_MS, PacketError, Receiver, Side, Snapshot,
+    BRAILLE_THUMB, BrailleSwitch, DisplayFeedback, KEYS_MASK, LINK_TIMEOUT_MS, PacketError,
+    Receiver, Side, Snapshot,
 };
 use kb_core::pipeline::{Action, Key};
 use kb_core::report_state::ReportState;
@@ -65,6 +65,7 @@ fn snapshot(side: Side, keys: u32, sequence: u16) -> Snapshot {
         sequence,
         side,
         keys,
+        battery: 75,
     }
 }
 
@@ -97,78 +98,20 @@ fn matrix_packets_round_trip_and_detect_corruption() {
 fn display_feedback_round_trips_and_rejects_invalid_packets() {
     let feedback = DisplayFeedback {
         sequence: u16::MAX,
-        status: DisplayStatus {
-            connected: true,
-            faulted: true,
-            pairing_unsaved: true,
-            active_keys: 42,
-            layer: 1,
-            last_usage: 4,
-            last_modifiers: 2,
-        },
+        model: kb_core::pipeline::Bounded::from_slice(&[1, 2, 3], 0).unwrap(),
+        detail: kb_core::pipeline::Bounded::from_slice("⠭".as_bytes(), 0).unwrap(),
     };
     let packet = feedback.encode();
-    assert_eq!(DisplayFeedback::decode(&packet), Ok(feedback));
+    assert_eq!(DisplayFeedback::decode(packet.as_slice()), Ok(feedback));
     for index in 0..packet.len() {
         let mut corrupt = packet;
-        corrupt[index] ^= 1;
-        assert!(DisplayFeedback::decode(&corrupt).is_err());
+        corrupt.as_mut_slice()[index] ^= 1;
+        assert!(DisplayFeedback::decode(corrupt.as_slice()).is_err());
     }
     assert_eq!(
-        DisplayFeedback::decode(&packet[..9]),
+        DisplayFeedback::decode(&packet.as_slice()[..9]),
         Err(PacketError::Length)
     );
-    let invalid = DisplayFeedback {
-        status: DisplayStatus {
-            active_keys: 43,
-            ..feedback.status
-        },
-        ..feedback
-    };
-    assert_eq!(
-        DisplayFeedback::decode(&invalid.encode()),
-        Err(PacketError::Status)
-    );
-}
-
-#[test]
-fn display_feedback_expires_and_duplicates_do_not_extend_its_lifetime() {
-    let mut receiver = DisplayReceiver::default();
-    let feedback = DisplayFeedback {
-        sequence: u16::MAX,
-        status: DisplayStatus {
-            connected: true,
-            last_usage: 4,
-            ..Default::default()
-        },
-    };
-    let start = u32::MAX - 100;
-    assert_eq!(receiver.current(start), None);
-    receiver.receive(feedback, start);
-    receiver.receive(feedback, 20);
-    assert_eq!(
-        receiver.current(start.wrapping_add(DISPLAY_TIMEOUT_MS - 1)),
-        Some(feedback.status)
-    );
-    assert_eq!(
-        receiver.current(start.wrapping_add(DISPLAY_TIMEOUT_MS)),
-        None
-    );
-    receiver.receive(feedback, 600);
-    assert_eq!(receiver.current(600), None);
-
-    let newer = DisplayFeedback {
-        sequence: 0,
-        status: DisplayStatus::default(),
-    };
-    receiver.receive(newer, 601);
-    receiver.receive(feedback, 602);
-    assert_eq!(receiver.current(602), Some(newer.status));
-
-    let mut reconnected = DisplayReceiver::default();
-    assert_eq!(reconnected.current(603), None);
-    reconnected.receive(newer, 604);
-    assert_eq!(reconnected.current(604), Some(newer.status));
 }
 
 #[test]
@@ -379,4 +322,85 @@ fn sequence_and_clock_wrap_preserve_freshness_without_accepting_replays() {
     assert_eq!(receiver.keys(), 0);
     receiver.receive(snapshot(Side::Right, 1, 1), 450).unwrap();
     assert_eq!(receiver.keys(), 0);
+}
+
+#[test]
+fn raw_left_thumb_and_dot_pins_join_the_right_snapshot() {
+    use kb_core::matrix_link::{
+        BRAILLE_THUMB, ROUTE_THUMBS, RouteSwitch, braille_keys, joined_matrix,
+    };
+
+    let left = (1 << 18) | (1 << 10);
+    let right = Side::Right.map(1 << 9);
+    let matrix = joined_matrix(left, right);
+    assert_eq!(matrix & (1 << BRAILLE_THUMB), 1 << BRAILLE_THUMB);
+    assert_eq!(braille_keys(matrix), 0b0010_0001);
+
+    let route = joined_matrix(0b111 << 18, 0);
+    assert_eq!(route, ROUTE_THUMBS);
+    let mut switch = RouteSwitch::new();
+    assert!(!switch.update(0, route));
+    assert!(!switch.update(1999, route));
+    assert!(switch.update(2000, route));
+    assert!(!switch.update(2200, route));
+    assert!(!switch.update(2201, route ^ (1 << BRAILLE_THUMB)));
+    assert!(switch.blocked());
+    assert!(!switch.update(2202, route));
+    assert!(!switch.update(4302, route));
+    assert!(!switch.update(4303, 0));
+    assert!(!switch.blocked());
+    assert!(!switch.update(2300, 0));
+    assert!(!switch.update(2400, route));
+    assert!(switch.update(4400, route));
+}
+
+#[test]
+fn route_gesture_does_not_latch_braille_after_the_outer_thumb_leads() {
+    use kb_core::matrix_link::{BrailleSwitch, RouteSwitch, braille_keys, joined_matrix};
+
+    let mut route = RouteSwitch::new();
+    let mut layer = BrailleSwitch::default();
+    for (time, local, expected_route) in [
+        (0, 0b001, false),
+        (20, 0b011, false),
+        (30, 0b111, false),
+        (2030, 0b111, true),
+        (2040, 0b101, false),
+        (2050, 0b001, false),
+        (2060, 0b000, false),
+    ] {
+        let keys = joined_matrix(local << 18, 0);
+        assert_eq!(route.update(time, keys), expected_route);
+        let braille = layer.update(time, (!route.blocked()).then_some(keys));
+        if braille {
+            assert_eq!(braille_keys(keys), 0);
+        }
+    }
+    assert!(!route.blocked());
+    assert!(!layer.update(2070, Some(0)));
+}
+
+#[test]
+fn entering_momentary_braille_keeps_the_held_thumb_visible_between_scans() {
+    use kb_core::matrix_link::{
+        BrailleSwitch, braille_keys, braille_transition_blocked, joined_matrix,
+    };
+
+    let thumb = joined_matrix(1 << 18, 0);
+    let mut layer = BrailleSwitch::default();
+    assert!(!layer.update(0, Some(thumb)));
+    assert!(!layer.update(190, Some(thumb)));
+    assert!(layer.update(200, Some(thumb)));
+    let blocked = braille_transition_blocked(true, thumb, thumb);
+    assert_eq!(blocked, 0);
+    assert!(layer.update(205, Some(thumb & !blocked)));
+    let with_dot = joined_matrix((1 << 18) | (1 << 10), 0);
+    assert!(layer.update(215, Some(with_dot & !blocked)));
+    assert_eq!(braille_keys(with_dot), 1);
+    assert!(!layer.update(220, Some(with_dot & !thumb)));
+    assert_eq!(
+        braille_transition_blocked(false, with_dot, with_dot & !thumb),
+        with_dot & !thumb
+    );
+    assert!(!layer.update(230, Some(0)));
 }

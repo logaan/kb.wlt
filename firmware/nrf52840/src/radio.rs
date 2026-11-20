@@ -4,7 +4,7 @@ use embassy_nrf::interrupt::{InterruptExt, Priority};
 use embassy_nrf::mode::Async;
 use embassy_nrf::{Peri, bind_interrupts, pac, peripherals, rng, usb};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-#[cfg(feature = "prospector-display")]
+#[cfg(any(feature = "prospector-display", feature = "toucan-display"))]
 use embassy_time::{Duration, with_timeout};
 use nrf_sdc::{self as sdc, mpsl};
 use static_cell::StaticCell;
@@ -35,6 +35,7 @@ async fn mpsl_task(mpsl: &'static mpsl::MultiprotocolServiceLayer<'static>) -> !
     mpsl.run().await
 }
 
+#[cfg(any(not(feature = "toucan"), feature = "toucan-right"))]
 pub(crate) fn device_id() -> u64 {
     pac::FICR.deviceid(0).read() as u64 | ((pac::FICR.deviceid(1).read() as u64) << 32)
 }
@@ -110,13 +111,22 @@ pub(crate) fn radio(
     )
 }
 
-#[cfg(feature = "prospector-display")]
+#[cfg(any(feature = "prospector-display", feature = "toucan-display"))]
 pub(crate) async fn authenticate(
     connection: &Connection<'_, DefaultPacketPool>,
     stack: &Host<'_>,
     bonds: &Bonds,
 ) -> bool {
-    if connection.set_bondable(true).is_err() || connection.request_security().is_err() {
+    if connection.set_bondable(true).is_err() {
+        return false;
+    }
+    if connection
+        .security_level()
+        .is_ok_and(|level| level.encrypted())
+    {
+        return true;
+    }
+    if connection.request_security().is_err() {
         return false;
     }
     let wait = async {

@@ -18,13 +18,24 @@ Def display-text Fn {frame: display-frame x: s64 y: s64 color: u8 size: u8 text:
                               w: 0 h: 0 first: color second: size third: to-u8(len(labels))})
      labels: push(labels text)})]
 
+Def display-dot-bit Fn {cell: s64 from: s64 to: s64}
+  mul(rem(div(cell from) 2) to)
+
+Def display-dot-mask Fn {cell: s64}
+  Let {row-one: add(display-dot-bit(cell 1 1) display-dot-bit(cell 8 2))
+       row-two: add(display-dot-bit(cell 2 4) display-dot-bit(cell 16 8))
+       row-three: add(display-dot-bit(cell 4 16) display-dot-bit(cell 32 32))
+       row-four: mul(rem(div(cell 64) 4) 64)}
+    to-u8(add(add(row-one row-two) add(row-three row-four)))
+
 Def display-dots Fn {frame: display-frame x: s64 y: s64 w: s64 h: s64 cell: u16}
-  Match frame [({commands: commands labels: labels}
-    {commands: push(commands {opcode: 4 x: to-u16(x) y: to-u16(y)
-                              w: to-u16(w) h: to-u16(h)
-                              first: to-u8(rem(to-s64(cell) 256))
-                              second: to-u8(div(to-s64(cell) 256)) third: 0})
-     labels: labels})]
+  Let {bits: to-s64(cell)}
+    Match frame [({commands: commands labels: labels}
+      {commands: push(commands {opcode: 4 x: to-u16(x) y: to-u16(y)
+                                w: to-u16(w) h: to-u16(h)
+                                first: display-dot-mask(bits)
+                                second: If eq(rem(div(bits 256) 2) 1) 132 3 third: 66})
+       labels: labels})]
 
 Def display-get Fn {model: list(u8) index: s64 fallback: u8}
   If lt(index len(model)) get(model index) fallback
@@ -35,54 +46,249 @@ Def display-get-wide Fn {model: list(u8) index: s64}
 Def display-bit Fn {flags: u8 bit: s64}
   eq(rem(div(to-s64(flags) bit) 2) 1)
 
-Def display-home-battery Fn {frame: display-frame x: s64 y: s64 w: s64 level: u8 active: bool}
-  Let {color: If active The u8 5 The u8 6
-       shell: display-box(frame 2 x y w 20 color 3)
-       terminal: display-box(shell 1 add(x w) add(y 6) 3 8 color 1)}
-    If eq(level 255)
-      display-box(terminal 1 sub(add(x div(w 2)) 4) add(y 9) 8 2 color 1)
-      If eq(level 0) terminal
-        display-box(terminal 1 add(x 3) add(y 3) max(1 div(mul(sub(w 6) to-s64(min(level 100))) 100)) 14 color 1)
+Def display-wide Fn {w: s64} ge(w 220)
+Def display-header-h Fn {w: s64} If display-wide(w) 40 25
+Def display-footer-h Fn {w: s64} If display-wide(w) 34 25
+Def display-menu-row-h Fn {w: s64} If display-wide(w) 34 23
+Def display-body-h Fn {w: s64} If display-wide(w) 31 22
+Def display-font-size Fn {w: s64 size: u8}
+  If display-wide(w) Match size [(1 36) (2 48) (_ 28)]
+    If eq(size 2) 32 20
+
+Def display-available-glyph-width Fn {glyph: string}
+  If lt(glyph " ") 320
+  If gt(glyph "~") 320
+    If lt(glyph "O")
+      If lt(glyph "7")
+        If lt(glyph "+")
+          If lt(glyph "%")
+            If lt(glyph "\"")
+              If lt(glyph "!") 86 86
+              If lt(glyph "#")
+                125
+                If lt(glyph "$") 225 199
+            If lt(glyph "(")
+              If lt(glyph "&")
+                270
+                If lt(glyph "'") 220 67
+              If lt(glyph ")")
+                108
+                If lt(glyph "*") 108 128
+          If lt(glyph "1")
+            If lt(glyph ".")
+              If lt(glyph ",")
+                186
+                If lt(glyph "-") 73 123
+              If lt(glyph "/")
+                73
+                If lt(glyph "0") 113 213
+            If lt(glyph "4")
+              If lt(glyph "2")
+                118
+                If lt(glyph "3") 184 183
+              If lt(glyph "5")
+                214
+                If lt(glyph "6") 184 197
+        If lt(glyph "C")
+          If lt(glyph "=")
+            If lt(glyph ":")
+              If lt(glyph "8")
+                191
+                If lt(glyph "9") 206 197
+              If lt(glyph ";")
+                73
+                If lt(glyph "<") 73 186
+            If lt(glyph "@")
+              If lt(glyph ">")
+                186
+                If lt(glyph "?") 186 183
+              If lt(glyph "A")
+                331
+                If lt(glyph "B") 234 242
+          If lt(glyph "I")
+            If lt(glyph "F")
+              If lt(glyph "D")
+                231
+                If lt(glyph "E") 264 214
+              If lt(glyph "G")
+                203
+                If lt(glyph "H") 247 260
+            If lt(glyph "L")
+              If lt(glyph "J")
+                99
+                If lt(glyph "K") 164 230
+              If lt(glyph "M")
+                190
+                If lt(glyph "N") 306 260
+      If lt(glyph "g")
+        If lt(glyph "[")
+          If lt(glyph "U")
+            If lt(glyph "R")
+              If lt(glyph "P")
+                269
+                If lt(glyph "Q") 231 269
+              If lt(glyph "S")
+                233
+                If lt(glyph "T") 199 188
+            If lt(glyph "X")
+              If lt(glyph "V")
+                253
+                If lt(glyph "W") 228 360
+              If lt(glyph "Y")
+                215
+                If lt(glyph "Z") 207 210
+          If lt(glyph "a")
+            If lt(glyph "^")
+              If lt(glyph "\\")
+                107
+                If lt(glyph "]") 113 107
+              If lt(glyph "_")
+                187
+                If lt(glyph "`") 160 192
+            If lt(glyph "d")
+              If lt(glyph "b")
+                191
+                If lt(glyph "c") 218 183
+              If lt(glyph "e")
+                218
+                If lt(glyph "f") 196 113
+        If lt(glyph "s")
+          If lt(glyph "m")
+            If lt(glyph "j")
+              If lt(glyph "h")
+                221
+                If lt(glyph "i") 218 89
+              If lt(glyph "k")
+                91
+                If lt(glyph "l") 197 89
+            If lt(glyph "p")
+              If lt(glyph "n")
+                338
+                If lt(glyph "o") 218 203
+              If lt(glyph "q")
+                218
+                If lt(glyph "r") 218 131
+          If lt(glyph "y")
+            If lt(glyph "v")
+              If lt(glyph "t")
+                160
+                If lt(glyph "u") 132 217
+              If lt(glyph "w")
+                179
+                If lt(glyph "x") 288 177
+            If lt(glyph "|")
+              If lt(glyph "z")
+                179
+                If lt(glyph "{") 167 112
+              If lt(glyph "}")
+                96
+                If lt(glyph "~") 112 186
+
+Def display-width-units Fn {text: string}
+  If eq(len(text) 1) display-available-glyph-width(text)
+    fold(Fn {total: s64 glyph: string}
+      If eq(len(glyph) 0) total add(total display-available-glyph-width(glyph))
+      0 split(text ""))
+
+Def display-text-width Fn {text: string viewport: s64 size: u8}
+  div(add(mul(display-width-units(text) display-font-size(viewport size)) 319) 320)
+
+Def display-centered Fn {frame: display-frame x: s64 w: s64 y: s64 color: u8 size: u8 text: string viewport: s64}
+  Let {estimate: display-text-width(text viewport size)}
+    display-text(frame add(x max(0 div(sub(w estimate) 2))) y color size text)
+
+Def display-home-battery Fn {frame: display-frame mid: s64 y: s64 w: s64 level: u8 active: bool}
+  Let {wide: display-wide(w)
+       width: If wide 64 40
+       height: If wide 31 23
+       x: sub(mid div(width 2))
+       color: If active The u8 5 The u8 6
+       label-w: If wide 112 72
+       label-x: max(1 sub(mid div(label-w 2)))
+       reading: If active If eq(level 255) "?" str-cat(to-string(min(level 100)) "%") "Offline"
+       frame: display-box(frame 2 x y width height color 4)
+       frame: display-box(frame 1 add(x width) add(y div(height 3)) 4 div(height 3) color 1)
+       frame: If active
+         If eq(level 255)
+           display-box(frame 1 sub(mid 4) add(y div(height 2)) 8 2 color 1)
+         If eq(level 0) frame
+           display-box(frame 1 add(x 4) add(y 4) max(1 div(mul(sub(width 8) to-s64(min(level 100))) 100))
+             sub(height 8) color 2)
+         Let {dx: div(sub(width 10) 8) dy: div(sub(height 5) 8)}
+           fold(Fn {acc: display-frame step: s64}
+             display-box(acc 1 add(add(x 5) mul(step dx)) add(add(y 3) mul(step dy))
+               max(2 dx) max(2 dy) color 0)
+             frame range(0 8))}
+    display-centered(frame label-x label-w add(y add(height 5)) 1 0 reading w)
+
+Def display-home-signal Fn {frame: display-frame mid: s64 y: s64 connected: bool}
+  If connected
+    Let {frame: display-box(frame 1 sub(mid 8) y 16 3 5 1)
+         frame: display-box(frame 1 sub(mid 13) add(y 3) 5 3 5 1)
+         frame: display-box(frame 1 add(mid 8) add(y 3) 5 3 5 1)
+         frame: display-box(frame 1 sub(mid 5) add(y 8) 10 3 5 1)
+         frame: display-box(frame 1 sub(mid 8) add(y 11) 3 3 5 1)
+         frame: display-box(frame 1 add(mid 5) add(y 11) 3 3 5 1)
+         frame: display-box(frame 1 sub(mid 3) add(y 16) 6 3 5 1)}
+      display-box(frame 1 sub(mid 2) add(y 23) 4 4 5 2)
+    fold(Fn {acc: display-frame step: s64}
+      Let {x: add(sub(mid 9) mul(step 3))
+           acc: display-box(acc 1 x add(y add(4 mul(step 3))) 4 3 6 1)}
+        display-box(acc 1 x sub(add(y 22) mul(step 3)) 4 3 6 1)
+      frame range(0 6))
 
 Def display-home Fn {w: s64 h: s64 model: list(u8)}
   Let {flags: display-get(model 7 0)
-       y: sub(div(h 2) 10)
+       wide: display-wide(w)
+       battery-y: If wide sub(div(h 2) 17) add(div(h 2) 2)
+       center-y: If wide sub(div(h 2) 14) sub(div(h 3) 13)
        mid: div(w 2)
-       battery-width: max(24 min(40 sub(div(w 3) 16)))
-       left: sub(div(w 5) div(battery-width 2))
-       right: sub(div(mul(w 4) 5) div(battery-width 2))
-       color: If display-bit(flags 4) The u8 5 The u8 6
-       frame: display-home-battery(display-empty left y battery-width display-get(model 8 255) display-bit(flags 1))
-       frame: display-home-battery(frame right y battery-width display-get(model 9 255) display-bit(flags 2))
-       frame: display-box(frame 2 sub(mid 7) y 14 11 color 2)
-       frame: display-box(frame 2 sub(mid 5) sub(y 5) 10 6 color 1)
-       frame: display-box(frame 1 sub(mid 3) sub(y 4) 2 3 color 0)
-       frame: display-box(frame 1 add(mid 1) sub(y 4) 2 3 color 0)}
-    display-box(frame 1 sub(mid 1) add(y 10) 2 14 color 1)
+       left: If wide add(div(w 5) 4) div(w 4)
+       right: sub(w left)
+       frame: display-home-battery(display-empty left battery-y w display-get(model 8 255) display-bit(flags 1))
+       frame: display-home-battery(frame right battery-y w display-get(model 9 255) display-bit(flags 2))}
+    display-home-signal(frame mid center-y display-bit(flags 4))
 
-Def display-body-width Fn {text: string} mul(len(text) 8)
-Def display-centered Fn {frame: display-frame x: s64 w: s64 y: s64 color: u8 size: u8 text: string}
-  Let {glyph: Match size [(1 11) (2 17) (_ 8)]
-       approx-width: mul(len(text) glyph)}
-    display-text(frame add(x max(0 div(sub(w approx-width) 2))) y color size text)
+DefType display-wrapped {lines: list(string) pending: string used: s64}
+
+Def display-wrap Fn {text: string maximum: s64 viewport: s64}
+  Let {font: display-font-size(viewport 0)
+       units: div(mul(maximum 320) font)
+       start: The display-wrapped {lines: [] pending: "" used: 0}
+       wrapped: fold(Fn {acc: display-wrapped glyph: string}
+         Match acc [({lines: lines pending: pending used: used}
+           If eq(len(glyph) 0) acc
+             Let {width: display-available-glyph-width(glyph)
+                  next: add(used width)}
+               If If gt(next units) gt(used 0) false
+                 {lines: push(lines pending) pending: glyph used: width}
+                 {lines: lines pending: str-cat(pending glyph) used: next})]
+         start split(text ""))}
+    Match wrapped [({lines: lines pending: pending used: used} push(lines pending))]
+
+Def display-compact-text Fn {text: string w: s64}
+  If le(display-text-width(text w 3) sub(w 16)) text
+    str-cat(get(display-wrap(text sub(w 34) w) 0) "...")
 
 Def display-line-text Fn {frame: display-frame w: s64 h: s64 text: string}
-  Let {length: len(text)
-       per-row: max(1 div(sub(w 12) 9))
-       y: div(mul(h 3) 4)}
-    If le(mul(length 18) sub(w 16))
-      display-centered(frame 0 w sub(y 17) 1 2 text)
-    If le(length per-row)
-      display-centered(frame 0 w sub(y 8) 1 0 text)
-      Let {chars: split(text "")
-           rows: div(add(length sub(per-row 1)) per-row)
-           top: max(div(h 2) sub(y mul(rows 9)))}
+  Let {body-height: display-body-h(w)
+       half: div(h 2)
+       max-width: sub(w 16)
+       body-top: add(half div(sub(half body-height) 2))
+       size: If le(display-text-width(text w 2) max-width) The u8 2 The u8 0}
+    If eq(size 2)
+      display-centered(frame 0 w sub(div(mul(h 3) 4) If display-wide(w) 26 17) 1 2 text w)
+    If le(display-text-width(text w 0) max-width)
+      display-centered(frame 0 w body-top 1 0 text w)
+      Let {lines: display-wrap(text sub(w 28) w)
+           step: add(body-height 1)
+           visible: min(len(lines) max(1 div(half step)))
+           top: add(half max(0 div(sub(half mul(visible step)) 2)))}
         fold(Fn {acc: display-frame row: s64}
-          Let {start: add(1 mul(row per-row))
-               line: str-cat(map(Fn {i: s64} get(chars i)
-                             range(start min(add(length 1) add(start per-row)))))}
-            display-centered(acc 0 w add(top mul(row 17)) 1 0 line)
-          frame range(0 rows))
+          Let {tail: If eq(row sub(visible 1)) gt(len(lines) visible) false
+               line: If tail str-cat(get(lines row) "...") get(lines row)}
+            display-centered(acc 0 w add(top mul(row step)) 1 0 line w)
+          frame range(0 visible))
 
 Def display-typing Fn {w: s64 h: s64 model: list(u8) detail: string}
   Let {half: div(h 2)
@@ -102,7 +308,7 @@ Def display-typing Fn {w: s64 h: s64 model: list(u8) detail: string}
 
 Def display-section-count The s64 8
 
-Def display-section-title Fn {section: s64}
+Def display-section-title Fn {section: s64 wide: bool}
   Match section [
     (0 "Lowercase")
     (1 "Capitals")
@@ -110,8 +316,8 @@ Def display-section-title Fn {section: s64}
     (3 "Digits")
     (4 "Navigation")
     (5 "Editing")
-    (6 "UEB Wordsigns")
-    (7 "UEB Shortforms")
+    (6 If wide "UEB Wordsigns" "Wordsigns")
+    (7 If wide "UEB Shortforms" "Shortforms")
     (_ "Reference")]
 
 Def display-letter-cell Fn {index: s64}
@@ -322,129 +528,165 @@ Def display-mnemonic Fn {cell: u16}
     (61 "y") (53 "z")
     (_ "")]
 
-Def display-reference-cols Fn {section: s64 w: s64}
-  If lt(section 4) 4
-    If ge(w 220) 2 1
+Def display-reference-cols Fn {section: s64 wide: bool}
+  If lt(section 4) If wide 4 3 1
+
+Def display-reference-row-h Fn {section: s64 w: s64}
+  If display-wide(w) 35 If ge(section 6) 44 24
 
 Def display-visible-rows Fn {screen: u8 selected: s64 w: s64 h: s64}
-  If eq(screen 4)
-    If lt(div(selected 256) 4) 4 max(1 min(6 div(sub(h 54) 24)))
-    max(1 min(8 div(sub(h 52) 23)))
+  Let {available: sub(h add(add(display-header-h(w) display-footer-h(w)) 6))}
+    If eq(screen 4)
+      Let {section: div(selected 256)}
+        If lt(section 4) 4
+          max(1 min(6 div(sub(available If ge(section 6) display-footer-h(w) 0) display-reference-row-h(section w))))
+      max(1 min(8 div(available display-menu-row-h(w))))
+
+Def display-selection Fn {frame: display-frame x: s64 y: s64 w: s64 h: s64 wide: bool}
+  display-box(frame If wide The u8 1 The u8 2 x y w h 8 3)
 
 Def display-reference-row Fn {frame: display-frame section: s64 index: s64
-                              x: s64 y: s64 w: s64 h: s64 ueb: bool selected: bool}
-  Let {frame: If selected display-box(frame 1 x y w sub(h 1) 8 3)
+                              x: s64 y: s64 w: s64 h: s64 ueb: bool selected: bool viewport: s64}
+  Let {wide: display-wide(viewport)
+       frame: If selected display-selection(frame x y w sub(h 1) wide)
                  If eq(rem(index 2) 0) display-box(frame 1 x y w sub(h 1) 7 2) frame}
     Match display-reference-entry(section index ueb) [({label: label cells: cells mnemonic: mnemonic}
       Let {compact: lt(section 4)
+           stacked: If wide false ge(section 6)
            count: len(cells)
-           label-width: mul(len(label) 7)
-           stride: If compact max(8 min(14 div(sub(w 13) max(count 1))))
-             max(9 min(14 div(sub(sub(w label-width) 10) max(count 1))))
-           start: If compact add(x 12) sub(add(x sub(w mul(count stride))) 4)
-           cell-width: min(12 sub(stride 1))
-           frame: display-text(frame add(x 3) add(y div(sub(h 16) 2)) 1 0 label)}
+           glyph-width: display-text-width(label viewport 0)
+           body-h: display-body-h(viewport)
+           label-y: If stacked y add(y max(0 div(sub(h body-h) 2)))
+           body-y: If stacked add(y body-h) label-y
+           slot: div(w 2)
+           label-x: If compact add(x max(0 div(sub(slot glyph-width) 2))) add(x 3)
+           left: If compact slot If stacked 3 add(glyph-width 9)
+           right-margin: If compact 4 6
+           stride: max(8 min(If wide 22 14 div(sub(sub(w left) right-margin) max(count 1))))
+           grid-width: mul(count stride)
+           start: If compact add(add(x slot) div(sub(slot grid-width) 2)) sub(add(x w) add(grid-width 5))
+           cell-w: sub(stride 1)
+           dot-h: min(If wide 32 21 sub(h 1))
+           dot-y: If stacked body-y add(y max(0 div(sub(h dot-h) 2)))
+           frame: display-text(frame label-x label-y 1 0 label)}
         If gt(len(mnemonic) 0)
-          display-text(frame sub(add(x w) add(display-body-width(mnemonic) 5)) add(y div(sub(h 16) 2)) 3 0 mnemonic)
+          display-text(frame sub(add(x w) add(display-text-width(mnemonic viewport 0) 5)) body-y 3 0 mnemonic)
           fold(Fn {acc: display-frame offset: s64}
             Let {cell: get(cells offset)
                  cell-x: add(start mul(offset stride))
-                 cell-y: add(y max(0 div(sub(h 21) 2)))
                  letter: If ge(section 7) display-mnemonic(cell) ""}
               If gt(len(letter) 0)
-                display-text(acc cell-x add(y div(sub(h 16) 2)) 3 0 letter)
-                display-dots(acc cell-x cell-y cell-width 21 cell)
+                display-centered(acc cell-x stride body-y 3 0 letter viewport)
+                display-dots(acc cell-x dot-y cell-w dot-h cell)
             frame range(0 count)))]
 
 Def display-bar Fn {frame: display-frame w: s64 h: s64 screen: u8}
-  Let {y: sub(h 21)
-       frame: display-box(frame 1 0 y w 21 7 0)
+  Let {bar-h: display-footer-h(w)
+       y: sub(h bar-h)
+       wide: display-wide(w)
+       frame: display-box(frame 1 0 y w bar-h 7 0)
        editor: If eq(screen 11) true eq(screen 12)
-       x: 57
-       frame: display-text(frame 5 add(y 2) 1 0 "(H)elp (")
-       frame: display-dots(frame x add(y 2) 9 17 If editor The u16 275 The u16 19)
-       frame: display-text(frame add(x 10) add(y 2) 1 0 ")")
+       prefix: display-text-width("(H)elp (" w 3)
+       dot-w: If wide 15 11
+       glyph-gap: If wide 6 4
+       help-w: add(add(prefix dot-w) add(display-text-width(")" w 3) mul(2 glyph-gap)))
+       gap: If wide 20 3
        tip: Match screen [
-         (2 "")
-         (4 If ge(w 230) "(P)rev / (N)ext heading" "(N)ext")
-         (5 "Esc Back")
-         (11 "Esc Back")
-         (12 "Return  Save")
-         (13 If ge(w 220) "Esc Back" "(N)ext")
-         (_ If ge(w 180) "Return  Open" "Open")]}
-    If eq(len(tip) 0) frame
-      Let {tip-x: sub(sub(w display-body-width(tip)) 6)}
-        If ge(tip-x add(x 17)) display-text(frame tip-x add(y 2) 2 0 tip) frame
+         (4 "N/P")
+         (5 If wide "Esc Back" "")
+         (11 If wide "Esc Back" "")
+         (12 If wide "Save" "")
+         (13 "N/P")
+         (_ "")]
+       tip-w: Match tip [
+         ("N/P" If wide 54 38)
+         ("Esc Back" 121)
+         ("Save" 70)
+         (_ 0)]
+       show-tip: If gt(tip-w 0) le(add(add(help-w gap) tip-w) sub(w If wide 36 2)) false
+       total: If show-tip add(add(help-w gap) tip-w) help-w
+       start: max(1 div(sub(w total) 2))
+       x: add(add(start prefix) glyph-gap)
+       frame: display-text(frame start add(y 2) 1 3 "(H)elp (")
+       frame: display-dots(frame x add(y 3) dot-w sub(bar-h 5) If editor The u16 275 The u16 19)
+       frame: display-text(frame add(x add(dot-w glyph-gap)) add(y 2) 1 3 ")")}
+    If show-tip display-text(frame add(start add(help-w gap)) add(y 2) 1 3 tip) frame
 
 Def display-heading Fn {frame: display-frame w: s64 title: string}
-  Let {body: If ge(mul(len(title) 11) sub(w 11)) The u8 0 The u8 1}
-    display-text(display-box(frame 1 0 0 w 25 3 0) 7 If eq(body 0) 4 1 9 body title)
+  Let {wide: display-wide(w)
+       compact: If wide gt(display-text-width(title w 1) sub(w 36)) false
+       size: If compact The u8 0 The u8 1}
+    display-centered(display-box(frame 1 0 0 w display-header-h(w) 3 0)
+      0 w If compact 4 1 9 size title w)
 
 Def display-grid Fn {w: s64 h: s64 model: list(u8) selected: s64}
   Let {section: div(selected 256)
        index: rem(selected 256)
-       cols: display-reference-cols(section w)
+       cols: display-reference-cols(section display-wide(w))
        rows: display-visible-rows(4 selected w h)
        page: mul(cols rows)
        start: mul(div(index page) page)
        count: min(page max(0 sub(display-section-length(section) start)))
        cell-w: div(sub(w 8) cols)
-       cell-h: If lt(section 4) div(sub(h 51) rows) If ge(section 6) 21 24
-       frame: display-heading(display-empty w display-section-title(section))
-       frame: If ge(section 6) display-text(frame 7 sub(h 40) 2 0 "Reference only") frame
+       grid-y: add(display-header-h(w) 3)
+       cell-h: If lt(section 4) div(sub(h add(add(grid-y display-footer-h(w)) 5)) rows)
+         display-reference-row-h(section w)
+       frame: display-heading(display-empty w display-section-title(section display-wide(w)))
+       frame: If ge(section 6)
+         display-text(frame 7 sub(h mul(2 display-footer-h(w))) 2 3 If display-wide(w) "Reference only" "Guide only") frame
        frame: fold(Fn {acc: display-frame offset: s64}
          Let {row: div(offset cols) col: rem(offset cols) i: add(start offset)}
            display-reference-row(acc section i
-             add(4 mul(col cell-w)) add(27 mul(row cell-h)) sub(cell-w 1) cell-h
-             display-bit(display-get(model 7 0) 8) eq(i index))
+             add(4 mul(col cell-w)) add(grid-y mul(row cell-h)) sub(cell-w 1) cell-h
+             display-bit(display-get(model 7 0) 8) eq(i index) w)
          frame range(0 count))}
     display-bar(frame w h 4)
 
 Def display-detail Fn {w: s64 h: s64 model: list(u8) selected: s64}
   Let {section: min(div(selected 256) sub(display-section-count 1))
        index: min(rem(selected 256) sub(display-section-length(section) 1))
-       frame: display-heading(display-empty w display-section-title(section))}
+       frame: display-heading(display-empty w display-section-title(section display-wide(w)))}
     Match display-reference-entry(section index display-bit(display-get(model 7 0) 8)) [
       ({label: label cells: cells mnemonic: mnemonic}
         Let {count: max(1 len(cells))
              stride: min(37 div(sub(w 16) count))
              start: div(sub(w mul(stride count)) 2)
              top: max(58 sub(div(h 2) 14))
-             frame: display-centered(frame 0 w 32 1 1 label)
+             frame: display-centered(frame 0 w add(display-header-h(w) 6) 1 0 label w)
              frame: fold(Fn {acc: display-frame offset: s64}
                Let {cell: get(cells offset) x: add(start mul(stride offset))
                     mnemonic: display-mnemonic(cell)
                     acc: display-dots(acc x top sub(stride 4) 42 cell)}
                  If eq(len(mnemonic) 0) acc
                    display-text(acc add(x div(stride 3)) add(top 44)
-                     If ge(cell 256) The u8 4 The u8 3 0 mnemonic)
+                     If ge(cell 256) The u8 4 The u8 3 3 mnemonic)
                frame range(0 len(cells)))}
           display-bar(frame w h 5))]
 
 Def display-menu-count Fn {screen: u8}
   Match screen [(2 4) (3 display-section-count) (6 4) (7 3) (8 12) (10 6) (13 10) (_ 0)]
 
-Def display-menu-title Fn {screen: u8}
+Def display-menu-title Fn {screen: u8 w: s64}
   Match screen [
     (2 "Braille Menu")
     (3 "Reference")
     (6 "Main Menu")
-    (7 "Configuration")
+    (7 If display-wide(w) "Configuration" "Settings")
     (8 "Bindings")
     (9 "Diagnostics")
     (10 "Edit Binding")
-    (11 "Capture Chord")
+    (11 If display-wide(w) "Capture Chord" "Capture")
     (12 "Expansion")
     (13 "Help")
     (_ "")]
 
-Def display-menu-label Fn {screen: u8 index: s64 ueb: bool}
+Def display-menu-label Fn {screen: u8 index: s64 ueb: bool wide: bool}
   Match screen [
-    (3 display-section-title(index))
+    (3 display-section-title(index wide))
     (7 Match index [
       (0 If ueb "UEB Grade 1" "Computer 8")
       (1 "Reconnect")
-      (2 "Clear pairings")
+      (2 If wide "Clear pairings" "Clear bonds")
       (_ "")])
     (8 str-cat("Slot " to-string(add(index 1))))
     (10 Match index [
@@ -452,12 +694,12 @@ Def display-menu-label Fn {screen: u8 index: s64 ueb: bool}
       (1 "Two chords")
       (2 "Three chords")
       (3 "Four chords")
-      (4 "Edit expansion")
-      (5 "Delete binding")
+      (4 If wide "Edit expansion" "Edit text")
+      (5 If wide "Delete binding" "Delete")
       (_ "")])
     (_ Match index [
       (0 "(R)eference")
-      (1 "(C)onfiguration")
+      (1 If wide "(C)onfiguration" "(C)onfig")
       (2 "(B)indings")
       (3 "(D)iagnostics")
       (_ "")])]
@@ -465,13 +707,19 @@ Def display-menu-label Fn {screen: u8 index: s64 ueb: bool}
 Def display-menu-list Fn {frame: display-frame screen: u8 w: s64 h: s64 selected: s64 ueb: bool}
   Let {rows: display-visible-rows(screen selected w h)
        start: mul(div(selected rows) rows)
-       count: min(rows max(0 sub(display-menu-count(screen) start)))}
+       count: min(rows max(0 sub(display-menu-count(screen) start)))
+       wide: display-wide(w)
+       top: add(display-header-h(w) 3)
+       row-h: If If wide If eq(screen 2) true eq(screen 6) false
+         max(display-menu-row-h(w) div(sub(h add(top display-footer-h(w))) 4))
+         display-menu-row-h(w)
+       text-offset: div(sub(row-h display-body-h(w)) 2)}
     fold(Fn {acc: display-frame offset: s64}
-      Let {y: add(27 mul(offset 23))
+      Let {y: add(top mul(offset row-h))
            index: add(start offset)
-           acc: If eq(index selected) display-box(acc 1 4 y sub(w 8) 22 8 3)
-                  If eq(rem(index 2) 0) display-box(acc 1 4 y sub(w 8) 22 7 2) acc}
-        display-text(acc 8 add(y 3) 1 0 display-menu-label(screen index ueb))
+           acc: If eq(index selected) display-selection(acc 1 y sub(w 2) sub(row-h 1) wide)
+                  If eq(rem(index 2) 0) display-box(acc 1 1 y sub(w 2) sub(row-h 1) 7 2) acc}
+        display-text(acc 8 add(y text-offset) 1 0 display-menu-label(screen index ueb wide))
       frame range(0 count))
 
 Def display-notice Fn {notice: u8}
@@ -501,46 +749,63 @@ Def display-triggers Fn {frame: display-frame w: s64 y: s64 model: list(u8)}
 
 Def display-menu Fn {screen: u8 w: s64 h: s64 model: list(u8) selected: s64 detail: string}
   Let {flags: display-get(model 7 0)
-       frame: display-heading(display-empty w display-menu-title(screen))
+       frame: display-heading(display-empty w display-menu-title(screen w))
+       bar: display-footer-h(w)
+       top: add(display-header-h(w) 7)
+       step: add(display-body-h(w) 4)
        frame: Match screen [
-         (8 Let {frame: display-menu-list(frame screen w sub(h 54) selected display-bit(flags 8))
-                  frame: display-triggers(frame w sub(h 74) model)}
-              display-text(frame 8 sub(h 39) 2 0 If eq(len(detail) 0) "Empty slot" detail))
-         (9 Let {frame: display-text(frame 8 34 1 0 If display-bit(flags 4) "USB ready" "USB waiting")
-                  frame: display-text(frame 8 56 1 0 If display-bit(flags 1) "Left connected" "Left offline")
-                  frame: display-text(frame 8 78 1 0 If display-bit(flags 2) "Right connected" "Right offline")}
-              If eq(len(detail) 0) frame display-text(frame 8 101 2 0 detail))
+         (8 Let {frame: display-menu-list(frame screen w sub(h 50) selected display-bit(flags 8))
+                  frame: display-triggers(frame w sub(h add(bar 52)) model)}
+              display-text(frame 8 sub(h add(bar 19)) 2 3 If eq(len(detail) 0) "Empty slot" display-compact-text(detail w)))
+         (9 Let {frame: display-text(frame 8 top 1 0 If display-bit(flags 16)
+                    If display-wide(w)
+                      If display-bit(flags 4) "Bluetooth ready" "Bluetooth waiting"
+                      If display-bit(flags 4) "BLE ready" "BLE waiting"
+                    If display-bit(flags 4) "USB ready" "USB waiting")
+                  frame: display-text(frame 8 add(top step) 1 0 If display-bit(flags 1) If display-wide(w) "Left connected" "Left online" "Left offline")
+                  frame: display-text(frame 8 add(top mul(step 2)) 1 0 If display-bit(flags 2) If display-wide(w) "Right connected" "Right online" "Right offline")}
+              If eq(len(detail) 0) frame display-text(frame 8 add(top mul(step 3)) 2 3 display-compact-text(detail w)))
          (11 Let {count: display-get(model 14 0) captured: display-get(model 13 0)
-                  frame: display-text(frame 8 34 1 0
+                  frame: display-text(frame 8 top 1 0
                     str-cat(to-string(min(count add(captured 1))) " of " to-string(count)))}
-               display-triggers(frame w 58 model))
-         (12 If eq(len(detail) 0) frame display-line-text(frame w sub(h 34) detail))
-         (_ display-menu-list(frame screen w h selected display-bit(display-get(model 7 0) 8)))]
+               display-triggers(frame w add(top step) model))
+         (12 If eq(len(detail) 0) frame display-line-text(frame w sub(h add(bar 17)) detail))
+         (_ display-menu-list(frame screen w h selected display-bit(flags 8)))]
        notice: display-notice(display-get(model 11 0))
        frame: If eq(len(notice) 0) frame
-         display-text(display-box(frame 1 0 sub(h 41) w 20 0 0) 8 sub(h 40) 4 0 notice)}
+         display-text(display-box(frame 1 0 sub(h mul(2 bar)) w bar 0 0) 8 sub(h mul(2 bar)) 4 3 notice)}
     display-bar(frame w h screen)
+
+Def display-host-help Fn {w: s64 h: s64}
+  Let {wide: display-wide(w)
+       frame: display-heading(display-empty w "Switch Host")
+       top: add(display-header-h(w) 6)
+       step: add(display-body-h(w) 2)
+       frame: display-text(frame 7 top 1 0 If wide "Left outer thumb" "Left outer")
+       frame: display-text(frame 7 add(top step) 1 0 If wide "first, then both" "thumb first")
+       frame: display-text(frame 7 add(top mul(step 2)) 1 0 "Hold all three")
+       frame: display-text(frame 7 add(top mul(step 3)) 1 0 "for 2 seconds")}
+    display-bar(frame w h 13)
 
 Def display-help Fn {w: s64 h: s64 selected: s64}
   Let {frame: display-heading(display-empty w "Help")
-       cols: If ge(w 220) 2 1
-       count: If eq(cols 2) 10 5
-       start: If eq(cols 2) 0 mul(div(selected 5) 5)
-       col-width: div(sub(w 8) cols)
-       row-h: div(sub(h 70) 5)
+       start: mul(div(min(selected 9) 4) 4)
+       count: min(4 sub(10 start))
+       top: add(display-header-h(w) 4)
+       row-h: div(sub(h add(top mul(2 display-footer-h(w)))) 4)
        frame: fold(Fn {acc: display-frame i: s64}
          Let {index: add(start i)
               entry: Match index [
-                (8 display-entry-row("Escape" [259]))
-                (9 display-entry-row("Return" [273]))
+                (8 display-entry-row(If display-wide(w) "Escape goes back" "Esc Back" [259]))
+                (9 display-entry-row(If display-wide(w) "Return opens" "Ret opens" [273]))
                 (_ display-navigation-entry(index))]}
            Match entry [({label: label cells: cells mnemonic: mnemonic}
-             Let {x: add(4 mul(rem(i cols) col-width))
-                  y: add(27 mul(div(i cols) row-h))
-                  acc: display-text(acc add(x 3) add(y 2) 1 0 label)}
-               display-dots(acc add(x sub(col-width 24)) y 12 18 get(cells 0)))]
+             Let {y: add(top mul(i row-h))
+                  dot-w: If display-wide(w) 18 12
+                  acc: display-text(acc 7 y 1 0 label)}
+               display-dots(acc sub(w add(dot-w 9)) y dot-w sub(row-h 2) get(cells 0)))]
          frame range(0 count))}
-    display-bar(display-text(frame 7 sub(h 41) 4 0 "Purple means Space") w h 13)
+    display-bar(display-text(frame 7 sub(h mul(2 display-footer-h(w))) 4 3 If display-wide(w) "Underline = Space" "Line = Space") w h 13)
 
 Export {iface: "kb:firmware/display@0.1.0"
         name: render
@@ -555,7 +820,9 @@ Def render Fn {width: u16 height: u16 model: list(u8) detail: string}
          (1 display-typing(w h model detail))
          (4 display-grid(w h model selected))
          (5 display-detail(w h model selected))
-         (13 display-help(w h selected))
+         (13 If If ge(selected 12) display-bit(display-get(model 7 0) 32) false
+               display-host-help(w h)
+               display-help(w h selected))
          (_ display-menu(screen w h model selected detail))]}
     Match frame [({commands: commands labels: labels} tuple2(commands labels))]
 
@@ -632,7 +899,7 @@ Def display-letter-index Fn {cell: u16 fallback: s64}
 Def display-reference-move Fn {screen: u8 selected: u16 command: s64 cell: u16 visible: u8}
   Let {section: min(div(to-s64(selected) 256) sub(display-section-count 1)) index: rem(to-s64(selected) 256)
        last: sub(display-section-length(section) 1)
-       cols: If lt(section 4) 4 If gt(visible 6) 2 1
+       cols: If lt(section 4) max(1 div(to-s64(visible) 4)) 1
        moved: Match command [
          (1 sub(index 1)) (2 add(index 1))
          (3 sub(index cols)) (4 add(index cols))
@@ -646,6 +913,20 @@ Def display-reference-move Fn {screen: u8 selected: u16 command: s64 cell: u16 v
          If eq(cell 15) display-result(screen to-u16(mul(256 rem(add(section sub(display-section-count 1)) display-section-count))) 0)
          display-result(screen to-u16(add(mul(section 256) max(0 min(last moved)))) 0))]
 
+Def display-help-move Fn {selected: u16 command: s64 cell: u16 visible: u8}
+  Let {last: If gt(visible 4) 12 9
+       current: to-s64(selected)
+       next: If eq(cell 29) add(current 4)
+             If eq(cell 15) sub(current 4)
+             Match command [
+               (1 sub(current 1)) (2 add(current 1))
+               (3 sub(current 1)) (4 add(current 1))
+               (5 0) (6 last)
+               (7 sub(current 4)) (8 add(current 4))
+               (_ current)]}
+    If eq(command 9) display-menu-back(13 selected)
+      display-result(13 to-u16(min(last max(0 next))) 0)
+
 Export {iface: "kb:firmware/display@0.1.0"
         name: navigate
         params: {screen: u8 selected: u16 cell: u16 visible: u8}
@@ -657,11 +938,7 @@ Def navigate Fn {screen: u8 selected: u16 cell: u16 visible: u8}
     If eq(cell 0) display-result(screen selected 0)
     If lt(screen 2)
       If eq(cell 287) display-result(2 0 6) display-result(screen selected 0)
-    If eq(screen 13)
-      If eq(command 9) display-menu-back(screen selected)
-      If eq(cell 29) display-menu-move(screen selected 8 5)
-      If eq(cell 15) display-menu-move(screen selected 7 5)
-        display-menu-move(screen selected command 5)
+    If eq(screen 13) display-help-move(selected command cell visible)
     If If editor eq(cell 275) eq(cell 19)
       display-result(13 0 4)
     If eq(cell 287)
@@ -676,4 +953,4 @@ Def navigate Fn {screen: u8 selected: u16 cell: u16 visible: u8}
     If If eq(screen 2) gt(shortcut 0) If eq(screen 6) gt(shortcut 0) false
       display-result(shortcut 0 0)
     If eq(command 10) display-menu-open(screen selected)
-      display-menu-move(screen selected command If eq(screen 8) to-u8(max(1 sub(to-s64(visible) 2))) visible)
+      display-menu-move(screen selected command visible)

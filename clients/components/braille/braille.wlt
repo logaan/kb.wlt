@@ -2,7 +2,7 @@ Package "kb:computer-braille@0.1.0"
 
 DefType state {held: u16 chord: u16}
 DefType action-kind [idle tap sticky]
-DefType output {state: state usage: u8 modifiers: u8 consumer: u16 kind: action-kind}
+DefType braille-output {state: state usage: u8 modifiers: u8 consumer: u16 kind: action-kind}
 
 Export {iface: "kb:firmware/braille@0.1.0" name: map-cell params: {cell: u16} result: u32}
 Def map-cell Fn {cell: u16}
@@ -132,7 +132,7 @@ Def union-bit Fn {a: u16 b: u16 bit: s64}
 Def union Fn {a: u16 b: u16}
   to-u16(add(add(add(add(add(add(add(add(union-bit(a b 1) union-bit(a b 2)) union-bit(a b 4)) union-bit(a b 8)) union-bit(a b 16)) union-bit(a b 32)) union-bit(a b 64)) union-bit(a b 128)) union-bit(a b 256)))
 
-Export {iface: "kb:firmware/braille@0.1.0" name: step params: {state: state keys: u16} result: output}
+Export {iface: "kb:firmware/braille@0.1.0" name: step params: {state: state keys: u16} result: braille-output}
 Def step Fn {state: state keys: u16}
   Match state [
     ({held: held chord: chord}

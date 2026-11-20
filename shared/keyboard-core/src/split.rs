@@ -42,6 +42,7 @@ pub struct Snapshot {
     pub sequence: u16,
     pub layout: Layout,
     pub keys: u8,
+    pub battery: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +63,7 @@ impl Snapshot {
         bytes[10..14].copy_from_slice(&self.boot.to_le_bytes());
         bytes[14..16].copy_from_slice(&self.sequence.to_le_bytes());
         bytes[16] = self.keys;
+        bytes[17] = crate::battery::encode(self.battery);
         let checksum = crc16(&bytes[..18]);
         bytes[18..20].copy_from_slice(&checksum.to_le_bytes());
         bytes
@@ -79,9 +81,7 @@ impl Snapshot {
             2 => Layout::Right,
             _ => return Err(PacketError::Layout),
         };
-        if bytes[17] != 0 {
-            return Err(PacketError::Keys);
-        }
+        let battery = crate::battery::decode(bytes[17]).ok_or(PacketError::Keys)?;
         if crc16(&bytes[..18]) != u16::from_le_bytes([bytes[18], bytes[19]]) {
             return Err(PacketError::Checksum);
         }
@@ -91,6 +91,7 @@ impl Snapshot {
             sequence: u16::from_le_bytes(bytes[14..16].try_into().unwrap()),
             layout,
             keys: bytes[16],
+            battery,
         })
     }
 }
@@ -112,6 +113,7 @@ struct Peer {
     keys: u16,
     connected: bool,
     armed: bool,
+    battery: u8,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -152,6 +154,7 @@ impl<const N: usize> Receiver<N> {
                 keys: 0,
                 connected: false,
                 armed: false,
+                battery: 255,
             }; N],
             timeout_ms,
         }
@@ -159,6 +162,13 @@ impl<const N: usize> Receiver<N> {
 
     pub fn keys(&self) -> u16 {
         self.peers.iter().fold(0, |keys, peer| keys | peer.keys)
+    }
+
+    pub fn battery(&self, slot: usize) -> u8 {
+        self.peers
+            .get(slot)
+            .filter(|p| p.connected)
+            .map_or(255, |p| p.battery)
     }
 
     pub fn is_connected(&self, slot: usize) -> bool {
@@ -182,6 +192,7 @@ impl<const N: usize> Receiver<N> {
             generation,
             last_seen_ms: now_ms,
             connected: true,
+            battery: 255,
             ..Peer::default()
         };
         Ok((
@@ -215,6 +226,7 @@ impl<const N: usize> Receiver<N> {
         }
         peer.boot = Some(snapshot.boot);
         peer.sequence = snapshot.sequence;
+        peer.battery = snapshot.battery;
         peer.last_seen_ms = now_ms;
         if snapshot.keys == 0 {
             peer.armed = true;

@@ -15,7 +15,8 @@ fn commands(mut scene: &[u8]) -> Vec<&[u8]> {
     let mut result = Vec::new();
     while let Some(opcode) = scene.first() {
         let len = match opcode {
-            1 | 2 | 4 => 11,
+            1 | 2 => 11,
+            4 => 12,
             3 => 8 + usize::from(scene[7]),
             _ => panic!("unexpected scene command {opcode}"),
         };
@@ -38,7 +39,7 @@ fn masks(scene: &[u8]) -> Vec<(u8, bool)> {
     commands(scene)
         .into_iter()
         .filter(|command| command[0] == 4)
-        .map(|command| (command[9], command[10] != 0))
+        .map(|command| (command[9], command[10] & 0x80 != 0))
         .collect()
 }
 
@@ -78,7 +79,7 @@ fn base_press(guest: &KeyboardComponent) {
 }
 
 #[test]
-fn both_production_clients_render_graphical_home_status() {
+fn both_production_clients_render_battery_gauges_and_wireless_status() {
     let model = Model::home(Links {
         online: 0b101,
         battery: [85, 10],
@@ -90,10 +91,37 @@ fn both_production_clients_render_graphical_home_status() {
             let scene = guest
                 .render(width, height, model.bytes.as_slice(), "")
                 .unwrap();
+            assert_eq!(labels(scene.as_slice()), ["85%", "Offline"]);
             let scene = commands(scene.as_slice());
-            assert!(scene.iter().all(|command| matches!(command[0], 1 | 2)));
-            assert!(scene.iter().any(|command| command[9] == 5));
-            assert!(scene.iter().any(|command| command[9] == 6));
+            assert!(
+                scene
+                    .iter()
+                    .any(|command| command[0] == 2 && command[9] == 5)
+            );
+            assert!(
+                scene
+                    .iter()
+                    .any(|command| command[0] == 2 && command[9] == 6)
+            );
+            for direct in [0, 0x10] {
+                let online = Model::home(Links {
+                    online: 0b111 | direct,
+                    battery: [255, 100],
+                });
+                let online = guest
+                    .render(width, height, online.bytes.as_slice(), "")
+                    .unwrap();
+                assert_eq!(labels(online.as_slice()), ["?", "100%"]);
+                let off = Model::home(Links {
+                    online: direct,
+                    battery: [255; 2],
+                });
+                let off = guest
+                    .render(width, height, off.bytes.as_slice(), "")
+                    .unwrap();
+                assert_eq!(labels(off.as_slice()), ["Offline", "Offline"]);
+                assert_ne!(online.as_slice(), off.as_slice());
+            }
         }
     }
 }
@@ -115,12 +143,14 @@ fn toucan_previews_and_emits_braille_in_its_normal_keyboard_instance() {
     let held = guest
         .render(280, 240, held.bytes.as_slice(), held.detail.as_str())
         .unwrap();
-    assert_eq!(masks(held.as_slice()), [(19, false)]);
+    assert_eq!(masks(held.as_slice()), [(13, false)]);
     assert_eq!(labels(held.as_slice()), ["h"]);
     assert_eq!(
         key(&mut session, &mut guest, 0).strokes.as_slice(),
         &[KeyStroke::from_ascii(b'h').unwrap()],
     );
+    let settled = session.model(Links::default());
+    assert!(settled.detail.as_str().is_empty());
     base_press(&guest);
 }
 
@@ -169,20 +199,19 @@ fn held_space_navigation_help_and_editing_use_real_chords() {
 }
 
 #[test]
-fn reference_keeps_four_by_four_letters_and_consistent_nav() {
+fn reference_fills_responsive_pairs_and_preserves_navigation() {
     let mut guest = BrailleComponent::new(PAINTBRUSH).unwrap();
     for (width, height) in [(144, 168), (280, 240)] {
         let page = guest.render(width, height, &[4, 0, 1], "").unwrap();
         let labels = labels(page.as_slice());
         assert_eq!(labels[0], "Capitals");
-        assert_eq!(
-            labels[1..17],
-            [
-                "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P",
-            ],
-        );
-        assert_eq!(labels[17], "(H)elp (");
-        assert_eq!(masks(page.as_slice()).last(), Some(&(19, false)));
+        let visible = if width == 280 { 16 } else { 12 };
+        let letters = [
+            "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P",
+        ];
+        assert_eq!(labels[1..=visible], letters[..visible]);
+        assert_eq!(labels[visible + 1], "(H)elp (");
+        assert_eq!(masks(page.as_slice()).last(), Some(&(13, false)));
 
         let nav_reference = guest.render(width, height, &[4, 0, 4], "").unwrap();
         assert_eq!(masks(nav_reference.as_slice())[0], (1, true));
@@ -205,4 +234,114 @@ fn reference_keeps_four_by_four_letters_and_consistent_nav() {
             expected,
         );
     }
+}
+
+#[test]
+fn page_moves_track_the_viewport_and_help_explains_navigation() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    session.set_viewport(144, 168);
+    tap(&mut session, &mut guest, LEADER);
+    tap(&mut session, &mut guest, 3);
+    assert_eq!(screen(&session), (8, 0));
+    tap(&mut session, &mut guest, SPACE | 57);
+    assert_eq!(screen(&session), (8, 2));
+    session.set_viewport(280, 240);
+    tap(&mut session, &mut guest, SPACE | 57);
+    assert_eq!(screen(&session), (8, 5));
+    tap(&mut session, &mut guest, 19);
+    for _ in 0..2 {
+        tap(&mut session, &mut guest, 29);
+    }
+    let help = session.model(Links::default());
+    let help = guest.render(280, 240, help.bytes.as_slice(), "").unwrap();
+    let labels = labels(help.as_slice());
+    assert!(labels.contains(&"Return opens"));
+    assert!(labels.contains(&"Underline = Space"));
+}
+
+#[test]
+fn momentary_release_emits_final_chord_and_buffer_previews_pending_output() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    key(&mut session, &mut guest, 19);
+    let released = session.finish_momentary(Some(0), 10, &mut guest).unwrap();
+    assert_eq!(
+        released.strokes.as_slice(),
+        &[KeyStroke::from_ascii(b'h').unwrap()]
+    );
+    assert!(session.model(Links::default()).detail.as_str().is_empty());
+    key(&mut session, &mut guest, 19);
+    let cancelled = session.finish_momentary(None, 10, &mut guest).unwrap();
+    assert!(cancelled.strokes.is_empty());
+
+    session.settings.set_binding(0, &[1, 3], b"about").unwrap();
+    assert!(tap(&mut session, &mut guest, 1).strokes.is_empty());
+    let buffered = session.model(Links::default());
+    assert_eq!(buffered.bytes.as_slice()[10], 1);
+    assert_eq!(buffered.detail.as_str(), "a");
+    let expansion = tap(&mut session, &mut guest, 3);
+    let expected: Vec<_> = b"about"
+        .iter()
+        .map(|byte| KeyStroke::from_ascii(*byte).unwrap())
+        .collect();
+    assert_eq!(expansion.strokes.as_slice(), expected);
+}
+
+#[test]
+fn alphabet_cells_and_help_parentheses_have_separate_visual_slots() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    for (width, height, selected, m_width, prefix_width) in
+        [(280, 240, 0, 30, 103), (144, 168, 12, 21, 73)]
+    {
+        let model = [4, selected, 0];
+        let scene = guest.render(width, height, &model, "").unwrap();
+        let atoms = commands(scene.as_slice());
+        let find = |label: &str| {
+            atoms
+                .iter()
+                .position(|command| command[0] == 3 && &command[8..] == label.as_bytes())
+                .unwrap()
+        };
+        let x = |command: &[u8]| u16::from_le_bytes([command[1], command[2]]);
+        let m = find("m");
+        assert_eq!(atoms[m + 1][0], 4);
+        assert!(x(atoms[m + 1]) >= x(atoms[m]) + m_width + 2);
+
+        let help = find("(H)elp (");
+        let dots = atoms[help + 1];
+        let closing = atoms[help + 2];
+        assert_eq!(dots[0], 4);
+        assert_eq!(&closing[8..], b")");
+        assert!(x(dots) >= x(atoms[help]) + prefix_width + 4);
+        assert!(x(closing) >= x(dots) + u16::from_le_bytes([dots[5], dots[6]]) + 4);
+    }
+}
+
+#[test]
+fn toucan_help_teaches_the_on_keyboard_host_switch() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    session.enable_host_switch();
+    tap(&mut session, &mut guest, LEADER);
+    tap(&mut session, &mut guest, 19);
+    for _ in 0..3 {
+        tap(&mut session, &mut guest, 29);
+    }
+    assert_eq!(screen(&session), (13, 12));
+    let model = session.model(Links::default());
+    let scene = guest
+        .render(280, 240, model.bytes.as_slice(), model.detail.as_str())
+        .unwrap();
+    let labels = labels(scene.as_slice());
+    assert_eq!(
+        labels[..5],
+        [
+            "Switch Host",
+            "Left outer thumb",
+            "first, then both",
+            "Hold all three",
+            "for 2 seconds"
+        ],
+    );
 }
