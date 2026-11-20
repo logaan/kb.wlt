@@ -1,41 +1,36 @@
-use embedded_graphics::{draw_target::DrawTarget, pixelcolor::BinaryColor, prelude::*};
-use kb_display::nice_view::{Frame, TRANSFER_BYTES, clear_command, encode_frame, idle_command};
+use kb_display::{
+    Scene,
+    nice_view::{
+        FRAME_BYTES, HEIGHT, ROW_BYTES, TRANSFER_BYTES, WIDTH, clear_command, encode_scene,
+        idle_command,
+    },
+};
 
 #[test]
-fn toucan_pixels_use_native_portrait_geometry_and_lsb_first_packing() {
-    let mut frame = Frame::default();
-    assert_eq!(frame.size(), Size::new(144, 168));
-    assert_eq!(frame.bytes().len(), 3024);
-    frame
-        .draw_iter([
-            Pixel(Point::new(0, 0), BinaryColor::On),
-            Pixel(Point::new(143, 167), BinaryColor::On),
-            Pixel(Point::new(144, 0), BinaryColor::On),
-            Pixel(Point::new(0, 168), BinaryColor::On),
-            Pixel(Point::new(-1, 0), BinaryColor::On),
-        ])
-        .unwrap();
-    assert_eq!(frame.bytes()[0], 0xfe);
-    assert_eq!(frame.bytes()[3023], 0x7f);
+fn scene_pixels_use_native_portrait_geometry_and_lsb_first_packing() {
+    let scene = Scene::from_bytes(&[
+        1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 143, 0, 167, 0, 1, 0, 1, 0, 1, 0, 1, 144, 0, 0, 0, 1,
+        0, 1, 0, 1, 0, 1, 0, 0, 168, 0, 1, 0, 1, 0, 1, 0,
+    ])
+    .unwrap();
+    assert_eq!((WIDTH, HEIGHT, FRAME_BYTES), (144, 168, 3024));
     let mut transfer = [0; TRANSFER_BYTES];
-    encode_frame(&frame, false, &mut transfer);
+    encode_scene(&scene, false, &mut transfer);
     assert_eq!(transfer[0], 1);
     assert_eq!(transfer[2], 0xfe);
     assert_eq!(transfer[3359], 0x7f);
-    assert_eq!(
-        frame
-            .bytes()
-            .iter()
-            .map(|byte| byte.count_zeros())
-            .sum::<u32>(),
-        2
-    );
+    let black = transfer[1..TRANSFER_BYTES - 1]
+        .chunks_exact(ROW_BYTES + 2)
+        .flat_map(|line| &line[1..=ROW_BYTES])
+        .map(|byte| byte.count_zeros())
+        .sum::<u32>();
+    assert_eq!(black, 2);
 }
 
 #[test]
 fn each_line_has_one_based_address_and_dummy_byte() {
     let mut transfer = [0; TRANSFER_BYTES];
-    encode_frame(&Frame::default(), true, &mut transfer);
+    encode_scene(&Scene::EMPTY, true, &mut transfer);
     assert_eq!(transfer.len(), 3362);
     assert_eq!(transfer[0], 3);
     assert_eq!(transfer[3341], 168);

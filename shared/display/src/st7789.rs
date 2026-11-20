@@ -1,8 +1,3 @@
-use crate::{Frame, Status, render};
-
-pub const PANEL_WIDTH: usize = 240;
-pub const PANEL_HEIGHT: usize = 280;
-
 #[allow(async_fn_in_trait)]
 pub trait PanelBus {
     type Error;
@@ -12,214 +7,137 @@ pub trait PanelBus {
     async fn data(&mut self, data: &[u8]) -> Result<(), Self::Error>;
 }
 
-pub struct DashboardMemory {
-    frames: [crate::keyboard::Frame; 2],
-    transfer: [u8; crate::keyboard::WIDTH * 4],
+async fn initialize<B: PanelBus>(bus: &mut B) -> Result<(), B::Error> {
+    bus.reset().await;
+    bus.command(0x01, &[]).await?;
+    bus.delay_ms(150).await;
+    for (command, data) in [
+        (0x28, &[][..]),
+        (0xdf, &[0x5a, 0x69, 0x02, 0x01]),
+        (0x36, &[0x00]),
+        (0x3a, &[0x05]),
+        (0xb2, &[0x0c, 0x0c, 0x00, 0x33, 0x33]),
+        (0xb7, &[0x35]),
+        (0xbb, &[0x19]),
+        (0xc0, &[0x2c]),
+        (0xc2, &[0x01]),
+        (0xc3, &[0x12]),
+        (0xc4, &[0x20]),
+        (0xba, &[0x00]),
+        (0xc6, &[0x0f]),
+        (0x26, &[0x01]),
+        (0xd0, &[0xa4, 0xa1]),
+        (
+            0xe0,
+            &[
+                0xd0, 0x04, 0x0d, 0x11, 0x13, 0x2b, 0x3f, 0x54, 0x4c, 0x18, 0x0d, 0x0b, 0x1f, 0x23,
+            ],
+        ),
+        (
+            0xe1,
+            &[
+                0xd0, 0x04, 0x0c, 0x11, 0x13, 0x2c, 0x3f, 0x44, 0x51, 0x2f, 0x1f, 0x1f, 0x20, 0x23,
+            ],
+        ),
+        (0xb0, &[0x00, 0xf0]),
+        (0xb1, &[0xcd, 0x08, 0x14]),
+        (0x21, &[]),
+    ] {
+        bus.command(command, data).await?;
+    }
+    bus.command(0x11, &[]).await?;
+    bus.delay_ms(120).await;
+    bus.command(0x13, &[]).await?;
+    bus.command(0x29, &[]).await?;
+    bus.delay_ms(20).await;
+    Ok(())
 }
 
-impl DashboardMemory {
+pub const STRIP_ROWS: usize = 4;
+
+pub struct GraphicsMemory {
+    assigned: crate::lvgl::Strip<{ crate::lvgl::TFT_WIDTH * STRIP_ROWS }>,
+    next: crate::lvgl::Strip<{ crate::lvgl::TFT_WIDTH * STRIP_ROWS }>,
+}
+
+impl GraphicsMemory {
     pub const EMPTY: Self = Self {
-        frames: [crate::keyboard::Frame::EMPTY; 2],
-        transfer: [0; crate::keyboard::WIDTH * 4],
+        assigned: crate::lvgl::Strip::EMPTY,
+        next: crate::lvgl::Strip::EMPTY,
     };
 }
 
-pub struct St7789<'a, B> {
+pub struct GraphicsPanel<'a, B> {
     bus: B,
-    landscape: bool,
-    keyboard: Option<Status>,
-    next: usize,
-    memory: &'a mut DashboardMemory,
+    memory: &'a mut GraphicsMemory,
 }
 
-impl<'a, B: PanelBus> St7789<'a, B> {
-    pub fn new(bus: B, memory: &'a mut DashboardMemory) -> Self {
-        Self {
-            bus,
-            landscape: false,
-            keyboard: None,
-            next: 0,
-            memory,
-        }
+impl<'a, B: PanelBus> GraphicsPanel<'a, B> {
+    pub fn new(bus: B, memory: &'a mut GraphicsMemory) -> Self {
+        Self { bus, memory }
     }
 
     pub async fn initialize(&mut self) -> Result<(), B::Error> {
-        self.keyboard = None;
-        self.bus.reset().await;
-        self.landscape = false;
-        self.bus.command(0x01, &[]).await?;
-        self.bus.delay_ms(150).await;
-        for (command, data) in [
-            (0x28, &[][..]),
-            (0xdf, &[0x5a, 0x69, 0x02, 0x01]),
-            (0x36, &[0x00]),
-            (0x3a, &[0x05]),
-            (0xb2, &[0x0c, 0x0c, 0x00, 0x33, 0x33]),
-            (0xb7, &[0x35]),
-            (0xbb, &[0x19]),
-            (0xc0, &[0x2c]),
-            (0xc2, &[0x01]),
-            (0xc3, &[0x12]),
-            (0xc4, &[0x20]),
-            (0xba, &[0x00]),
-            (0xc6, &[0x0f]),
-            (0x26, &[0x01]),
-            (0xd0, &[0xa4, 0xa1]),
-            (
-                0xe0,
-                &[
-                    0xd0, 0x04, 0x0d, 0x11, 0x13, 0x2b, 0x3f, 0x54, 0x4c, 0x18, 0x0d, 0x0b, 0x1f,
-                    0x23,
-                ],
-            ),
-            (
-                0xe1,
-                &[
-                    0xd0, 0x04, 0x0c, 0x11, 0x13, 0x2c, 0x3f, 0x44, 0x51, 0x2f, 0x1f, 0x1f, 0x20,
-                    0x23,
-                ],
-            ),
-            (0xb0, &[0x00, 0xf0]),
-            (0xb1, &[0xcd, 0x08, 0x14]),
-            (0x21, &[]),
-        ] {
-            self.bus.command(command, data).await?;
-        }
-        self.bus.command(0x11, &[]).await?;
-        self.bus.delay_ms(120).await;
-        self.bus.command(0x13, &[]).await?;
-        self.bus.command(0x29, &[]).await?;
-        self.bus.delay_ms(20).await;
-        Ok(())
+        initialize(&mut self.bus).await?;
+        self.bus.command(0x36, &[0x60]).await
     }
 
-    pub async fn present(&mut self, status: Status) -> Result<(), B::Error> {
-        if status.keyboard.is_some() {
-            let prior = self.keyboard.take();
-            self.orientation(true).await?;
-            crate::keyboard::render_into(status, &mut self.memory.frames[self.next]);
-            if let Some(previous) = prior.as_ref() {
-                for y in (0..crate::keyboard::HEIGHT).step_by(8) {
-                    if let Some(span) = crate::keyboard::changed_span(
-                        &self.memory.frames[self.next ^ 1],
-                        previous,
-                        &self.memory.frames[self.next],
-                        &status,
-                        y,
-                    ) {
-                        self.keyboard_region(&status, span, y..y + 8).await?;
-                    }
+    pub async fn present(
+        &mut self,
+        previous: Option<&crate::Scene>,
+        scene: &crate::Scene,
+    ) -> Result<(), B::Error> {
+        use crate::lvgl::{Profile, TFT_HEIGHT, TFT_WIDTH, same_band};
+
+        for top in (0..TFT_HEIGHT).step_by(STRIP_ROWS) {
+            let rows = top..top + STRIP_ROWS;
+            if previous.is_some_and(|previous| same_band(previous, scene, rows.clone())) {
+                continue;
+            }
+            let next = self
+                .memory
+                .next
+                .render(Profile::Tft, scene, rows.clone())
+                .unwrap();
+            let columns = match previous {
+                Some(previous) => {
+                    let assigned = self
+                        .memory
+                        .assigned
+                        .render(Profile::Tft, previous, rows.clone())
+                        .unwrap();
+                    changed_columns(assigned, next, TFT_WIDTH)
                 }
-            } else {
-                self.keyboard_region(
-                    &status,
-                    0..crate::keyboard::WIDTH,
-                    0..crate::keyboard::HEIGHT,
-                )
-                .await?;
+                None => 0..TFT_WIDTH,
+            };
+            if columns.is_empty() {
+                continue;
             }
-            self.next ^= 1;
-            self.keyboard = Some(status);
-            return Ok(());
-        }
-        self.keyboard = None;
-        let frame = render(status);
-        self.present_rows(|y, row| render_row(&frame, status, y, row))
-            .await
-    }
-
-    async fn keyboard_region(
-        &mut self,
-        status: &Status,
-        x: core::ops::Range<usize>,
-        y: core::ops::Range<usize>,
-    ) -> Result<(), B::Error> {
-        let left = x.start + 20;
-        let right = x.end - 1 + 20;
-        self.bus
-            .command(
-                0x2a,
-                &[
-                    (left >> 8) as u8,
-                    left as u8,
-                    (right >> 8) as u8,
-                    right as u8,
-                ],
-            )
-            .await?;
-        self.bus
-            .command(0x2b, &[0, y.start as u8, 0, (y.end - 1) as u8])
-            .await?;
-        self.bus.command(0x2c, &[]).await?;
-        let stride = x.len() * 2;
-        let bytes = &mut self.memory.transfer;
-        let frame = &self.memory.frames[self.next];
-        for start in y.step_by(2) {
-            for (i, row) in bytes[..2 * stride].chunks_exact_mut(stride).enumerate() {
-                crate::keyboard::render_span(frame, status, start + i, x.start, row);
-            }
-            self.bus.data(&bytes[..2 * stride]).await?;
-        }
-        Ok(())
-    }
-
-    pub async fn present_reference(
-        &mut self,
-        page: &kb_core::reference::Page,
-    ) -> Result<(), B::Error> {
-        self.present_page(|y, row| crate::reference::render_row(page, y, row))
-            .await
-    }
-
-    pub async fn present_menu(&mut self, page: &crate::menu::Page) -> Result<(), B::Error> {
-        self.present_page(|y, row| crate::menu::render_row(page, y, row))
-            .await
-    }
-
-    async fn present_page(
-        &mut self,
-        render: impl Fn(usize, &mut [u8; PANEL_WIDTH * 2]),
-    ) -> Result<(), B::Error> {
-        self.keyboard = None;
-        if !self.landscape {
-            return self.present_rows(render).await;
-        }
-        self.bus.command(0x2a, &[0, 20, 1, 43]).await?;
-        self.bus.command(0x2b, &[0, 0, 0, 239]).await?;
-        self.bus.command(0x2c, &[]).await?;
-        let mut row = [0; crate::keyboard::WIDTH * 2];
-        for y in 0..crate::keyboard::HEIGHT {
-            render(
-                y * PANEL_HEIGHT / crate::keyboard::HEIGHT,
-                (&mut row[40..520]).try_into().unwrap(),
-            );
-            self.bus.data(&row).await?;
-        }
-        Ok(())
-    }
-
-    async fn orientation(&mut self, landscape: bool) -> Result<(), B::Error> {
-        if self.landscape != landscape {
+            let offset = 20;
+            let [left_hi, left_lo] = ((columns.start + offset) as u16).to_be_bytes();
+            let [right_hi, right_lo] = ((columns.end - 1 + offset) as u16).to_be_bytes();
             self.bus
-                .command(0x36, &[if landscape { 0x60 } else { 0x00 }])
+                .command(0x2a, &[left_hi, left_lo, right_hi, right_lo])
                 .await?;
-            self.landscape = landscape;
-        }
-        Ok(())
-    }
-
-    async fn present_rows(
-        &mut self,
-        render: impl Fn(usize, &mut [u8; PANEL_WIDTH * 2]),
-    ) -> Result<(), B::Error> {
-        self.orientation(false).await?;
-        self.bus.command(0x2a, &[0, 0, 0, 239]).await?;
-        self.bus.command(0x2b, &[0, 20, 1, 43]).await?;
-        self.bus.command(0x2c, &[]).await?;
-        let mut row = [0; PANEL_WIDTH * 2];
-        for y in 0..PANEL_HEIGHT {
-            render(y, &mut row);
-            self.bus.data(&row).await?;
+            self.bus
+                .command(0x2b, &[0, top as u8, 0, (rows.end - 1) as u8])
+                .await?;
+            self.bus.command(0x2c, &[]).await?;
+            let stride = columns.len();
+            for row in 0..STRIP_ROWS {
+                next.copy_within(
+                    row * TFT_WIDTH + columns.start..row * TFT_WIDTH + columns.end,
+                    row * stride,
+                );
+            }
+            let pixels = &mut next[..stride * STRIP_ROWS];
+            for pixel in pixels.iter_mut() {
+                *pixel = pixel.to_be();
+            }
+            let bytes = unsafe {
+                core::slice::from_raw_parts(pixels.as_ptr().cast(), core::mem::size_of_val(pixels))
+            };
+            self.bus.data(bytes).await?;
         }
         Ok(())
     }
@@ -229,68 +147,15 @@ impl<'a, B: PanelBus> St7789<'a, B> {
     }
 }
 
-pub fn render_row(frame: &Frame, status: Status, y: usize, row: &mut [u8; PANEL_WIDTH * 2]) {
-    for x in 0..PANEL_WIDTH {
-        let mut color: u16 = if status.faulted {
-            0x7800
-        } else if status.pairing_unsaved {
-            0x6200
-        } else if status.connected {
-            0x0184
-        } else {
-            0x1082
-        };
-        if (28..=251).contains(&y) && (8..=231).contains(&x) {
-            color = 0x0000;
+fn changed_columns(before: &[u16], after: &[u16], width: usize) -> core::ops::Range<usize> {
+    let mut left = width;
+    let mut right = 0;
+    for (index, (before, after)) in before.iter().zip(after).enumerate() {
+        if before != after {
+            let x = index % width;
+            left = left.min(x);
+            right = right.max(x + 1);
         }
-        if (36..100).contains(&y) && (8..232).contains(&x) {
-            let source_x = (x - 8) / 2;
-            let source_y = (y - 36) / 2;
-            if frame.bytes()[source_y / 8 * 128 + source_x] & (1 << (source_y % 8)) != 0 {
-                color = 0xffff;
-            }
-        }
-        if let Some(keyboard) = status.keyboard.filter(|_| !status.faulted) {
-            if (132..148).contains(&y) && (16..224).contains(&x) {
-                color = if x < 16 + usize::from(keyboard.active_keys.min(42)) * 208 / 42 {
-                    0x07e0
-                } else {
-                    0x2104
-                };
-            }
-        }
-        for (dot, center_x, center_y) in [
-            (1, 92, 134),
-            (2, 92, 166),
-            (3, 92, 198),
-            (7, 92, 230),
-            (4, 148, 134),
-            (5, 148, 166),
-            (6, 148, 198),
-            (8, 148, 230),
-        ] {
-            let dx = x as i32 - center_x;
-            let dy = y as i32 - center_y;
-            let distance = dx * dx + dy * dy;
-            if !status.faulted && status.keyboard.is_none() && distance <= 100 {
-                if status.chord & (1 << (dot - 1)) != 0 {
-                    color = 0x07e0;
-                } else if distance >= 64 {
-                    color = 0x632c;
-                }
-            }
-        }
-        if !status.faulted
-            && status.keyboard.is_none()
-            && (92..=148).contains(&x)
-            && (243..=247).contains(&y)
-        {
-            color = if status.held & kb_core::reference::SPACE != 0 {
-                0xffe0
-            } else {
-                0x2104
-            };
-        }
-        row[2 * x..2 * x + 2].copy_from_slice(&color.to_be_bytes());
     }
+    left.min(right)..right
 }
