@@ -373,6 +373,7 @@ pub async fn satellite(spawner: Spawner) {
 pub async fn central(spawner: Spawner) {
     let mut config = crate::clock_config();
     config.time_interrupt_priority = Priority::P3;
+    config.gpiote_interrupt_priority = Priority::P3;
     let p = embassy_nrf::init(config);
     let display = {
         embassy_nrf::interrupt::SPI2.set_priority(Priority::P3);
@@ -380,12 +381,25 @@ pub async fn central(spawner: Spawner) {
         spi_config.frequency = embassy_nrf::spim::Frequency::M4;
         let spi =
             embassy_nrf::spim::Spim::new_txonly(p.SPI2, DisplayIrqs, p.P1_13, p.P1_15, spi_config);
-        crate::prospector::run(
-            spi,
-            Output::new(p.P1_14, Level::High, OutputDrive::Standard),
-            Output::new(p.P1_12, Level::High, OutputDrive::Standard),
-            Output::new(p.P0_29, Level::High, OutputDrive::Standard),
-            Output::new(p.P1_11, Level::Low, OutputDrive::Standard),
+        join(
+            crate::prospector::run(
+                spi,
+                Output::new(p.P1_14, Level::High, OutputDrive::Standard),
+                Output::new(p.P1_12, Level::High, OutputDrive::Standard),
+                Output::new(p.P0_29, Level::High, OutputDrive::Standard),
+                Output::new(p.P1_11, Level::Low, OutputDrive::Standard),
+            ),
+            crate::prospector_touch::run(
+                p.TWISPI0,
+                p.P0_02,
+                p.P0_03,
+                p.P0_04,
+                p.P0_05,
+                || false,
+                |command| {
+                    let _ = crate::prospector_touch::COMMANDS.try_send(command);
+                },
+            ),
         )
     };
     let (controller, mut bonds, _) = radio(
@@ -659,6 +673,7 @@ async fn process_keys() {
                 online: u8::from(receiver.is_connected(0))
                     | (u8::from(receiver.is_connected(1)) << 1),
                 battery: [receiver.battery(0), receiver.battery(1)],
+                ..Default::default()
             },
         ))
     })

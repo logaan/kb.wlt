@@ -59,6 +59,11 @@ pub mod split;
 #[cfg(feature = "prospector-display")]
 pub mod prospector;
 
+#[cfg(feature = "prospector-display")]
+mod prospector_touch;
+#[cfg(feature = "prospector-display")]
+mod touch_contact;
+
 #[cfg(feature = "split")]
 mod battery;
 

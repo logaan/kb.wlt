@@ -131,6 +131,10 @@ pub async fn run(spawner: Spawner, role: Role) {
     spawner.spawn(crate::bootloader::remote_reset().unwrap());
     let mut config = crate::clock_config();
     config.time_interrupt_priority = Priority::P3;
+    #[cfg(feature = "prospector-display")]
+    {
+        config.gpiote_interrupt_priority = Priority::P3;
+    }
     let p = embassy_nrf::init(config);
     let mut fault_led = GpioOutput::new(p.P0_26, Level::High, OutputDrive::Standard);
     let diagnostic = async {
@@ -197,12 +201,23 @@ pub async fn run(spawner: Spawner, role: Role) {
         config.frequency = embassy_nrf::spim::Frequency::M4;
         let spi =
             embassy_nrf::spim::Spim::new_txonly(p.SPI2, DisplayIrqs, p.P1_13, p.P1_15, config);
-        crate::prospector::run(
-            spi,
-            GpioOutput::new(p.P1_14, Level::High, OutputDrive::Standard),
-            GpioOutput::new(p.P1_12, Level::High, OutputDrive::Standard),
-            GpioOutput::new(p.P0_29, Level::High, OutputDrive::Standard),
-            GpioOutput::new(p.P1_11, Level::Low, OutputDrive::Standard),
+        join(
+            crate::prospector::run(
+                spi,
+                GpioOutput::new(p.P1_14, Level::High, OutputDrive::Standard),
+                GpioOutput::new(p.P1_12, Level::High, OutputDrive::Standard),
+                GpioOutput::new(p.P0_29, Level::High, OutputDrive::Standard),
+                GpioOutput::new(p.P1_11, Level::Low, OutputDrive::Standard),
+            ),
+            crate::prospector_touch::run(
+                p.TWISPI0,
+                p.P0_02,
+                p.P0_03,
+                p.P0_04,
+                p.P0_05,
+                relay::linked_display,
+                relay::navigate,
+            ),
         )
     };
     let (central_count, peripheral_count) = if cfg!(feature = "toucan-display") {

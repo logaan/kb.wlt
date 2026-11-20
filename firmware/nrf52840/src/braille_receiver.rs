@@ -4,6 +4,7 @@ use kb_client_session::{BOOTLOADER_PROSPECTOR, Links, Model, Session};
 use kb_component_runtime::DisplayGuest;
 use kb_core::{
     KeyStroke,
+    host_target::{Target, TargetConnection},
     menu::BluetoothAction,
     pipeline::Bounded,
     preferences::{ENCODED_LEN, MAX_OUTPUT, Settings},
@@ -32,6 +33,7 @@ pub async fn run<G: DisplayGuest>(
         .and_then(|blob| Settings::decode(blob.as_slice()).ok())
         .unwrap_or_default();
     let mut app = Session::new(settings);
+    app.set_viewport(280, 240);
     app.set_bootloader_devices(BOOTLOADER_PROSPECTOR);
     let mut pending = Bounded::<KeyStroke, 128>::default();
     let mut input = InputGate::new();
@@ -43,7 +45,12 @@ pub async fn run<G: DisplayGuest>(
         };
         let usb = crate::usb_hid::connection();
         let mut generation = usb.generation();
-        links.online |= u8::from(usb.ready()) << 2;
+        links.target = Target::Usb;
+        links.connection = if usb.ready() {
+            TargetConnection::Connected
+        } else {
+            TargetConnection::Offline
+        };
         let gate = input.observe(
             generation,
             true,
@@ -62,9 +69,15 @@ pub async fn run<G: DisplayGuest>(
         let Some(client) = component.as_mut() else {
             continue;
         };
-        if gate.keys.is_some() && 128 - pending.len() >= MAX_OUTPUT {
-            let now = Instant::now().as_millis() as u32;
-            let Ok(change) = app.update(update.keys, now, client) else {
+        let change = if let Ok(command) = crate::prospector_touch::COMMANDS.try_receive() {
+            Some(app.navigate_action(command, client))
+        } else if gate.keys.is_some() && accept {
+            Some(app.update(update.keys, Instant::now().as_millis() as u32, client))
+        } else {
+            None
+        };
+        if let Some(change) = change {
+            let Ok(change) = change else {
                 component.take();
                 pending = Default::default();
                 OUTPUT.clear();
