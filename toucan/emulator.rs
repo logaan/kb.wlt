@@ -26,6 +26,7 @@ unsafe extern "C" {
     ) -> u32;
     fn keyboard_report(report: u64);
     fn consumer_report(report: u16);
+    fn request_bootloader(devices: u8) -> u8;
 }
 
 struct BrowserGuest;
@@ -138,6 +139,10 @@ impl Emulator {
                 [0; 2]
             };
         }
+        if change.bootloader != 0 {
+            let accepted = unsafe { request_bootloader(change.bootloader) };
+            self.session.bootloader_result(change.bootloader, accepted);
+        }
         u32::from(change.save && self.session.settings.encode(&mut self.settings).is_ok())
     }
 }
@@ -218,6 +223,22 @@ extern "C" fn braille_active() -> bool {
 #[unsafe(no_mangle)]
 extern "C" fn braille_update(keys: u16, now: u32) -> u32 {
     EMULATOR.with_borrow_mut(|state| state.update_braille(keys, now))
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn set_bootloader_devices(devices: u8) {
+    EMULATOR.with_borrow_mut(|state| state.session.set_bootloader_devices(devices));
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn restart_keyboard() {
+    EMULATOR.with_borrow_mut(|state| {
+        state.layer_switch = BrailleSwitch::default();
+        state.route_switch = RouteSwitch::new();
+        state.braille = false;
+        state.session.cancel(0);
+        state.clear_reports();
+    });
 }
 
 #[unsafe(no_mangle)]

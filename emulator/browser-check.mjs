@@ -422,7 +422,7 @@ try {
   assert.equal(await canvas("#prospector"), landscapePage);
 
   await page.locator(".links summary").click();
-  await page.locator("#usb-link").uncheck();
+  await page.locator("#prospector-link").uncheck();
   await page.locator("#text-output").focus();
   await chord("Space", "KeyF", "KeyS", "KeyD");
   const portraitStart = await canvas("#toucan-display");
@@ -432,8 +432,54 @@ try {
   await chord("KeyF", "KeyS", "KeyJ");
   assert.equal(await canvas("#toucan-display"), portraitPage);
 
+  await page.reload();
+  await page.locator('#runtime[data-status="ready"]').waitFor();
+  await page.locator(".links summary").click();
+  await page.locator("#usb-link").uncheck();
+  await page.locator("#text-output").focus();
+  async function openBootloaderMenu() {
+    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
+    await chord("Space", "KeyF", "KeyJ", "KeyK");
+    await chord("Space", "KeyA");
+  }
+  const leftLink = page.locator("#left-link");
+  const rightLink = page.locator("#right-link");
+  const relayLink = page.locator("#prospector-link");
+  await page.keyboard.press("BracketRight");
+  await openBootloaderMenu();
+  await chord("Space", "KeyJ");
+  await chord("Space", "KeyA");
+  await chord("Space", "KeyJ");
+  await chord("Space", "KeyA");
+  assert.ok(await rightLink.isChecked() && await relayLink.isChecked());
+  await chord("Space", "KeyJ");
+  await chord("Space", "KeyA");
+  assert.ok(await leftLink.isChecked());
+  assert.ok(!await rightLink.isChecked() && !await relayLink.isChecked());
+  assert.equal(await page.getByText("UF2 bootloader", { exact: true }).filter({ visible: true }).count(), 2);
+  await relayLink.check();
+  await page.locator("#usb-link").check();
+  await page.locator("#text-output").focus();
+  await page.keyboard.press("BracketRight");
+  await page.keyboard.press("KeyQ");
+  await page.keyboard.press("KeyP");
+  assert.equal(await output(), "q");
+
+  await rightLink.check();
+  await page.locator("#text-output").focus();
+  await page.keyboard.press("BracketRight");
+  await openBootloaderMenu();
+  await chord("Space", "KeyA");
+  await chord("Space", "KeyJ", "KeyK", "KeyL");
+  await chord("Space", "KeyA");
+  assert.ok(!await leftLink.isChecked());
+  assert.ok(await rightLink.isChecked() && await relayLink.isChecked());
+  await leftLink.check();
+  assert.equal(await page.locator("#mode").textContent(), "QWERTY");
+  assert.equal(await page.getByText("UF2 bootloader", { exact: true }).filter({ visible: true }).count(), 0);
+
   assert.deepEqual(errors, []);
-  console.log("Chrome verified QWERTY, Braille release timing, Reference paging, guarded route switches, persistence, and native and enlarged display grids at standard, fractional, and high pixel densities.");
+  console.log("Chrome verified QWERTY, Braille release timing, Reference paging, guarded route switches, simulated UF2 selections, persistence, and native and enlarged display grids.");
 } finally {
   await browser?.close();
   server.kill();

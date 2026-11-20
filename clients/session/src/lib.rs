@@ -13,6 +13,24 @@ use kb_core::{
 };
 use labels::{Label, escaped, release_label};
 
+pub const BOOTLOADER_LEFT: u8 = 1;
+pub const BOOTLOADER_RIGHT: u8 = 2;
+pub const BOOTLOADER_PROSPECTOR: u8 = 4;
+const BOOTLOADER_DEVICES: u8 = BOOTLOADER_LEFT | BOOTLOADER_RIGHT | BOOTLOADER_PROSPECTOR;
+const BOOTLOADER_SCREEN: u8 = 14;
+
+#[derive(Clone, Copy, Default)]
+#[repr(u8)]
+enum BootloaderNotice {
+    #[default]
+    None,
+    ChooseDevices,
+    DeviceUnavailable,
+    Requested,
+    Partial,
+    Failed,
+}
+
 pub trait Guest {
     type Error;
     fn step(
@@ -76,6 +94,7 @@ pub struct Change {
     pub strokes: Output,
     pub save: bool,
     pub bluetooth: Option<BluetoothAction>,
+    pub bootloader: u8,
     pub reset: bool,
 }
 
@@ -87,6 +106,9 @@ pub struct Session {
     viewport: (u16, u16),
     host_switch: bool,
     menu: State,
+    bootloader_devices: u8,
+    bootloader_selected: u8,
+    bootloader_notice: BootloaderNotice,
     engine: Engine,
     held: u16,
     chord: u16,
@@ -107,6 +129,9 @@ impl Session {
             viewport: (280, 240),
             host_switch: false,
             menu: State::default(),
+            bootloader_devices: 0,
+            bootloader_selected: 0,
+            bootloader_notice: BootloaderNotice::None,
             engine: Engine::default(),
             held: 0,
             chord: 0,
@@ -126,13 +151,55 @@ impl Session {
         self.host_switch = true;
     }
 
+    pub fn set_bootloader_devices(&mut self, available: u8) {
+        self.bootloader_devices = available & BOOTLOADER_DEVICES;
+        if self.bootloader_selected & !self.bootloader_devices != 0 {
+            self.bootloader_selected &= self.bootloader_devices;
+            if !matches!(
+                self.bootloader_notice,
+                BootloaderNotice::Requested | BootloaderNotice::Partial | BootloaderNotice::Failed
+            ) {
+                self.bootloader_notice = BootloaderNotice::DeviceUnavailable;
+            }
+        }
+    }
+
+    pub fn bootloader_result(&mut self, requested: u8, accepted: u8) {
+        let accepted = requested & accepted;
+        self.bootloader_selected = requested & !accepted & self.bootloader_devices;
+        self.bootloader_notice = if accepted == 0 {
+            BootloaderNotice::Failed
+        } else if accepted == requested {
+            BootloaderNotice::Requested
+        } else {
+            BootloaderNotice::Partial
+        };
+    }
+
     pub fn cancel(&mut self, keys: u16) {
         let viewport = self.viewport;
         let host_switch = self.host_switch;
+        let bootloader_devices = self.bootloader_devices;
         *self = Self::new(self.settings);
         self.viewport = viewport;
         self.host_switch = host_switch;
+        self.bootloader_devices = bootloader_devices;
         self.guard = keys != 0;
+    }
+
+    pub fn cancel_for_link_change(&mut self, keys: u16) {
+        let bootloader = (self.screen == BOOTLOADER_SCREEN).then_some((
+            self.selected,
+            self.bootloader_selected,
+            self.bootloader_notice,
+        ));
+        self.cancel(keys);
+        if let Some((selected, devices, notice)) = bootloader {
+            self.screen = BOOTLOADER_SCREEN;
+            self.selected = selected;
+            self.bootloader_selected = devices;
+            self.bootloader_notice = notice;
+        }
     }
 
     pub fn busy(&mut self) {
@@ -278,6 +345,15 @@ impl Session {
             (self.screen, self.selected) = self.help_return;
             return Ok(());
         }
+        if previous.0 == BOOTLOADER_SCREEN {
+            if action == 1 {
+                change.bootloader = self.bootloader_activate(previous.1);
+            } else if self.screen != 13 && self.screen != BOOTLOADER_SCREEN {
+                self.bootloader_selected = 0;
+                self.bootloader_notice = BootloaderNotice::None;
+            }
+            return Ok(());
+        }
         let mode = match previous.0 {
             7 => Mode::Config,
             8 => Mode::Bindings,
@@ -328,6 +404,31 @@ impl Session {
         Ok(())
     }
 
+    fn bootloader_activate(&mut self, index: u16) -> u8 {
+        if let Some(device) = [BOOTLOADER_LEFT, BOOTLOADER_RIGHT, BOOTLOADER_PROSPECTOR]
+            .get(index as usize)
+            .copied()
+        {
+            if self.bootloader_devices & device != 0 {
+                self.bootloader_selected ^= device;
+                self.bootloader_notice = BootloaderNotice::None;
+            } else {
+                self.bootloader_notice = BootloaderNotice::DeviceUnavailable;
+            }
+            return 0;
+        }
+        if index != 3 {
+            return 0;
+        }
+        let requested = core::mem::take(&mut self.bootloader_selected);
+        self.bootloader_notice = if requested == 0 {
+            BootloaderNotice::ChooseDevices
+        } else {
+            BootloaderNotice::Requested
+        };
+        requested
+    }
+
     pub fn model(&self, links: Links) -> Model {
         let mut model = Model::home(links);
         let buffer = self.engine.buffered_cells();
@@ -361,6 +462,17 @@ impl Session {
             0,
         )
         .unwrap();
+        if self.screen == BOOTLOADER_SCREEN {
+            model
+                .bytes
+                .extend_from_slice(&[
+                    self.bootloader_devices,
+                    self.bootloader_selected,
+                    self.bootloader_notice as u8,
+                ])
+                .unwrap();
+            return model;
+        }
         for cell in &buffer[..count] {
             model.bytes.extend_from_slice(&cell.to_le_bytes()).unwrap();
         }

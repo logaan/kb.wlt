@@ -483,6 +483,10 @@ textarea::placeholder {
   accent-color: var(--accent);
 }
 
+.bootloader-status {
+  color: var(--accent);
+}
+
 .links-grid input[type="number"] {
   width: 4.2em;
   border: 1px solid #566360;

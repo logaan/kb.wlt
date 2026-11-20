@@ -25,6 +25,8 @@ The left Toucan half contains the monochrome display. The Prospector shows the c
 
 To switch between **Prospector USB** and **Toucan Bluetooth**, press and hold the outer left Braille thumb (`]`) first. Add Backspace and left Meta, then hold all three for two seconds. The active route appears below the keyboard. Both routes use the left half as the application host. Expand **Simulated connections** to change the battery levels or link states. Browser storage persists transport, menu and binding settings.
 
+In the Braille menu, chord Space with F, J and K for **Debug**, then Space with A for **UF2 Bootloader**. Use Space with J to move down, Space with F to move up, and Space with A to toggle a device. The MIP shows an empty box for an available device, a filled box for a selected device, and an X for an unavailable device. Select **Enter UF2** to request bootloader mode for the selected devices. Turn the devices back on in **Simulated connections** to resume using them.
+
 The simulator validates components, key input, and display output. BLE, battery sensing, USB transport, and the physical displays require hardware validation.
 
 The keys follow Toucan's column stagger and thumb splay. The 280 × 240 Prospector panel and 144 × 168 Toucan MIP scale by whole device pixels to keep text and Braille cells sharp. The keyboard adjusts around the panels, and the MIP sits above the left keys in the same case on narrow screens. [Toucan layout](https://github.com/beekeeb/zmk-keyboard-toucan/blob/main/boards/shields/toucan/toucan.dtsi) · [Toucan spacing](https://beekeeb.com/toucan-keyboard/) · [Prospector LCD](https://www.waveshare.com/wiki/1.69inch_Touch_LCD_Module) · [Sharp MIP](https://global.sharp/products/device/lineup/selection/lcd/mobile/index.html)

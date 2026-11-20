@@ -7,6 +7,7 @@
 - Toucan can type directly over Bluetooth or through Prospector USB. Hold the three left thumbs to switch routes.
 - Added a browser emulator for Toucan typing, Braille menus, both displays, and simulated USB and Bluetooth routes.
 - The Toucan home screens show link state and both halves’ battery levels.
+- The Braille Debug menu can request USB UF2 bootloader entry for selected, reachable XIAO boards.
 
 ### Changed
 

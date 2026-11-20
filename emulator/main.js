@@ -12,11 +12,13 @@ const prospector = element("prospector");
 const toucanDisplay = element("toucan-display");
 const boards = document.querySelector(".boards");
 const usbLink = element("usb-link");
+const prospectorLink = element("prospector-link");
 const bluetoothLink = element("bluetooth-link");
 const leftLink = element("left-link");
 const rightLink = element("right-link");
 const leftBattery = element("left-battery");
 const rightBattery = element("right-battery");
+const bootloaderLinks = [[1, leftLink], [2, rightLink], [4, prospectorLink]];
 const decoder = new TextDecoder();
 const storageKey = "kb.wlt.toucan.settings";
 const transportKey = "kb.wlt.toucan.transport";
@@ -227,6 +229,11 @@ async function run() {
       consumer_report: report => {
         if (hostReady()) sink.consumer_report(report);
       },
+      request_bootloader: devices => {
+        const accepted = devices & bootloaderDevices();
+        queueMicrotask(() => safely(() => enterBootloader(accepted)));
+        return accepted;
+      },
     },
   });
 
@@ -283,12 +290,42 @@ async function run() {
   }
 
   function hostReady() {
-    const connection = direct ? bluetoothLink : usbLink;
-    return leftLink.checked && connection.checked;
+    return leftLink.checked && (direct ? bluetoothLink.checked : usbLink.checked && prospectorLink.checked);
   }
 
   function prospectorDocked() {
-    return !direct && leftLink.checked && usbLink.checked;
+    return !direct && leftLink.checked && prospectorLink.checked;
+  }
+
+  function bootloaderDevices() {
+    return (leftLink.checked ? 1 : 0)
+      | (leftLink.checked && rightLink.checked ? 2 : 0)
+      | (prospectorDocked() ? 4 : 0);
+  }
+
+  function showBoardLinks() {
+    for (const [side, field] of [["left", leftLink], ["right", rightLink]]) {
+      document.querySelector(`.board-${side}`).toggleAttribute("data-disconnected", !field.checked);
+    }
+  }
+
+  function enterBootloader(devices) {
+    for (const [device, field] of bootloaderLinks) {
+      if ((devices & device) === 0) continue;
+      field.checked = false;
+      field.labels[0].querySelector(".bootloader-status").hidden = false;
+    }
+    showBoardLinks();
+    updateViewport();
+    if (!leftLink.checked) {
+      cancel();
+    } else {
+      if (!hostReady()) {
+        sink.keyboard_report(0n);
+        sink.consumer_report(0);
+      }
+      update();
+    }
   }
 
   function updateViewport() {
@@ -312,7 +349,7 @@ async function run() {
       previousToucanDisplay = toucanDisplay.key;
     }
     if (!prospectorDocked()) {
-      adapter.update_model(Number(usbLink.checked) << 2, 255, 255, false, true);
+      adapter.update_model(Number(usbLink.checked && prospectorLink.checked) << 2, 255, 255, false, true);
     }
     const prospector = readModel();
     if (prospector.key !== previousProspector) {
@@ -352,6 +389,7 @@ async function run() {
       sink.consumer_report(0);
     }
     ready &&= route === 0;
+    adapter.set_bootloader_devices(bootloaderDevices());
     const matrixResult = adapter.matrix(matrix, nowMs, ready);
     if (matrixResult < 0n) saveSettings(adapter);
     const keys = BigInt.asUintN(positions.length, matrixResult);
@@ -475,15 +513,19 @@ async function run() {
     if (document.hidden && inputs.size) cancel();
   });
 
-  for (const field of [leftLink, rightLink, usbLink, bluetoothLink]) {
+  for (const field of [leftLink, rightLink, usbLink, prospectorLink, bluetoothLink]) {
     field.addEventListener("change", () => {
-      document.querySelector(".board-left").toggleAttribute("data-disconnected", !leftLink.checked);
-      document.querySelector(".board-right").toggleAttribute("data-disconnected", !rightLink.checked);
+      const bootloader = field.labels[0].querySelector(".bootloader-status");
+      if (bootloader && field.checked && !bootloader.hidden) {
+        bootloader.hidden = true;
+        if (field === leftLink) adapter.restart_keyboard();
+      }
+      showBoardLinks();
       updateViewport();
-      if (field === leftLink || field === rightLink || field === (direct ? bluetoothLink : usbLink)) {
+      if (field === leftLink || field === rightLink || (direct ? field === bluetoothLink : field === usbLink || field === prospectorLink)) {
         cancel();
       } else {
-        updateDisplay();
+        safely(update);
       }
     });
   }

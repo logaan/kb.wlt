@@ -1,4 +1,7 @@
-use kb_client_session::{Change, Guest, Links, Model, Session, Viewport};
+use kb_client_session::{
+    BOOTLOADER_LEFT, BOOTLOADER_PROSPECTOR, BOOTLOADER_RIGHT, Change, Guest, Links, Model, Session,
+    Viewport,
+};
 use kb_component_runtime::{BrailleComponent, DisplayGuest, KeyboardComponent};
 use kb_core::{
     KeyStroke,
@@ -75,6 +78,95 @@ fn base_press(guest: &KeyboardComponent) {
             usage: 4,
             modifiers: 0,
         })],
+    );
+}
+
+#[test]
+fn debug_requests_only_the_selected_available_devices_on_activation() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    session.set_bootloader_devices(BOOTLOADER_LEFT | BOOTLOADER_RIGHT | BOOTLOADER_PROSPECTOR);
+    for cell in [LEADER, SPACE | 25, SPACE | 64] {
+        assert_eq!(tap(&mut session, &mut guest, cell).bootloader, 0);
+    }
+    assert_eq!(screen(&session), (14, 0));
+    for cell in [SPACE | 64, SPACE | 8, SPACE | 8, SPACE | 64, SPACE | 8] {
+        assert_eq!(tap(&mut session, &mut guest, cell).bootloader, 0);
+    }
+    let requested = BOOTLOADER_LEFT | BOOTLOADER_PROSPECTOR;
+    let model = session.model(Links::default());
+    assert_eq!(model.bytes.as_slice()[16], requested);
+    let wide = guest.render(280, 240, model.bytes.as_slice(), "").unwrap();
+    let labels = labels(wide.as_slice());
+    assert!(
+        labels
+            .windows(2)
+            .any(|line| line == ["Left half", "Selected"])
+    );
+    assert!(
+        labels
+            .windows(2)
+            .any(|line| line == ["Right half", "Ready"])
+    );
+    assert!(
+        labels
+            .windows(2)
+            .any(|line| line == ["Prospector", "Selected"])
+    );
+    let narrow = guest.render(144, 168, model.bytes.as_slice(), "").unwrap();
+    let narrow = commands(narrow.as_slice());
+    assert_eq!(
+        narrow
+            .iter()
+            .filter(|cmd| cmd[0] == 2 && cmd[1] == 122 && cmd[5] == 16)
+            .count(),
+        3
+    );
+    assert_eq!(
+        narrow
+            .iter()
+            .filter(|cmd| cmd[0] == 1 && cmd[1] == 126 && cmd[5] == 8)
+            .count(),
+        2
+    );
+    assert_eq!(
+        tap(&mut session, &mut guest, SPACE | 64).bootloader,
+        requested
+    );
+    session.bootloader_result(requested, BOOTLOADER_PROSPECTOR);
+    session.set_bootloader_devices(BOOTLOADER_LEFT | BOOTLOADER_RIGHT);
+    session.cancel_for_link_change(0);
+    assert_eq!(screen(&session), (14, 3));
+    let model = session.model(Links::default());
+    assert_eq!(model.bytes.as_slice()[15..18], [3, BOOTLOADER_LEFT, 4]);
+    assert_eq!(tap(&mut session, &mut guest, SPACE | 3).bootloader, 0);
+    assert_eq!(screen(&session), (9, 0));
+    assert_eq!(tap(&mut session, &mut guest, SPACE | 64).bootloader, 0);
+    assert_eq!(session.model(Links::default()).bytes.as_slice()[16], 0);
+}
+
+#[test]
+fn debug_ignores_unavailable_devices_and_empty_requests() {
+    let mut guest = BrailleComponent::new(PAINTBRUSH).unwrap();
+    let mut session = Session::new(Settings::default());
+    session.set_bootloader_devices(BOOTLOADER_PROSPECTOR);
+    for cell in [LEADER, SPACE | 25, SPACE | 64, SPACE | 64] {
+        assert_eq!(tap(&mut session, &mut guest, cell).bootloader, 0);
+    }
+    assert_eq!(
+        session.model(Links::default()).bytes.as_slice()[15..18],
+        [4, 0, 2]
+    );
+    for cell in [SPACE | 8, SPACE | 8, SPACE | 8, SPACE | 64] {
+        assert_eq!(tap(&mut session, &mut guest, cell).bootloader, 0);
+    }
+    assert_eq!(session.model(Links::default()).bytes.as_slice()[17], 1);
+    tap(&mut session, &mut guest, SPACE | 1);
+    tap(&mut session, &mut guest, SPACE | 64);
+    tap(&mut session, &mut guest, SPACE | 8);
+    assert_eq!(
+        tap(&mut session, &mut guest, SPACE | 64).bootloader,
+        BOOTLOADER_PROSPECTOR
     );
 }
 

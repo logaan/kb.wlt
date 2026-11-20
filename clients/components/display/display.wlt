@@ -713,7 +713,7 @@ Def display-detail Fn {w: s64 h: s64 model: list(u8) selected: s64}
           display-bar(frame w h 5))]
 
 Def display-menu-count Fn {screen: u8}
-  Match screen [(2 4) (3 display-section-count) (6 4) (7 3) (8 12) (10 6) (_ 0)]
+  Match screen [(2 4) (3 display-section-count) (6 4) (7 3) (8 12) (10 6) (14 4) (_ 0)]
 
 Def display-menu-title Fn {screen: u8 w: s64}
   Match screen [
@@ -722,7 +722,7 @@ Def display-menu-title Fn {screen: u8 w: s64}
     (6 "Main Menu")
     (7 If display-wide(w) "Configuration" "Settings")
     (8 "Bindings")
-    (9 "Diagnostics")
+    (9 "Debug")
     (10 "Edit Binding")
     (11 If display-wide(w) "Capture Chord" "Capture")
     (12 "Expansion")
@@ -750,7 +750,7 @@ Def display-menu-label Fn {screen: u8 index: s64 ueb: bool wide: bool}
       (0 "(R)eference")
       (1 If wide "(C)onfiguration" "(C)onfig")
       (2 "(B)indings")
-      (3 "(D)iagnostics")
+      (3 "(D)ebug")
       (_ "")])]
 
 Def display-menu-preview-h Fn {screen: u8} If eq(screen 8) 50 0
@@ -805,8 +805,46 @@ Def display-triggers Fn {frame: display-frame w: s64 y: s64 model: list(u8)}
             display-get-wide(model add(add(offset 1) mul(2 index))))
           frame range(0 count))
 
+Def display-bootloader Fn {w: s64 h: s64 model: list(u8) selected: s64}
+  Let {wide: display-wide(w)
+       frame: display-heading(display-empty w If wide "UF2 Bootloader" "UF2 Loader")
+       top: add(display-header-h(w) 3)
+       row-h: If wide 32 22
+       available: display-get(model 15 0)
+       devices: display-get(model 16 0)
+       frame: fold(Fn {acc: display-frame index: s64}
+         Let {y: add(top mul(index row-h))
+              acc: If eq(index selected) display-selection(acc 1 y sub(w 2) sub(row-h 1) wide) acc
+              label: get(The list(string) ["Left half" "Right half" "Prospector" "Enter UF2"] index)
+              text-y: add(y div(sub(row-h display-body-h(w)) 2))
+              acc: display-text(acc 8 text-y 1 0 label)}
+           If eq(index 3) acc
+             Let {device: get(The list(s64) [1 2 4] index)
+                  online: display-bit(available device)
+                  chosen: display-bit(devices device)
+                  status: If chosen "Selected" If online "Ready" "Unavailable"
+                  marker-x: sub(w 22)
+                  marker-y: add(y 3)}
+               If wide display-text(acc sub(w add(8 display-text-width(status w 3))) text-y 1 3 status)
+               If online
+                 Let {acc: display-box(acc 2 marker-x marker-y 16 16 1 2)}
+                   If chosen display-box(acc 1 add(marker-x 4) add(marker-y 4) 8 8 1 1) acc
+                 display-text(acc add(marker-x 2) text-y 1 3 "X")
+         frame range(0 4))
+       notice: Match display-get(model 17 0) [
+         (1 If wide "Select devices first" "Pick devices")
+         (2 If wide "Device unavailable" "Unavailable")
+         (3 "UF2 requested")
+         (4 If wide "Some requests failed" "Some failed")
+         (5 If wide "UF2 request failed" "Request failed")
+         (_ "")]
+       frame: If eq(len(notice) 0) frame
+         display-text(frame 8 sub(h add(add(display-footer-h(w) display-body-h(w)) 3)) 1 3 notice)}
+    display-bar(frame w h 14)
+
 Def display-menu Fn {screen: u8 w: s64 h: s64 model: list(u8) selected: s64 detail: string}
   Let {flags: display-get(model 7 0)
+       wide: display-wide(w)
        frame: display-heading(display-empty w display-menu-title(screen w))
        bar: display-footer-h(w)
        top: add(display-header-h(w) 7)
@@ -821,8 +859,10 @@ Def display-menu Fn {screen: u8 w: s64 h: s64 model: list(u8) selected: s64 deta
                       If display-bit(flags 4) "BLE ready" "BLE waiting"
                     If display-bit(flags 4) "USB ready" "USB waiting")
                   frame: display-text(frame 8 add(top step) 1 0 If display-bit(flags 1) If display-wide(w) "Left connected" "Left online" "Left offline")
-                  frame: display-text(frame 8 add(top mul(step 2)) 1 0 If display-bit(flags 2) If display-wide(w) "Right connected" "Right online" "Right offline")}
-              If eq(len(detail) 0) frame display-text(frame 8 add(top mul(step 3)) 2 3 display-compact-text(detail w)))
+                  frame: display-text(frame 8 add(top mul(step 2)) 1 0 If display-bit(flags 2) If display-wide(w) "Right connected" "Right online" "Right offline")
+                  button-y: add(top mul(step 3))
+                  frame: display-selection(frame 1 button-y sub(w 2) step wide)}
+              display-text(frame 8 add(button-y 2) 1 0 If wide "UF2 Bootloader" "UF2 loader"))
          (11 Let {count: display-get(model 14 0) captured: display-get(model 13 0)
                   frame: display-text(frame 8 top 1 0
                     str-cat(to-string(min(count add(captured 1))) " of " to-string(count)))}
@@ -889,6 +929,7 @@ Def render Fn {width: u16 height: u16 model: list(u8) detail: string}
          (13 If If ge(selected display-host-help-index) display-bit(display-get(model 7 0) 32) false
                display-host-help(w h)
                display-help(w h selected))
+         (14 display-bootloader(w h model selected))
          (_ display-menu(screen w h model selected detail))]}
     Match frame [({commands: commands labels: labels} tuple2(commands labels))]
 
@@ -927,8 +968,10 @@ Def display-menu-open Fn {screen: u8 selected: u16}
     (6 display-result(get(The list(u8) [3 7 8 9] min(selected 3)) 0 0))
     (7 display-result(screen selected 1))
     (8 display-result(10 selected 1))
+    (9 display-result(14 0 0))
     (10 display-result(screen selected 1))
     (12 display-result(screen selected 1))
+    (14 display-result(screen selected 1))
     (_ display-result(screen selected 0))]
 
 Def display-menu-back Fn {screen: u8 selected: u16}
@@ -943,6 +986,7 @@ Def display-menu-back Fn {screen: u8 selected: u16}
     (11 display-result(10 0 2))
     (12 display-result(8 0 2))
     (13 display-result(6 0 2))
+    (14 display-result(9 0 2))
     (_ display-result(6 0 2))]
 
 Def display-menu-move Fn {screen: u8 selected: u16 command: s64 page: s64}
