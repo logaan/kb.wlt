@@ -165,51 +165,86 @@ fn toucan_accepts_all_physical_keys_in_one_scan() {
         .collect();
     let input = Input::<42>::with_events(0, &events).unwrap();
     let output = component.process::<64, 42, 42>(&[], &input).unwrap();
-    assert_eq!(output.actions.len(), 41);
+    assert_eq!(output.actions.len(), 40);
+    assert!(output.events.is_empty());
 }
 
 #[test]
-fn toucan_duplicate_usage_survives_either_physical_release_order() {
-    use kb_component_runtime::KeyboardPipeline;
-    use kb_core::pipeline::PipelineState;
-
+fn toucan_mode_thumb_edges_are_consumed_without_hid_output() {
     let component = KeyboardComponent::new(TOUCAN).unwrap();
-    let composed = KeyboardPipeline::new(&[
-        include_bytes!(
-            "../../../clients/components/generated/keyboard-composed/stage0/keyboard.core.wasm"
-        ),
-        include_bytes!(
-            "../../../clients/components/generated/keyboard-composed/stage1/keyboard.core.wasm"
-        ),
-    ])
+    for position in [36, 41] {
+        let pressed = Input::<4>::with_events(0, &[event(position, KeyState::Pressed)]).unwrap();
+        let down = component.process::<64, 4, 4>(&[], &pressed).unwrap();
+        assert!(down.actions.is_empty());
+        assert!(down.events.is_empty());
+        assert_eq!(down.state.as_slice()[usize::from(position)], 0);
+        let released = Input::<4>::with_events(1, &[event(position, KeyState::Released)]).unwrap();
+        let up = component
+            .process::<64, 4, 4>(down.state.as_slice(), &released)
+            .unwrap();
+        assert!(up.actions.is_empty());
+        assert!(up.events.is_empty());
+    }
+}
+
+#[test]
+fn duplicate_usage_survives_either_physical_release_order_through_the_pipeline() {
+    use kb_core::pipeline::{Middleware, Output, Pipeline, PipelineState, StageError};
+
+    const SHIFT: Key = Key {
+        usage: 225,
+        modifiers: 0,
+    };
+    struct DuplicateShiftMap;
+    impl Middleware<8, 4, 4> for DuplicateShiftMap {
+        fn process(&self, state: &[u8], input: &Input<4>) -> Result<Output<8, 4, 4>, StageError> {
+            let mut output = Output::pass(state, &Input::tick(input.now_ms))?;
+            for edge in input.events.as_slice() {
+                if matches!(edge.position, 3 | 29) {
+                    output.actions.push(match edge.state {
+                        KeyState::Pressed => Action::Press(SHIFT),
+                        KeyState::Released => Action::Release(SHIFT),
+                    })?;
+                } else {
+                    output.events.push(*edge)?;
+                }
+            }
+            Ok(output)
+        }
+    }
+
+    let shift = KeyboardComponent::new(include_bytes!(
+        "../../../clients/components/generated/shift/keyboard.core.wasm"
+    ))
     .unwrap();
-    for (first, last) in [(24, 41), (41, 24)] {
+    let keymap = DuplicateShiftMap;
+    let plain = Pipeline::new([&keymap]);
+    let composed = Pipeline::new([&shift, &keymap]);
+    for (first, last) in [(3, 29), (29, 3)] {
         let input = Input::<4>::with_events(
             0,
             &[
-                event(24, KeyState::Pressed),
-                event(41, KeyState::Pressed),
+                event(3, KeyState::Pressed),
+                event(29, KeyState::Pressed),
                 event(first, KeyState::Released),
                 event(last, KeyState::Released),
             ],
         )
         .unwrap();
-        let plain = component.process::<64, 4, 4>(&[], &input).unwrap();
-        let shifted = composed
-            .process::<64, 4, 4>(PipelineState::new(), input)
-            .unwrap();
-        for actions in [plain.actions, shifted.actions] {
-            let key = Key {
-                usage: 225,
-                modifiers: 0,
-            };
+        for actions in [
+            plain.process(PipelineState::new(), input).unwrap().actions,
+            composed
+                .process(PipelineState::new(), input)
+                .unwrap()
+                .actions,
+        ] {
             assert_eq!(
                 actions.as_slice(),
                 [
-                    Action::Press(key),
-                    Action::Press(key),
-                    Action::Release(key),
-                    Action::Release(key)
+                    Action::Press(SHIFT),
+                    Action::Press(SHIFT),
+                    Action::Release(SHIFT),
+                    Action::Release(SHIFT)
                 ]
             );
             let mut reports = ReportState::<42>::new();

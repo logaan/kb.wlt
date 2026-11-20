@@ -38,4 +38,6 @@ Hold Space and chord **⠟** to open the Braille menu. Release the dots to choos
 
 In menus, Space+**⠁** goes to the previous item, Space+**⠈** goes to the next item, Space+**⠑** opens the selected item, and Space+**⠃** goes back. **⠓** opens Help. Menu chords stay on the receiver. Release all keys before resuming typing. Settings and bindings save asynchronously. Bluetooth reconnection and pairing reset are available in Configuration.
 
-The Prospector uses the shared landscape ST7789 driver and LVGL renderer. Touch, trackpad input, and automatic brightness are unavailable.
+The Prospector uses the shared landscape ST7789 driver and LVGL renderer. On a touch-wired Prospector, tap to open the menu or selected item, swipe to navigate, and hold to go back. Touch can enter the local UF2 bootloader through **Main Menu → Debug → UF2 Bootloader** while the halves are disconnected. Touch still needs hardware validation. [Prospector wiring](../firmware/README.md)
+
+Trackpad input and automatic brightness are unavailable.

@@ -33,7 +33,7 @@ fn key(usage: u16) -> Key {
 fn typing_bindings_match_the_base_layout() {
     let usages = [
         43, 20, 26, 8, 21, 23, 28, 24, 12, 18, 19, 41, 224, 4, 22, 7, 9, 10, 11, 13, 14, 15, 51,
-        52, 225, 29, 27, 6, 25, 5, 17, 16, 54, 55, 56, 45, 0, 42, 227, 44, 40, 225,
+        52, 225, 29, 27, 6, 25, 5, 17, 16, 54, 55, 56, 45, 0, 42, 227, 44, 40, 0,
     ];
     for (position, usage) in usages.into_iter().enumerate() {
         let output = run(&[], &[(position as u16, true), (position as u16, false)]);
@@ -49,10 +49,12 @@ fn typing_bindings_match_the_base_layout() {
 }
 
 #[test]
-fn braille_thumb_does_not_change_conventional_key_usages() {
-    let output = run(&[], &[(36, true), (2, true), (36, false), (2, false)]);
-    assert_eq!(
-        output.actions.as_slice(),
-        [Action::Press(key(26)), Action::Release(key(26))]
-    );
+fn braille_thumbs_do_not_change_conventional_key_usages() {
+    for thumb in [36, 41] {
+        let output = run(&[], &[(thumb, true), (2, true), (thumb, false), (2, false)]);
+        assert_eq!(
+            output.actions.as_slice(),
+            [Action::Press(key(26)), Action::Release(key(26))]
+        );
+    }
 }
