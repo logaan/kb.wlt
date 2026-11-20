@@ -84,16 +84,16 @@ async fn link(stack: &Host<'_>, bonds: &Bonds) {
             window: Duration::from_millis(50),
             ..Default::default()
         };
-        let Ok(_scan) = scanner.scan(&config).await else {
+        let Ok(scan) = scanner.scan(&config).await else {
             return;
         };
-        let Ok(candidate) = with_timeout(Duration::from_secs(1), ADVERTISEMENTS.receive()).await
-        else {
+        let candidate = with_timeout(Duration::from_secs(1), ADVERTISEMENTS.receive()).await;
+        scan.stop().await;
+        let Ok(candidate) = candidate else {
             return;
         };
         candidate
     };
-    Timer::after_millis(20).await;
     let filter = [candidate];
     let config = ConnectConfig {
         scan_config: ScanConfig {

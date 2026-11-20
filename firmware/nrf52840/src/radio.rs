@@ -30,6 +30,30 @@ pub(crate) type ControllerType = sdc::SoftdeviceController<'static>;
 pub(crate) type Host<'d> = Stack<'d, ControllerType, DefaultPacketPool>;
 pub(crate) type Bonds = Mutex<CriticalSectionRawMutex, BondStore<'static>>;
 
+#[cfg(feature = "toucan-display")]
+pub(crate) async fn accept_peripheral<'d>(
+    stack: &Host<'d>,
+    data: &[u8],
+) -> Option<Connection<'d, DefaultPacketPool>> {
+    static ADVERTISING: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
+    let _advertising = ADVERTISING.lock().await;
+    let mut peripheral = stack.peripheral();
+    let advertisement = peripheral
+        .advertise(
+            &AdvertisementParameters::default(),
+            Advertisement::ConnectableScannableUndirected {
+                adv_data: data,
+                scan_data: &[],
+            },
+        )
+        .await
+        .ok()?;
+    with_timeout(Duration::from_secs(2), advertisement.accept())
+        .await
+        .ok()?
+        .ok()
+}
+
 #[embassy_executor::task]
 async fn mpsl_task(mpsl: &'static mpsl::MultiprotocolServiceLayer<'static>) -> ! {
     mpsl.run().await
@@ -120,14 +144,23 @@ pub(crate) async fn authenticate(
     if connection.set_bondable(true).is_err() {
         return false;
     }
+    if connection.request_security().is_err() {
+        return false;
+    }
+    wait_encrypted(connection, stack, bonds).await
+}
+
+#[cfg(any(feature = "prospector-display", feature = "toucan-display"))]
+pub(crate) async fn wait_encrypted(
+    connection: &Connection<'_, DefaultPacketPool>,
+    stack: &Host<'_>,
+    bonds: &Bonds,
+) -> bool {
     if connection
         .security_level()
         .is_ok_and(|level| level.encrypted())
     {
         return true;
-    }
-    if connection.request_security().is_err() {
-        return false;
     }
     let wait = async {
         loop {

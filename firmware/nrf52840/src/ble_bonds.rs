@@ -61,7 +61,7 @@ impl<'d> BondStore<'d> {
         Ok(self.load_all()?.into_iter().flatten().next())
     }
 
-    pub fn load_all(&mut self) -> Result<[Option<BondInformation>; 4], Error> {
+    pub fn load_all(&mut self) -> Result<kb_bond_storage::Bonds, Error> {
         if !self.records_loaded {
             let mut pages = [[0; MAX_ENCODED_LEN]; 2];
             self.flash.read(PAGES[0], &mut pages[0])?;
@@ -120,6 +120,21 @@ impl<'d> BondStore<'d> {
 
     pub async fn remember(&mut self, bond: &BondInformation) {
         self.persist_best_effort(self.records.inserting(bond)).await;
+    }
+
+    #[cfg(feature = "toucan-display")]
+    pub fn client_peer(&self, schema: u32) -> Option<Identity> {
+        self.records.client_peer(schema)
+    }
+
+    #[cfg(feature = "toucan-display")]
+    pub async fn remember_with_client(&mut self, bond: &BondInformation, schema: u32, data: &[u8]) {
+        let mut pending = self.records.inserting(bond);
+        if pending.set_client(&bond.identity, schema, data).is_ok() {
+            self.persist_best_effort(pending).await;
+        } else {
+            STORAGE_FAILED.store(true, Ordering::Relaxed);
+        }
     }
 
     pub fn client(&self, identity: &Identity, schema: u32) -> Option<ClientAttributes> {

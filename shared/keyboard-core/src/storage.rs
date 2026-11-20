@@ -1,5 +1,5 @@
 pub const HEADER_LEN: usize = 16;
-pub const MAX_PAYLOAD_LEN: usize = 512;
+pub const MAX_PAYLOAD_LEN: usize = 768;
 pub const MAX_ENCODED_LEN: usize = HEADER_LEN + MAX_PAYLOAD_LEN;
 pub const COMMIT_LEN: usize = 4;
 pub const MAGIC: [u8; 4] = *b"KBND";

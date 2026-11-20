@@ -3,10 +3,13 @@
 use serde::{Deserialize, Serialize};
 use trouble_host::prelude::{BondInformation, ClientAttTableView, Identity};
 
-pub const MAX_BONDS: usize = 4;
+pub const MAX_BONDS: usize = 7;
 pub type Bonds = [Option<BondInformation>; MAX_BONDS];
-const PREFIX: [u8; 4] = *b"KBB2";
-const RECORD_PREFIX: [u8; 4] = *b"KBB3";
+type LegacyBonds = [Option<BondInformation>; 4];
+const LEGACY_PREFIX: [u8; 4] = *b"KBB2";
+const LEGACY_RECORD_PREFIX: [u8; 4] = *b"KBB3";
+const PREFIX: [u8; 4] = *b"KBB4";
+const RECORD_PREFIX: [u8; 4] = *b"KBB5";
 pub const CLIENT_CAPACITY: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,6 +90,16 @@ impl Records {
         Some(self.clients[index])
     }
 
+    pub fn client_peer(&self, schema: u32) -> Option<Identity> {
+        self.bonds
+            .iter()
+            .zip(&self.clients)
+            .find_map(|(bond, attributes)| {
+                attributes.get(schema)?;
+                Some(bond.as_ref()?.identity)
+            })
+    }
+
     pub fn set_client(
         &mut self,
         identity: &Identity,
@@ -118,18 +131,26 @@ pub fn encode_records<'a>(records: &Records, output: &'a mut [u8]) -> Result<&'a
 }
 
 pub fn decode_records(payload: &[u8]) -> Result<Records, CodecError> {
-    if let Some(payload) = payload.strip_prefix(&RECORD_PREFIX) {
-        let (records, remaining) = postcard::take_from_bytes::<Records>(payload)
-            .map_err(|_| CodecError::InvalidPayload)?;
-        if !remaining.is_empty() || !records.clients.iter().all(ClientAttributes::valid) {
-            return Err(CodecError::InvalidPayload);
+    let records = if let Some(payload) = payload.strip_prefix(&RECORD_PREFIX) {
+        exact(payload)?
+    } else if let Some(payload) = payload.strip_prefix(&LEGACY_RECORD_PREFIX) {
+        let (bonds, clients): (LegacyBonds, [ClientAttributes; 4]) = exact(payload)?;
+        let mut records = Records {
+            bonds: expand(bonds),
+            ..Default::default()
+        };
+        records.clients[..clients.len()].copy_from_slice(&clients);
+        records
+    } else {
+        Records {
+            bonds: decode_without_clients(payload)?,
+            ..Default::default()
         }
-        return Ok(records);
+    };
+    if !records.clients.iter().all(ClientAttributes::valid) {
+        return Err(CodecError::InvalidPayload);
     }
-    Ok(Records {
-        bonds: decode_legacy(payload)?,
-        ..Default::default()
-    })
+    Ok(records)
 }
 
 pub fn encode<'a>(bonds: &Bonds, output: &'a mut [u8]) -> Result<&'a [u8], CodecError> {
@@ -147,31 +168,36 @@ pub fn decode(payload: &[u8]) -> Result<Bonds, CodecError> {
     decode_records(payload).map(|records| records.bonds)
 }
 
-fn decode_legacy(payload: &[u8]) -> Result<Bonds, CodecError> {
+fn decode_without_clients(payload: &[u8]) -> Result<Bonds, CodecError> {
     if let Some(current) = payload.strip_prefix(&PREFIX) {
-        return exact_array(current);
+        return exact(current);
+    }
+    if let Some(legacy) = payload.strip_prefix(&LEGACY_PREFIX) {
+        return exact(legacy).map(expand);
     }
     if payload.starts_with(b"KBB") {
         return Err(CodecError::InvalidPayload);
     }
-    if let Ok(bonds) = exact_array(payload) {
-        return Ok(bonds);
+    if let Ok(bonds) = exact(payload) {
+        return Ok(expand(bonds));
     }
-    let (bond, remaining) = postcard::take_from_bytes::<BondInformation>(payload)
-        .map_err(|_| CodecError::InvalidPayload)?;
-    if !remaining.is_empty() {
-        return Err(CodecError::InvalidPayload);
-    }
-    Ok([Some(bond), None, None, None])
+    let mut bonds: Bonds = Default::default();
+    bonds[0] = Some(exact(payload)?);
+    Ok(bonds)
 }
 
-fn exact_array(payload: &[u8]) -> Result<Bonds, CodecError> {
-    let (bonds, remaining) =
-        postcard::take_from_bytes::<Bonds>(payload).map_err(|_| CodecError::InvalidPayload)?;
+fn expand(legacy: LegacyBonds) -> Bonds {
+    let mut legacy = legacy.into_iter();
+    core::array::from_fn(|_| legacy.next().flatten())
+}
+
+fn exact<'a, T: Deserialize<'a>>(payload: &'a [u8]) -> Result<T, CodecError> {
+    let (value, remaining) =
+        postcard::take_from_bytes::<T>(payload).map_err(|_| CodecError::InvalidPayload)?;
     if !remaining.is_empty() {
         return Err(CodecError::InvalidPayload);
     }
-    Ok(bonds)
+    Ok(value)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -228,6 +254,7 @@ fn insertion_index(bonds: &Bonds, bond: &BondInformation) -> usize {
 mod tests {
     use super::*;
     use core::num::NonZeroU128;
+    use kb_core::storage::MAX_PAYLOAD_LEN;
     use trouble_host::prelude::{
         Address, Identity, IdentityResolvingKey, LongTermKey, SecurityLevel,
     };
@@ -247,7 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn four_maximum_size_bonds_round_trip_within_flash_payload_budget() {
+    fn seven_maximum_size_bonds_round_trip_within_flash_payload_budget() {
         let bonds = core::array::from_fn(|index| Some(bond(index as u8)));
         let mut bytes = [0; 512];
         let encoded = encode(&bonds, &mut bytes).unwrap();
@@ -262,16 +289,19 @@ mod tests {
         let encoded = postcard::to_slice(&old, &mut bytes).unwrap();
         assert_eq!(
             decode(encoded).unwrap(),
-            [Some(old.clone()), None, None, None]
+            expand([Some(old.clone()), None, None, None])
         );
         let bonds = [Some(old), None, Some(bond(2)), None];
         let encoded = postcard::to_slice(&bonds, &mut bytes).unwrap();
-        assert_eq!(decode(encoded).unwrap(), bonds);
+        assert_eq!(decode(encoded).unwrap(), expand(bonds.clone()));
+        bytes[..4].copy_from_slice(&LEGACY_PREFIX);
+        let len = postcard::to_slice(&bonds, &mut bytes[4..]).unwrap().len() + 4;
+        assert_eq!(decode(&bytes[..len]).unwrap(), expand(bonds));
     }
 
     #[test]
     fn trailing_bytes_and_truncated_records_are_rejected() {
-        let bonds = [Some(bond(1)), None, None, None];
+        let bonds = expand([Some(bond(1)), None, None, None]);
         let mut bytes = [0; 512];
         let length = encode(&bonds, &mut bytes).unwrap().len();
         assert!(decode(&bytes[..length + 1]).is_err());
@@ -285,16 +315,16 @@ mod tests {
 
     #[test]
     fn unknown_version_is_not_decoded_as_a_legacy_bond() {
-        assert!(decode(b"KBB4\0\0\0\0").is_err());
+        assert!(decode(b"KBB6\0\0\0\0").is_err());
     }
 
     #[test]
     fn updating_a_peer_preserves_other_pairings() {
-        let original = [Some(bond(1)), Some(bond(2)), None, None];
+        let original = expand([Some(bond(1)), Some(bond(2)), None, None]);
         let mut changed = bond(1);
         changed.ltk = LongTermKey(42);
         let updated = inserting(&original, &changed);
-        assert_eq!(updated, [Some(changed), Some(bond(2)), None, None]);
+        assert_eq!(updated, expand([Some(changed), Some(bond(2)), None, None]));
     }
 
     #[test]
@@ -307,13 +337,13 @@ mod tests {
 
     #[test]
     fn valid_older_pairings_survive_an_incompatible_newer_payload() {
-        let bonds = [Some(bond(1)), None, None, None];
+        let bonds = expand([Some(bond(1)), None, None, None]);
         let mut payload = [0; 512];
         let encoded = encode(&bonds, &mut payload).unwrap();
         let mut first = [0; 528];
         let mut second = [0; 528];
         kb_core::storage::encode(encoded, 5, &mut first).unwrap();
-        kb_core::storage::encode(b"KBB4new format", 6, &mut second).unwrap();
+        kb_core::storage::encode(b"KBB6new format", 6, &mut second).unwrap();
         let saved = decode_pages(&first, &second).unwrap();
         assert_eq!(saved.slot, 0);
         assert_eq!(saved.generation, 5);
@@ -325,9 +355,10 @@ mod tests {
         let mut payload = [0; 512];
         let mut first = [0; 528];
         let mut second = [0; 528];
-        let encoded = encode(&[Some(bond(1)), None, None, None], &mut payload).unwrap();
+        let original = expand([Some(bond(1)), None, None, None]);
+        let encoded = encode(&original, &mut payload).unwrap();
         kb_core::storage::encode(encoded, u32::MAX, &mut first).unwrap();
-        let expected = [Some(bond(2)), None, None, None];
+        let expected = expand([Some(bond(2)), None, None, None]);
         let encoded = encode(&expected, &mut payload).unwrap();
         kb_core::storage::encode(encoded, 0, &mut second).unwrap();
         assert_eq!(decode_pages(&first, &second).unwrap().bonds, expected);
@@ -368,8 +399,8 @@ mod tests {
         let mut records = Records::default();
         let table = client_table();
         assert_eq!(table.raw().len(), CLIENT_CAPACITY);
-        for index in 0..4 {
-            let bond = bond(index);
+        for index in 0..MAX_BONDS {
+            let bond = bond(index as u8);
             records = records.inserting(&bond);
             assert!(
                 records
@@ -377,10 +408,9 @@ mod tests {
                     .unwrap()
             );
         }
-        let mut bytes = [0; 512];
+        let mut bytes = [0; MAX_PAYLOAD_LEN];
         let payload = encode_records(&records, &mut bytes).unwrap();
         assert_eq!(decode_records(payload).unwrap(), records);
-        assert!(payload.len() <= 512);
         for end in 0..payload.len() {
             assert!(decode_records(&payload[..end]).is_err());
         }
@@ -397,6 +427,8 @@ mod tests {
             records.client(&bond(1).identity, 17).unwrap().get(17),
             Some(table.raw())
         );
+        assert_eq!(records.client_peer(17), Some(bond(1).identity));
+        assert_eq!(records.client_peer(18), None);
         assert!(records.client(&bond(2).identity, 17).is_none());
         assert!(records.client(&bond(1).identity, 18).is_none());
         let mut repaired = bond(1);
@@ -411,7 +443,7 @@ mod tests {
 
     #[test]
     fn migration_preserves_bonds_and_starts_without_client_subscriptions() {
-        let bonds = [Some(bond(1)), None, None, None];
+        let bonds = expand([Some(bond(1)), None, None, None]);
         let mut bytes = [0; 512];
         let payload = encode(&bonds, &mut bytes).unwrap();
         let migrated = decode_records(payload).unwrap();
@@ -422,6 +454,28 @@ mod tests {
                 .iter()
                 .all(|client| *client == ClientAttributes::default())
         );
+    }
+
+    #[test]
+    fn four_peer_records_keep_client_attributes_when_migrated() {
+        let old = [Some(bond(1)), None, Some(bond(2)), None];
+        let table = ClientAttributes::new(17, client_table().raw()).unwrap();
+        let clients = [
+            table,
+            ClientAttributes::default(),
+            table,
+            ClientAttributes::default(),
+        ];
+        let mut bytes = [0; MAX_PAYLOAD_LEN];
+        bytes[..4].copy_from_slice(&LEGACY_RECORD_PREFIX);
+        let len = postcard::to_slice(&(old.clone(), clients), &mut bytes[4..])
+            .unwrap()
+            .len()
+            + 4;
+        let migrated = decode_records(&bytes[..len]).unwrap();
+        assert_eq!(migrated.bonds, expand(old));
+        assert_eq!(migrated.clients[..4], clients);
+        assert_eq!(migrated.clients[4..], [ClientAttributes::default(); 3]);
     }
 
     #[test]
