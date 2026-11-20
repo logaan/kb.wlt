@@ -3,7 +3,7 @@
 use kb_display::{
     Scene,
     lvgl::{MIP_WIDTH, Profile, Strip, TFT_WIDTH, same_band},
-    nice_view::{ROW_BYTES, TRANSFER_BYTES, encode_scene},
+    toucan_display::{ROW_BYTES, TRANSFER_BYTES, encode_scene},
 };
 
 #[test]

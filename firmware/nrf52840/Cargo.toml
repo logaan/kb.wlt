@@ -18,7 +18,7 @@ prospector-display = ["dep:kb-display", "kb-display/lvgl-tft"]
 toucan = ["split"]
 toucan-right = ["toucan"]
 toucan-dongle = ["toucan"]
-nice-view = ["dep:kb-display", "kb-display/lvgl-mip"]
+toucan-display = ["dep:kb-display", "kb-display/lvgl-mip"]
 
 [dependencies]
 critical-section = { version = "1.2.0", features = ["restore-state-bool"] }

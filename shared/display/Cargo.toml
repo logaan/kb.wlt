@@ -12,8 +12,8 @@ lvgl-mip = []
 cc = "1"
 
 [[test]]
-name = "toucan-nice-view"
-path = "../../toucan/tests/nice_view.rs"
+name = "toucan-mip"
+path = "../../toucan/tests/mip.rs"
 required-features = ["lvgl"]
 
 [dev-dependencies]

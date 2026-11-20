@@ -389,7 +389,12 @@ fn validate_core(
                 for memory in section {
                     let memory = memory.map_err(|e| e.to_string())?;
                     memories += 1;
-                    if memory.initial > 1 || memory.memory64 || memory.shared {
+                    let allowed_pages = if display && contract == Contract::Keyboard {
+                        2
+                    } else {
+                        1
+                    };
+                    if memory.initial > allowed_pages || memory.memory64 || memory.shared {
                         return Err("embedded component requires unsupported memory".into());
                     }
                 }

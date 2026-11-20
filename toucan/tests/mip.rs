@@ -1,6 +1,6 @@
 use kb_display::{
     Scene,
-    nice_view::{
+    toucan_display::{
         FRAME_BYTES, HEIGHT, ROW_BYTES, TRANSFER_BYTES, WIDTH, clear_command, encode_scene,
         idle_command,
     },

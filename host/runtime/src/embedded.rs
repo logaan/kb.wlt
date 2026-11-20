@@ -1,4 +1,4 @@
-use crate::{CALL_FUEL, Error, MAX_MEMORY_BYTES};
+use crate::{CALL_FUEL, Error};
 use core::{
     marker::PhantomData,
     sync::atomic::{AtomicBool, Ordering},
@@ -10,6 +10,7 @@ unsafe extern "C" {
     fn kb_embedded_begin(fuel: u32) -> u32;
     fn kb_embedded_fuel(fuel: u32);
     fn kb_embedded_memory() -> *mut u8;
+    fn kb_embedded_memory_len() -> usize;
     fn kb_embedded_call(operation: u32, arguments: *const u32, output: *mut u32) -> u32;
 }
 
@@ -76,7 +77,7 @@ impl Runtime {
     }
 
     pub(crate) fn memory(&self) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(kb_embedded_memory(), MAX_MEMORY_BYTES) }
+        unsafe { core::slice::from_raw_parts(kb_embedded_memory(), kb_embedded_memory_len()) }
     }
 
     pub(crate) fn write(&mut self, offset: usize, bytes: &[u8]) -> Result<(), Error> {
@@ -84,8 +85,9 @@ impl Runtime {
         let end = offset
             .checked_add(bytes.len())
             .ok_or(Error::InvalidReturn)?;
-        let memory =
-            unsafe { core::slice::from_raw_parts_mut(kb_embedded_memory(), MAX_MEMORY_BYTES) };
+        let memory = unsafe {
+            core::slice::from_raw_parts_mut(kb_embedded_memory(), kb_embedded_memory_len())
+        };
         memory
             .get_mut(offset..end)
             .ok_or(Error::InvalidReturn)?

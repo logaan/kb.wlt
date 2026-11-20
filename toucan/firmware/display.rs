@@ -4,7 +4,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Duration, Timer, with_timeout};
 use kb_display::{
     Scene,
-    nice_view::{TRANSFER_BYTES, clear_command, encode_scene, idle_command},
+    toucan_display::{TRANSFER_BYTES, clear_command, encode_scene, idle_command},
 };
 
 static VIEW: Signal<CriticalSectionRawMutex, Scene> = Signal::new();

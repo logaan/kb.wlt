@@ -23,7 +23,7 @@ pub const TARGETS: &[Target] = &[
     Target {
         name: "toucan-left-satellite-display",
         binary: "toucan-satellite",
-        features: "toucan,nice-view",
+        features: "toucan,toucan-display",
         contract: Contract::Keyboard,
         flash_origin: S140_V7_APPLICATION_START,
     },

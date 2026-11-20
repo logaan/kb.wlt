@@ -1,6 +1,6 @@
 # Rust component host
 
-`runtime/` implements the WIT canonical ABI for keyboard, braille, and display guests. Native tests, component execution probes, and middleware fixtures use Wasmi. Cortex-M firmware translates the validated production core Wasm ahead of time with WABT 1.0.42 (`wasm2c`) and links the result into the image. The embedded runtime provides a bounded 64 KiB guest memory and meters guest execution.
+`runtime/` implements the WIT canonical ABI for keyboard, braille, and display guests. Native tests, component execution probes, and middleware fixtures use Wasmi. Cortex-M firmware translates the validated production core Wasm ahead of time with WABT 1.0.42 (`wasm2c`) and links the result into the image. The embedded runtime meters guest execution and reserves up to 64 KiB for Paintbrush or 128 KiB for the Toucan keyboard and display.
 
 Each application board runs one instance. The Toucan left half runs keyboard, braille, and display together. Its Prospector renders the relayed display model with its own instance. The Paintbrush Prospector handles braille and display. Key-scanning satellites forward matrix snapshots.
 

@@ -52,15 +52,16 @@ fn inject_fuel(bytes: &[u8], keyboard: bool) -> Result<Vec<u8>, String> {
                     return Err("embedded Wasm must have exactly one memory".into());
                 }
                 let range = reader.range();
+                let allowed_pages = if keyboard { 2 } else { 1 };
                 for memory in reader {
                     let memory = memory.map_err(|error| error.to_string())?;
                     if memory.memory64
                         || memory.shared
                         || memory.page_size_log2.is_some()
-                        || memory.initial != 1
+                        || !(1..=allowed_pages).contains(&memory.initial)
                     {
                         return Err(
-                            "embedded Wasm requires one 64 KiB memory page at startup".into()
+                            "embedded Wasm exceeds its permitted initial linear memory".into()
                         );
                     }
                 }

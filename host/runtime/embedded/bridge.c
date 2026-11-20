@@ -3,7 +3,13 @@
 
 #define KB_TABLE_SIZE 128
 
-static uint8_t memory_bytes[WASM_DEFAULT_PAGE_SIZE] __attribute__((aligned(8)));
+#ifdef KB_EMBEDDED_KEYBOARD
+#define KB_MEMORY_PAGES 2
+#else
+#define KB_MEMORY_PAGES 1
+#endif
+
+static uint8_t memory_bytes[KB_MEMORY_PAGES * WASM_DEFAULT_PAGE_SIZE] __attribute__((aligned(8)));
 static wasm_rt_funcref_t table_entries[KB_TABLE_SIZE];
 static w2c_kb__guest instance;
 static jmp_buf recovery;
@@ -40,27 +46,34 @@ void abort(void)
 void wasm_rt_allocate_memory(wasm_rt_memory_t *memory, uint64_t initial,
                              uint64_t maximum, bool is64, uint32_t page_size)
 {
-    if (initial != 1 || maximum == 0 || is64 || page_size != sizeof(memory_bytes)) {
+    if (initial == 0 || initial > KB_MEMORY_PAGES || maximum < initial ||
+        is64 || page_size != WASM_DEFAULT_PAGE_SIZE) {
         wasm_rt_trap(WASM_RT_TRAP_OOB);
     }
-    memset(memory_bytes, 0, sizeof(memory_bytes));
+    uint64_t initial_size = initial * page_size;
+    memset(memory_bytes, 0, initial_size);
     *memory = (wasm_rt_memory_t){
         .data = memory_bytes,
         .data_end = memory_bytes + sizeof(memory_bytes),
-        .page_size = sizeof(memory_bytes),
-        .pages = 1,
-        .max_pages = 1,
-        .size = sizeof(memory_bytes),
+        .page_size = page_size,
+        .pages = initial,
+        .max_pages = maximum < KB_MEMORY_PAGES ? maximum : KB_MEMORY_PAGES,
+        .size = initial_size,
         .is64 = false,
     };
 }
 
 uint64_t wasm_rt_grow_memory(wasm_rt_memory_t *memory, uint64_t pages)
 {
-    if (pages != 0) {
+    uint64_t previous = memory->pages;
+    if (pages > memory->max_pages - previous) {
         wasm_rt_trap(WASM_RT_TRAP_OOB);
     }
-    return memory->pages;
+    uint64_t bytes = pages * memory->page_size;
+    memset(memory_bytes + memory->size, 0, bytes);
+    memory->size += bytes;
+    memory->pages += pages;
+    return previous;
 }
 
 void wasm_rt_free_memory(wasm_rt_memory_t *memory)
@@ -106,6 +119,11 @@ void kb_embedded_fuel(uint32_t fuel)
 uint8_t *kb_embedded_memory(void)
 {
     return memory_bytes;
+}
+
+size_t kb_embedded_memory_len(void)
+{
+    return w2c_kb__guest_memory(&instance)->size;
 }
 
 enum {

@@ -1,4 +1,5 @@
 use crate::{CALL_FUEL, Error, MAX_MEMORY_BYTES, link};
+use alloc::vec::Vec;
 use wasmi::{
     Config, Engine, Instance, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder,
     WasmParams, WasmResults,
@@ -47,8 +48,18 @@ impl Runtime {
     }
 
     pub(crate) fn with_engine(bytes: &[&[u8]], engine: &Engine) -> Result<Self, Error> {
+        let modules = bytes
+            .iter()
+            .rev()
+            .map(|bytes| Module::new(engine, bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+        let keyboard_display = matches!(modules.as_slice(), [module]
+            if module.get_export("kb:firmware/display@0.1.0#render").is_some()
+                && module.get_export("kb:firmware/keyboard@0.1.0#process").is_some()
+        );
+        let memory_limit = MAX_MEMORY_BYTES * if keyboard_display { 2 } else { 1 };
         let limits = StoreLimitsBuilder::new()
-            .memory_size(MAX_MEMORY_BYTES)
+            .memory_size(memory_limit)
             .table_elements(128)
             .instances(bytes.len())
             .memories(bytes.len())
@@ -59,8 +70,7 @@ impl Runtime {
         store.limiter(|state| state);
         store.set_fuel(CALL_FUEL)?;
         let mut downstream = None;
-        for bytes in bytes.iter().rev() {
-            let module = Module::new(engine, bytes)?;
+        for module in modules {
             let mut linker = Linker::new(engine);
             if let Some(provider) = downstream {
                 link::connect(&mut linker, &store, provider)?;

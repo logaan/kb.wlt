@@ -127,17 +127,29 @@ fn display(guest: &mut impl DisplayGuest) {
 
 unsafe extern "C" {
     fn kb_embedded_begin(fuel: u32) -> u32;
+    fn kb_embedded_memory_len() -> usize;
     fn kb_embedded_call(operation: u32, arguments: *const u32, output: *mut u32) -> u32;
 }
 
 fn traps() {
-    let arguments = [0, 0, 1, 65537, 0, 0];
+    let max = if cfg!(feature = "keyboard") {
+        131072
+    } else {
+        65536
+    };
+    let arguments = [0, 0, 1, max + 1, 0, 0];
     let mut output = 0;
     unsafe {
         assert_eq!(kb_embedded_begin(0), 0);
         assert_ne!(kb_embedded_call(0, arguments.as_ptr(), &mut output), 0);
         assert_eq!(kb_embedded_begin(100_000), 0);
         assert_ne!(kb_embedded_call(0, arguments.as_ptr(), &mut output), 0);
+        if cfg!(feature = "keyboard") {
+            let arguments = [0, 0, 1, 65537, 0, 0];
+            assert_eq!(kb_embedded_begin(100_000), 0);
+            assert_eq!(kb_embedded_call(0, arguments.as_ptr(), &mut output), 0);
+            assert_eq!(kb_embedded_memory_len(), 131072);
+        }
     }
 }
 

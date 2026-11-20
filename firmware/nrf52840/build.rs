@@ -15,7 +15,7 @@ fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let keyboard = env::var_os("CARGO_FEATURE_TOUCAN_DONGLE").is_some()
-        || env::var_os("CARGO_FEATURE_NICE_VIEW").is_some();
+        || env::var_os("CARGO_FEATURE_TOUCAN_DISPLAY").is_some();
     if keyboard || env::var_os("CARGO_FEATURE_PROSPECTOR_DISPLAY").is_some() {
         let (key, file) = if keyboard {
             ("KB_KEYBOARD_WASM", "toucan-keymap/keyboard.core.wasm")
@@ -38,8 +38,8 @@ fn main() {
         "MEMORY {{\n  FLASH : ORIGIN = {origin:#x}, LENGTH = {length:#x}\n  RAM : ORIGIN = 0x20000008, LENGTH = 0x3fff0\n}}\n",
         length = end - origin
     );
-    if env::var_os("CARGO_FEATURE_TOUCAN_DONGLE").is_some() {
-        memory.push_str("ASSERT(_stack_start >= _stack_end + 26K, \"Toucan receiver requires at least 26 KiB of native stack\")\n");
+    if keyboard {
+        memory.push_str("ASSERT(_stack_start >= _stack_end + 26K, \"Toucan runtime requires at least 26 KiB of native stack\")\n");
     }
     fs::write(out.join("memory.x"), memory).unwrap();
     println!("cargo:rustc-link-search={}", out.display());
