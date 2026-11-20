@@ -3,17 +3,18 @@ name = "kb-display"
 version.workspace = true
 edition.workspace = true
 
-[dependencies]
-kb-core = { path = "../keyboard-core" }
-embedded-graphics = "0.8.1"
+[features]
+lvgl = ["lvgl-tft", "lvgl-mip"]
+lvgl-tft = []
+lvgl-mip = []
 
-[[test]]
-name = "toucan-display"
-path = "../../toucan/tests/display.rs"
+[build-dependencies]
+cc = "1"
 
 [[test]]
 name = "toucan-nice-view"
 path = "../../toucan/tests/nice_view.rs"
+required-features = ["lvgl"]
 
 [dev-dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["executor"] }

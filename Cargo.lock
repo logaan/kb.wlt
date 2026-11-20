@@ -586,6 +586,7 @@ name = "kb-component-build"
 version = "0.2.0"
 dependencies = [
  "kb-component-runtime",
+ "kb-core",
  "tempfile",
  "wasmparser 0.251.0",
  "wat",

@@ -1,16 +1,15 @@
 use kb_component_build::Contract;
-use kb_component_runtime::{BrailleComponent, BrailleState, KeyboardComponent};
+use kb_component_runtime::{BrailleComponent, BrailleState, DisplayGuest, KeyboardComponent};
 use kb_core::pipeline::{Input, KeyEvent, KeyState};
 use std::{fs, path::PathBuf};
 
-pub fn check(contract: Contract, paths: &[PathBuf], budget: usize) -> Result<usize, String> {
+pub fn check(contract: Contract, paths: &[PathBuf], display: bool) -> Result<(), String> {
     let bytes = paths
         .iter()
         .map(fs::read)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
     let core = bytes.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    let baseline = crate::heap::begin();
     match contract {
         Contract::Braille => {
             let mut component = if core.len() == 1 {
@@ -28,12 +27,15 @@ pub fn check(contract: Contract, paths: &[PathBuf], budget: usize) -> Result<usi
                     .step(state, 0)
                     .map_err(|error| format!("braille release: {error:?}"))?;
             }
+            if display {
+                probe_display(&mut component)?;
+            }
         }
         Contract::Keyboard => {
             if core.len() != 1 {
                 return Err("keyboard probe supports one component".into());
             }
-            let component = KeyboardComponent::new(core[0])
+            let mut component = KeyboardComponent::new(core[0])
                 .map_err(|error| format!("keyboard runtime: {error:?}"))?;
             let mut state = Vec::new();
             for cycle in 0..8 {
@@ -63,13 +65,45 @@ pub fn check(contract: Contract, paths: &[PathBuf], budget: usize) -> Result<usi
                     state = output.state.as_slice().to_vec();
                 }
             }
+            if display {
+                probe_display(&mut component)?;
+            }
         }
     }
-    let peak = crate::heap::peak_since(baseline);
-    if peak > budget {
-        return Err(format!(
-            "component probe used {peak} heap bytes; target budget is {budget}. Rebuild Wavelet from the current checkout to omit unused Unicode tables, or simplify the component."
-        ));
+    Ok(())
+}
+
+fn probe_display(component: &mut impl DisplayGuest) -> Result<(), String> {
+    for (width, height) in [(280, 240), (144, 168)] {
+        for screen in 0..=13 {
+            let selected: &[u16] = if matches!(screen, 4 | 5) {
+                &[0, 15, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x700]
+            } else {
+                &[0]
+            };
+            for selection in selected {
+                let [lo, hi] = selection.to_le_bytes();
+                let model = [
+                    screen, lo, hi, 0xff, 1, 0xff, 1, 15, 81, 56, 4, 0, 0, 4, 4, 1, 0, 3, 0, 9, 0,
+                    25, 1, 4, 33, 0, 41, 1, 45, 0, 49, 1,
+                ];
+                let scene = component
+                    .render(
+                        width,
+                        height,
+                        &model,
+                        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv",
+                    )
+                    .map_err(|error| {
+                        format!(
+                            "display {width}x{height}, screen {screen}, item {selection}: {error:?}"
+                        )
+                    })?;
+                kb_display::Scene::from_bytes(scene.as_slice()).ok_or_else(|| {
+                    format!("invalid drawing commands for screen {screen}, item {selection}")
+                })?;
+            }
+        }
     }
-    Ok(peak)
+    Ok(())
 }

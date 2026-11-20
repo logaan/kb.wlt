@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+kb-client-session = { path = "../../clients/session" }
 kb-core = { path = "../../shared/keyboard-core" }
+[target.'cfg(not(target_os = "none"))'.dependencies]
 wasmi = { version = "2.0.0", default-features = false, features = ["stable", "validate", "portable-dispatch", "prefer-btree-collections", "libm"] }
 
 [[test]]

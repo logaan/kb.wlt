@@ -1,4 +1,4 @@
-use kb_component_build::{Contract, compile, compile_chain, compile_optimized};
+use kb_component_build::{Contract, compile, compile_chain, compile_firmware, compile_optimized};
 use std::path::Path;
 
 fn contract(name: &str) -> Result<Contract, String> {
@@ -25,6 +25,7 @@ fn run(args: &[String]) -> Result<(), String> {
         }
     }
     let artifacts = match args {
+        [command, name, source, output] if command == "firmware" => compile_firmware(Path::new(source), Path::new(output), contract(name)?)?,
         [command, name, source, output] if command == "optimized" => compile_optimized(Path::new(source), Path::new(output), contract(name)?)?,
         [name, source, output] => compile(Path::new(source), Path::new(output), contract(name)?)?,
         _ => return Err("usage: kb-component-build [optimized] <braille|keyboard> <source.wlt> <output-directory>\n       kb-component-build chain <braille|keyboard> <source.wlt> <downstream.wlt> <output-directory>".into()),

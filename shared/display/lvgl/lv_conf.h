@@ -1,0 +1,70 @@
+#ifndef LV_CONF_H
+#define LV_CONF_H
+
+#define LV_COLOR_DEPTH 16
+#define LV_MEM_SIZE (8 * 1024U)
+#define LV_USE_OS LV_OS_NONE
+#define LV_DRAW_SW_SUPPORT_RGB565 1
+#define LV_DRAW_SW_SUPPORT_RGB565A8 0
+#define LV_DRAW_SW_SUPPORT_RGB888 0
+#define LV_DRAW_SW_SUPPORT_XRGB8888 0
+#define LV_DRAW_SW_SUPPORT_ARGB8888 0
+#define LV_DRAW_SW_SUPPORT_L8 0
+#define LV_DRAW_SW_SUPPORT_AL88 0
+#define LV_DRAW_SW_SUPPORT_A8 0
+#define LV_DRAW_SW_SUPPORT_I1 0
+#define LV_DRAW_SW_CIRCLE_CACHE_SIZE 2
+#define LV_FONT_DEFAULT &lv_font_montserrat_20
+#define LV_FONT_MONTSERRAT_14 0
+#define LV_FONT_MONTSERRAT_20 1
+#ifdef KB_LVGL_MIP
+#define LV_FONT_MONTSERRAT_32 1
+#endif
+#ifdef KB_LVGL_TFT
+#define LV_FONT_MONTSERRAT_28 1
+#define LV_FONT_MONTSERRAT_36 1
+#define LV_FONT_MONTSERRAT_48 1
+#endif
+#define LV_USE_ANIMIMG 0
+#define LV_USE_ARC 0
+#define LV_USE_BAR 0
+#define LV_USE_BUTTON 0
+#define LV_USE_BUTTONMATRIX 0
+#define LV_USE_CALENDAR 0
+#define LV_USE_CANVAS 0
+#define LV_USE_CHART 0
+#define LV_USE_CHECKBOX 0
+#define LV_USE_DROPDOWN 0
+#define LV_USE_IMAGE 0
+#define LV_USE_IMAGEBUTTON 0
+#define LV_USE_KEYBOARD 0
+#define LV_USE_LABEL 0
+#define LV_USE_LED 0
+#define LV_USE_LINE 0
+#define LV_USE_LIST 0
+#define LV_USE_MENU 0
+#define LV_USE_MSGBOX 0
+#define LV_USE_ROLLER 0
+#define LV_USE_SCALE 0
+#define LV_USE_SLIDER 0
+#define LV_USE_SPAN 0
+#define LV_USE_SPINBOX 0
+#define LV_USE_SPINNER 0
+#define LV_USE_SWITCH 0
+#define LV_USE_TEXTAREA 0
+#define LV_USE_TABLE 0
+#define LV_USE_TABVIEW 0
+#define LV_USE_TILEVIEW 0
+#define LV_USE_WIN 0
+#define LV_USE_THEME_DEFAULT 0
+#define LV_USE_THEME_SIMPLE 0
+#define LV_USE_THEME_MONO 0
+#define LV_USE_FLEX 0
+#define LV_USE_GRID 0
+#define LV_USE_OBSERVER 0
+
+#ifdef KB_LVGL_FREESTANDING
+#define LV_INTTYPES_INCLUDE "freestanding_inttypes.h"
+#endif
+
+#endif

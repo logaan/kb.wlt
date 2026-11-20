@@ -1,13 +1,37 @@
 use kb_component_build::{Contract, prepare};
 
+fn compare_guest_artifacts(component: &[u8], optimized: &[u8], contract: Contract) {
+    use kb_component_runtime::{BrailleComponent, DisplayGuest};
+    let core = prepare(component, contract).unwrap();
+    let mut browser = BrailleComponent::new(&core).unwrap();
+    let mut hardware = BrailleComponent::new(optimized).unwrap();
+    for cell in 0..512 {
+        assert_eq!(
+            browser.map_cell(cell).unwrap(),
+            hardware.map_cell(cell).unwrap()
+        );
+    }
+    for screen in 0..14 {
+        let mut model = [0; 16];
+        model[0] = screen;
+        for (width, height) in [(144, 168), (280, 240)] {
+            assert_eq!(
+                browser.render(width, height, &model, "a").unwrap(),
+                hardware.render(width, height, &model, "a").unwrap()
+            );
+        }
+    }
+}
+
 #[test]
-fn validated_braille_component_extracts_committed_core() {
-    let bytes = include_bytes!("../../components/generated/braille.component.wasm");
-    assert_eq!(
-        prepare(bytes, Contract::Braille).unwrap(),
-        include_bytes!("../../components/generated/braille.core.wasm")
+fn braille_component_and_optimized_core_render_and_type_identically() {
+    let component = include_bytes!("../../components/generated/braille.component.wasm");
+    compare_guest_artifacts(
+        component,
+        include_bytes!("../../components/generated/braille.core.wasm"),
+        Contract::Braille,
     );
-    assert!(prepare(bytes, Contract::Keyboard).is_err());
+    assert!(prepare(component, Contract::Keyboard).is_err());
 }
 
 #[test]
@@ -20,11 +44,47 @@ fn malformed_and_core_binaries_are_rejected_as_components() {
 #[test]
 fn keyboard_contract_validates_every_function_and_compound_type() {
     let bytes = include_bytes!("../../components/generated/toucan-keymap/keyboard.component.wasm");
-    assert_eq!(
-        prepare(bytes, Contract::Keyboard).unwrap(),
-        include_bytes!("../../components/generated/toucan-keymap/keyboard.core.wasm")
+    compare_guest_artifacts(
+        bytes,
+        include_bytes!("../../components/generated/toucan-keymap/keyboard.core.wasm"),
+        Contract::Keyboard,
     );
-    assert!(prepare(bytes, Contract::Braille).is_err());
+    use kb_component_runtime::KeyboardComponent;
+    use kb_core::pipeline::{Input, KeyEvent, KeyState};
+
+    let browser = KeyboardComponent::new(&prepare(bytes, Contract::Keyboard).unwrap()).unwrap();
+    let hardware = KeyboardComponent::new(include_bytes!(
+        "../../components/generated/toucan-keymap/keyboard.core.wasm"
+    ))
+    .unwrap();
+    let mut state = kb_core::pipeline::Bounded::<u8, 64>::default();
+    for (timestamp_ms, change) in [KeyState::Pressed, KeyState::Released]
+        .into_iter()
+        .enumerate()
+    {
+        let events = core::array::from_fn::<_, 42, _>(|position| KeyEvent {
+            position: position as u16,
+            state: change,
+            timestamp_ms: timestamp_ms as u32,
+        });
+        let input = Input::with_events(timestamp_ms as u32, &events).unwrap();
+        let raw = browser
+            .process::<64, 42, 42>(state.as_slice(), &input)
+            .unwrap();
+        let optimized = hardware
+            .process::<64, 42, 42>(state.as_slice(), &input)
+            .unwrap();
+        assert_eq!(raw, optimized);
+        let raw = browser
+            .transform_output::<64, 42>(raw.state.as_slice(), raw.actions.as_slice())
+            .unwrap();
+        let optimized = hardware
+            .transform_output::<64, 42>(optimized.state.as_slice(), optimized.actions.as_slice())
+            .unwrap();
+        assert_eq!(raw, optimized);
+        state = optimized.state;
+    }
+    assert!(prepare(bytes, Contract::Braille).is_ok());
 }
 
 #[test]

@@ -10,7 +10,7 @@ cargo xtask build toucan-prospector
 cargo xtask build prospector-pair
 ```
 
-`cargo xtask build` compiles the selected Wavelet source, runs its resource probe, cross-builds firmware, and writes ELF, component, and UF2 outputs under `dist/`. `./scripts/build-artifacts.sh` builds exactly six images from checked-in components into `dist/release/`: left half, right half, and Prospector for each keyboard. It validates a staging directory before replacing existing UF2s, preventing stale variants from leaking into a release. All current targets use `thumbv7em-none-eabihf`.
+`cargo xtask build` compiles the selected Wavelet source, tests its typing and display interfaces with Wasmi, cross-builds firmware, and writes ELF, component, and UF2 outputs under `dist/`. `./scripts/build-artifacts.sh` builds exactly six images from checked-in components into `dist/release/`: left half, right half, and Prospector for each keyboard. It validates the target flash and native stack limits before replacing the UF2s and their SHA-256 checksums, preventing stale variants from leaking into a release. All current targets use `thumbv7em-none-eabihf`.
 
 ## Prospector display
 

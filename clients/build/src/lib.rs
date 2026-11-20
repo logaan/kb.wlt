@@ -22,7 +22,7 @@ impl Contract {
         }
     }
 
-    pub(crate) fn functions(self) -> &'static [&'static str] {
+    pub(crate) const fn functions(self) -> &'static [&'static str] {
         match self {
             Self::Braille => &["step", "map-cell"],
             Self::Keyboard => &["process", "transform-output"],
@@ -44,7 +44,16 @@ pub struct Artifacts {
 }
 
 pub fn compile(source: &Path, output_dir: &Path, contract: Contract) -> Result<Artifacts, String> {
-    compile_stage(source, output_dir, contract, false)
+    compile_stage(source, output_dir, contract, false, false)
+}
+
+pub fn compile_firmware(
+    source: &Path,
+    output_dir: &Path,
+    contract: Contract,
+) -> Result<Artifacts, String> {
+    let artifacts = compile_stage(source, output_dir, contract, false, true)?;
+    optimize(artifacts, contract, true)
 }
 
 pub fn compile_optimized(
@@ -53,6 +62,10 @@ pub fn compile_optimized(
     contract: Contract,
 ) -> Result<Artifacts, String> {
     let artifacts = compile(source, output_dir, contract)?;
+    optimize(artifacts, contract, false)
+}
+
+fn optimize(artifacts: Artifacts, contract: Contract, display: bool) -> Result<Artifacts, String> {
     let staging = tempfile::tempdir().map_err(|error| error.to_string())?;
     let optimized = staging.path().join("optimized.wasm");
     let binary = std::env::var_os("WASM_OPT").unwrap_or_else(|| "wasm-opt".into());
@@ -85,7 +98,7 @@ pub fn compile_optimized(
     Validator::new()
         .validate_all(&bytes)
         .map_err(|error| error.to_string())?;
-    validate_core(&bytes, contract, false)?;
+    validate_core(&bytes, contract, false, display)?;
     std::fs::write(&artifacts.core_path, bytes).map_err(|error| error.to_string())?;
     Ok(artifacts)
 }
@@ -95,14 +108,31 @@ fn compile_stage(
     output_dir: &Path,
     contract: Contract,
     imports: bool,
+    display: bool,
 ) -> Result<Artifacts, String> {
     let staging = tempfile::tempdir().map_err(|e| e.to_string())?;
     let source_dir = staging.path().join("src");
     let wit_dir = staging.path().join("wit/deps");
     std::fs::create_dir_all(&source_dir).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&wit_dir).map_err(|e| e.to_string())?;
-    std::fs::copy(source, source_dir.join("module.wlt"))
-        .map_err(|e| format!("{}: {e}", source.display()))?;
+    let mut program =
+        std::fs::read_to_string(source).map_err(|e| format!("{}: {e}", source.display()))?;
+    if display {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../components");
+        let mut append = |file: &str| -> Result<(), String> {
+            let text =
+                std::fs::read_to_string(root.join(file)).map_err(|e| format!("{file}: {e}"))?;
+            let (_, definitions) = text.split_once('\n').ok_or("empty Wavelet source")?;
+            program.push('\n');
+            program.push_str(definitions);
+            Ok(())
+        };
+        if contract == Contract::Keyboard {
+            append("braille/braille.wlt")?;
+        }
+        append("display/display.wlt")?;
+    }
+    std::fs::write(source_dir.join("module.wlt"), program).map_err(|e| e.to_string())?;
     std::fs::write(
         wit_dir.join("firmware.wit"),
         include_str!("../../wit/firmware.wit"),
@@ -133,7 +163,7 @@ fn compile_stage(
         return Err("Wavelet must produce exactly one component".into());
     }
     let component = std::fs::read(&paths[0]).map_err(|e| e.to_string())?;
-    let core = prepare_stage(&component, contract, imports)?;
+    let core = prepare_stage(&component, contract, imports, display)?;
     std::fs::create_dir_all(output_dir).map_err(|e| e.to_string())?;
     let artifacts = Artifacts {
         component_path: output_dir.join(format!("{}.component.wasm", contract.name())),
@@ -145,10 +175,15 @@ fn compile_stage(
 }
 
 pub fn prepare(component: &[u8], contract: Contract) -> Result<Vec<u8>, String> {
-    prepare_stage(component, contract, false)
+    prepare_stage(component, contract, false, false)
 }
 
-fn prepare_stage(component: &[u8], contract: Contract, imports: bool) -> Result<Vec<u8>, String> {
+fn prepare_stage(
+    component: &[u8],
+    contract: Contract,
+    imports: bool,
+    display: bool,
+) -> Result<Vec<u8>, String> {
     Validator::new()
         .validate_all(component)
         .map_err(|e| e.to_string())?;
@@ -176,21 +211,23 @@ fn prepare_stage(component: &[u8], contract: Contract, imports: bool) -> Result<
     } else if !resolve.worlds[world].imports.is_empty() {
         return Err("embedded components must not require host imports".into());
     }
-    let interface = resolve.worlds[world]
-        .exports
-        .iter()
-        .find_map(|(key, item)| {
-            let WorldItem::Interface { id, .. } = item else {
-                return None;
-            };
-            let name = match key {
-                WorldKey::Name(name) => name.clone(),
-                WorldKey::Interface(id) => resolve.id_of(*id).unwrap_or_default(),
-            };
-            (name == contract.interface()).then_some(*id)
-        })
-        .ok_or_else(|| format!("missing {} export", contract.interface()))?;
-    validate_interface(&resolve, interface, contract)?;
+    let exports = &resolve.worlds[world].exports;
+    for &(name, _) in interfaces(contract, display) {
+        let interface = exports
+            .iter()
+            .find_map(|(key, item)| {
+                let WorldItem::Interface { id, .. } = item else {
+                    return None;
+                };
+                let actual = match key {
+                    WorldKey::Name(name) => name.clone(),
+                    WorldKey::Interface(id) => resolve.id_of(*id).unwrap_or_default(),
+                };
+                (actual == format!("kb:firmware/{name}@0.1.0")).then_some(*id)
+            })
+            .ok_or_else(|| format!("missing kb:firmware/{name}@0.1.0 export"))?;
+        validate_interface(&resolve, interface, name)?;
+    }
     bindings::validate(component, contract)?;
     let mut modules = Vec::new();
     for payload in Parser::new(0).parse_all(component) {
@@ -205,20 +242,20 @@ fn prepare_stage(component: &[u8], contract: Contract, imports: bool) -> Result<
         return Err("component contains unsupported core module topology".into());
     }
     let core = modules.remove(0);
-    validate_core(&core, contract, imports)?;
+    validate_core(&core, contract, imports, display)?;
     Ok(core)
 }
 
 fn validate_interface(
     resolve: &Resolve,
     interface: wit_parser::InterfaceId,
-    contract: Contract,
+    name: &str,
 ) -> Result<(), String> {
     let mut expected = Resolve::new();
     let package = expected
         .push_str("firmware.wit", include_str!("../../wit/firmware.wit"))
         .map_err(|e| e.to_string())?;
-    let expected_interface = expected.packages[package].interfaces[contract.name()];
+    let expected_interface = expected.packages[package].interfaces[name];
     let actual_functions = &resolve.interfaces[interface].functions;
     let expected_functions = &expected.interfaces[expected_interface].functions;
     if actual_functions.len() != expected_functions.len() {
@@ -242,7 +279,7 @@ fn validate_interface(
             ))
         };
         if signature(resolve, actual)? != signature(&expected, function)? {
-            return Err(format!("incompatible {}#{name} ABI", contract.interface()));
+            return Err(format!("incompatible {name} ABI"));
         }
     }
     Ok(())
@@ -250,6 +287,7 @@ fn validate_interface(
 
 fn type_shape(resolve: &Resolve, ty: Type) -> Result<String, String> {
     Ok(match ty {
+        Type::String => "string".into(),
         Type::Bool => "bool".into(),
         Type::U8 => "u8".into(),
         Type::U16 => "u16".into(),
@@ -307,7 +345,27 @@ fn type_shape(resolve: &Resolve, ty: Type) -> Result<String, String> {
     })
 }
 
-fn validate_core(core: &[u8], contract: Contract, imports: bool) -> Result<(), String> {
+pub(crate) fn interfaces(
+    contract: Contract,
+    display: bool,
+) -> &'static [(&'static str, &'static [&'static str])] {
+    const KEYBOARD: (&str, &[&str]) = ("keyboard", Contract::Keyboard.functions());
+    const BRAILLE: (&str, &[&str]) = ("braille", Contract::Braille.functions());
+    const DISPLAY: (&str, &[&str]) = ("display", &["render", "navigate"]);
+    match (contract, display) {
+        (Contract::Keyboard, true) => &[KEYBOARD, BRAILLE, DISPLAY],
+        (Contract::Braille, true) => &[BRAILLE, DISPLAY],
+        (Contract::Keyboard, false) => &[KEYBOARD],
+        (Contract::Braille, false) => &[BRAILLE],
+    }
+}
+
+fn validate_core(
+    core: &[u8],
+    contract: Contract,
+    imports: bool,
+    display: bool,
+) -> Result<(), String> {
     let mut memories = 0;
     let mut exports = Vec::new();
     for payload in Parser::new(0).parse_all(core) {
@@ -347,23 +405,20 @@ fn validate_core(core: &[u8], contract: Contract, imports: bool) -> Result<(), S
     if memories != 1 {
         return Err("embedded component requires exactly one memory".into());
     }
-    let functions: &[&str] = match contract {
-        Contract::Braille => &["step", "map-cell"],
-        Contract::Keyboard => &["process", "transform-output"],
-    };
     if !exports.iter().any(|name| name == "memory") {
         return Err("missing canonical memory export".into());
     }
-    for function in functions {
-        for export in [
-            format!("{}#{function}", contract.interface()),
-            format!("cabi_post_{}#{function}", contract.interface()),
-        ] {
-            if !exports.contains(&export) {
-                return Err(format!("missing canonical export {export}"));
+    for &(name, functions) in interfaces(contract, display) {
+        for function in functions {
+            let export = format!("kb:firmware/{name}@0.1.0#{function}");
+            if !exports.contains(&export) || !exports.contains(&format!("cabi_post_{export}")) {
+                return Err(format!(
+                    "missing canonical export {export} or its post-return"
+                ));
             }
         }
     }
+
     Ok(())
 }
 
@@ -391,6 +446,7 @@ pub fn compile_chain(
             &output_dir.join(format!("stage{index}")),
             contract,
             index + 1 < sources.len(),
+            false,
         )?;
         let renamed = output_dir.join(format!("stage{index}-{}.component.wasm", contract.name()));
         std::fs::rename(&stage.component_path, &renamed).map_err(|e| e.to_string())?;

@@ -1,8 +1,7 @@
-mod heap;
 mod install_kit;
 mod probe;
 
-use kb_component_build::{Contract, compile};
+use kb_component_build::{Contract, compile_firmware};
 use std::{
     env,
     error::Error,
@@ -14,9 +13,6 @@ use xtask::{
     FirmwareImage, NOSD_APPLICATION_START, S140_V7_APPLICATION_START, STOCK_APPLICATION_START,
     targets,
 };
-
-#[global_allocator]
-static ALLOCATOR: heap::TrackingAllocator = heap::TrackingAllocator;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
@@ -57,12 +53,16 @@ fn run() -> Result {
                 "keyboard" => Contract::Keyboard,
                 _ => return Err("probe contract must be braille or keyboard".into()),
             };
+            let (display, paths) = match paths {
+                [flag, paths @ ..] if flag == "--display" && !paths.is_empty() => (true, paths),
+                paths => (false, paths),
+            };
             let paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
-            let peak = probe::check(contract, &paths, 160 * 1024)?;
-            println!("Component probe passed: {peak} peak heap bytes");
+            probe::check(contract, &paths, display)?;
+            println!("Component execution probe passed");
             Ok(())
         }
-        _ => Err("usage: cargo xtask targets\n       cargo xtask build TARGET [--source file.wlt] [--nosd|--s140v7|--s140v6]\n       cargo xtask uf2 firmware.elf output.uf2 [--nosd|--s140v7]\n       cargo xtask probe <braille|keyboard> entry.core.wasm [leaf.core.wasm]\n       cargo xtask verify-release DIRECTORY\n       cargo xtask check".into()),
+        _ => Err("usage: cargo xtask targets\n       cargo xtask build TARGET [--source file.wlt] [--nosd|--s140v7|--s140v6]\n       cargo xtask uf2 firmware.elf output.uf2 [--nosd|--s140v7]\n       cargo xtask probe <braille|keyboard> [--display] entry.core.wasm [leaf.core.wasm]\n       cargo xtask verify-release DIRECTORY\n       cargo xtask check".into()),
     }
 }
 
@@ -83,11 +83,13 @@ fn checked(command: &mut Command) -> Result {
 }
 
 fn check() -> Result {
-    checked(
-        Command::new("cargo")
-            .current_dir(root())
-            .args(["test", "--workspace", "--locked"]),
-    )?;
+    checked(Command::new("cargo").current_dir(root()).args([
+        "test",
+        "--workspace",
+        "--locked",
+        "--features",
+        "kb-display/lvgl",
+    ]))?;
     checked(Command::new("cargo").current_dir(root()).args([
         "check",
         "--locked",
@@ -97,6 +99,8 @@ fn check() -> Result {
         "kb-component-runtime",
         "-p",
         "kb-display",
+        "--features",
+        "kb-display/lvgl",
         "--target",
         "thumbv7em-none-eabihf",
     ]))
@@ -129,9 +133,13 @@ fn build(name: &str, options: &[String]) -> Result {
     };
     let artifact_name = format!("{name}{suffix}");
     let component_dir = root.join("target/components").join(&artifact_name);
-    let artifacts = compile(&source.canonicalize()?, &component_dir, target.contract)?;
-    let peak = probe::check(target.contract, &[artifacts.core_path.clone()], 160 * 1024)?;
-    println!("Component probe passed: {peak}/163840 peak heap bytes");
+    let artifacts = compile_firmware(&source.canonicalize()?, &component_dir, target.contract)?;
+    probe::check(
+        target.contract,
+        core::slice::from_ref(&artifacts.core_path),
+        true,
+    )?;
+    println!("Component execution probe passed");
     let firmware_target = root.join("firmware/nrf52840/target");
     checked(
         Command::new("cargo")

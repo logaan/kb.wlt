@@ -1,0 +1,27 @@
+[package]
+name = "kb-embedded-runtime-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+keyboard = []
+
+[dependencies]
+cortex-m-rt = "0.7.5"
+kb-component-runtime = { path = "../.." }
+kb-core = { path = "../../../../shared/keyboard-core" }
+kb-display = { path = "../../../../shared/display", features = ["lvgl"] }
+
+[build-dependencies]
+cc = "1"
+wasm-encoder = "0.251.0"
+wasmparser = "0.251.0"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = "z"
+panic = "abort"

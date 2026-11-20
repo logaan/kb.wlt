@@ -1,0 +1,102 @@
+#![cfg(feature = "lvgl")]
+
+use kb_display::{
+    Scene,
+    lvgl::{MIP_WIDTH, Profile, Strip, TFT_WIDTH, same_band},
+    nice_view::{ROW_BYTES, TRANSFER_BYTES, encode_scene},
+};
+
+#[test]
+fn rejects_invalid_draw_commands_before_the_panel_sees_them() {
+    for bytes in [
+        &[1][..],
+        &[1, 0, 0, 0, 0, 1, 0, 1, 0, 10, 0],
+        &[3, 0, 0, 0, 0, 1, 0, 1, 0xff],
+        &[4, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2],
+    ] {
+        assert!(Scene::from_bytes(bytes).is_none());
+    }
+}
+
+#[test]
+fn renders_labels_and_both_dot_styles_across_strip_boundaries() {
+    let scene = Scene::from_bytes(&[
+        4, 0, 0, 0, 0, 16, 0, 20, 0, 0x01, 3, 0x42, 4, 16, 0, 0, 0, 16, 0, 20, 0, 0x01, 0x84, 0x42,
+        3, 32, 0, 0, 0, 1, 3, 3, b'F', b'o', b'x',
+    ])
+    .unwrap();
+    let mut strip = Strip::<{ TFT_WIDTH * 8 }>::EMPTY;
+    let header = strip.render(Profile::Tft, &scene, 0..8).unwrap();
+    assert_ne!(header[2 * TFT_WIDTH + 4], header[2 * TFT_WIDTH + 20]);
+    assert!(
+        header[32..TFT_WIDTH]
+            .iter()
+            .all(|&pixel| pixel == header[40])
+    );
+    assert!((1..8).any(|row| {
+        header[row * TFT_WIDTH + 32..(row + 1) * TFT_WIDTH]
+            .iter()
+            .any(|&pixel| pixel != header[40])
+    }));
+
+    assert!(!same_band(&scene, &Scene::EMPTY, 16..20));
+    assert!(same_band(&scene, &Scene::EMPTY, 30..34));
+    let footer = strip.render(Profile::Tft, &scene, 16..24).unwrap();
+    let normal = footer[3 * TFT_WIDTH + 1];
+    let underlined = footer[3 * TFT_WIDTH + 17];
+    let background = footer[3 * TFT_WIDTH + 40];
+    assert_eq!(normal, background);
+    assert_ne!(underlined, background);
+}
+
+#[test]
+fn encodes_mip_pixels_in_panel_bit_order_with_vcom() {
+    let scene = Scene::from_bytes(&[1, 1, 0, 2, 0, 3, 0, 1, 0, 1, 0]).unwrap();
+    let mut strip = Strip::<{ MIP_WIDTH * 4 }>::EMPTY;
+    let pixels = strip.render(Profile::Mip, &scene, 0..4).unwrap();
+    assert_eq!(
+        &pixels[2 * MIP_WIDTH..2 * MIP_WIDTH + 8],
+        &[0xffff, 0, 0, 0, 0xffff, 0xffff, 0xffff, 0xffff]
+    );
+
+    let mut transfer = [0; TRANSFER_BYTES];
+    encode_scene(&scene, true, &mut transfer);
+    assert_eq!(transfer[0], 3);
+    let line = 1 + 2 * (ROW_BYTES + 2);
+    assert_eq!(&transfer[line..line + 2], &[3, 0xf1]);
+    assert_eq!(transfer[line + ROW_BYTES + 1], 0);
+}
+
+#[test]
+fn row_major_mask_can_draw_a_three_by_two_grid() {
+    let scene = Scene::from_bytes(&[4, 0, 0, 0, 0, 24, 0, 16, 0, 0b100001, 3, 0x23]).unwrap();
+    let mut strip = Strip::<{ TFT_WIDTH * 4 }>::EMPTY;
+    let background = strip.render(Profile::Tft, &Scene::EMPTY, 2..6).unwrap()[0];
+    let upper = strip.render(Profile::Tft, &scene, 2..6).unwrap();
+    let on = upper[2 * TFT_WIDTH + 4];
+    assert_ne!(on, background);
+    assert_eq!(upper[2 * TFT_WIDTH + 20], background);
+    let lower = strip.render(Profile::Tft, &scene, 10..14).unwrap();
+    assert_eq!(lower[2 * TFT_WIDTH + 4], background);
+    assert_eq!(lower[2 * TFT_WIDTH + 20], on);
+}
+
+#[test]
+fn body_text_has_the_designed_visible_height_on_each_panel() {
+    let scene = Scene::from_bytes(&[3, 0, 0, 0, 0, 1, 0, 1, b'H']).unwrap();
+    let mut strip = Strip::<{ TFT_WIDTH * 4 }>::EMPTY;
+    for (profile, minimum) in [(Profile::Tft, 20), (Profile::Mip, 14)] {
+        let width = profile.dimensions().0;
+        let background = strip.render(profile, &Scene::EMPTY, 0..4).unwrap()[0];
+        let mut ink_rows = 0;
+        for y in (0..32).step_by(4) {
+            ink_rows += strip
+                .render(profile, &scene, y..y + 4)
+                .unwrap()
+                .chunks_exact(width)
+                .filter(|row| row.iter().any(|&pixel| pixel != background))
+                .count();
+        }
+        assert!(ink_rows >= minimum, "only {ink_rows} visible rows");
+    }
+}

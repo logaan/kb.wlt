@@ -38,7 +38,7 @@ pub(crate) fn validate(component: &[u8], contract: Contract) -> Result<(), Strin
     let mut core_instances: Vec<CoreInstance> = Vec::new();
     let mut core_functions: Vec<CoreFunction> = Vec::new();
     let mut memories = Vec::new();
-    let mut public = None;
+    let mut public = BTreeMap::new();
     for payload in Parser::new(0).parse_all(component) {
         let payload = payload.map_err(|e| e.to_string())?;
         if depth > 0 {
@@ -276,9 +276,7 @@ pub(crate) fn validate(component: &[u8], contract: Contract) -> Result<(), Strin
                     match export.kind {
                         ComponentExternalKind::Instance => {
                             let instance = lookup(&instances, export.index)?.clone();
-                            if export.name.name == contract.interface() {
-                                public = Some(instance.clone());
-                            }
+                            public.insert(export.name.name.to_owned(), instance.clone());
                             instances.push(instance);
                         }
                         ComponentExternalKind::Type => {}
@@ -293,25 +291,35 @@ pub(crate) fn validate(component: &[u8], contract: Contract) -> Result<(), Strin
             _ => return Err("unsupported component execution section".into()),
         }
     }
-    let public = public.ok_or("missing canonical interface export")?;
-    for name in contract.functions() {
-        let Some(Function::Lifted {
-            module: 0,
-            function,
-            memory,
-            post,
-        }) = public.get(*name)
-        else {
-            return Err(format!("{name} is not lifted from the embedded module"));
+    if !public.contains_key(contract.interface()) {
+        return Err("missing canonical interface export".into());
+    }
+    for (interface, exports) in public {
+        let functions: &[&str] = match interface.as_str() {
+            "kb:firmware/braille@0.1.0" => Contract::Braille.functions(),
+            "kb:firmware/keyboard@0.1.0" => Contract::Keyboard.functions(),
+            "kb:firmware/display@0.1.0" => &["render", "navigate"],
+            _ => continue,
         };
-        let expected = format!("{}#{name}", contract.interface());
-        if function != &expected || post != &Some((0, format!("cabi_post_{expected}"))) {
-            return Err(format!(
-                "{name} has incompatible canonical function bindings"
-            ));
-        }
-        if *name != "map-cell" && memory != &Some((0, "memory".into())) {
-            return Err(format!("{name} has an incompatible canonical memory"));
+        for name in functions {
+            let Some(Function::Lifted {
+                module: 0,
+                function,
+                memory,
+                post,
+            }) = exports.get(*name)
+            else {
+                return Err(format!("{name} is not lifted from the embedded module"));
+            };
+            let expected = format!("{interface}#{name}");
+            if function != &expected || post != &Some((0, format!("cabi_post_{expected}"))) {
+                return Err(format!(
+                    "{name} has incompatible canonical function bindings"
+                ));
+            }
+            if !matches!(*name, "map-cell" | "navigate") && memory != &Some((0, "memory".into())) {
+                return Err(format!("{name} has an incompatible canonical memory"));
+            }
         }
     }
     Ok(())

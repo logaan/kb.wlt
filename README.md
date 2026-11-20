@@ -38,6 +38,6 @@ A release contains six UF2s across the Toucan and Paintbrush install kits. Use t
 
 The [browser emulator](emulator/) runs the Toucan component, both displays, and both simulated transports. The earlier Toucan USB configuration passed hardware testing. The current firmware and the Paintbrush kit still need hardware validation.
 
-`cargo xtask check` runs workspace tests and shared-crate cross-checks. `./scripts/build-artifacts.sh` cross-builds the six supported images, runs component heap probes, and replaces the UF2s in `dist/release/`. `cargo xtask verify-release dist/release` rejects missing or extra images. Neither command flashes hardware.
+`cargo xtask check` runs workspace tests and shared-crate cross-checks. `./scripts/build-artifacts.sh` checks both clients with Wasmi, cross-builds the six supported images with bounded 64 KiB guest memory and target flash and stack limits, and replaces the UF2s and checksums in `dist/release/`. `cargo xtask verify-release dist/release` rejects missing or extra images. Neither command flashes hardware.
 
 Push development commits to `master`. Publish versions through the manual **Release** GitHub Actions workflow, which synchronizes versions using `scripts/release-version.py`, runs tests/builds, creates a release commit and tag, and publishes one install ZIP per keyboard plus checksums. Each ZIP contains its left, right, and receiver UF2s, `INSTALL.txt`, the flash helper, and UTF-8 `KEYMAP.txt` and `BRAILLE.txt` references. Do not create release tags manually.

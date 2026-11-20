@@ -2,29 +2,14 @@ use embassy_nrf::{gpio::Output, spim::Spim};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use kb_display::{
-    Status, Transport,
-    st7789::{PanelBus, St7789},
+    Scene,
+    st7789::{GraphicsMemory, GraphicsPanel, PanelBus},
 };
 
-#[derive(Clone, Copy)]
-enum View {
-    Status(Status),
-    Reference(kb_core::reference::Page),
-    Menu(kb_display::menu::Page),
-}
+static VIEW: Signal<CriticalSectionRawMutex, Scene> = Signal::new();
 
-static VIEW: Signal<CriticalSectionRawMutex, View> = Signal::new();
-
-pub fn update(status: Status) {
-    VIEW.signal(View::Status(status));
-}
-
-pub fn show_reference(page: kb_core::reference::Page) {
-    VIEW.signal(View::Reference(page));
-}
-
-pub fn show_menu(page: kb_display::menu::Page) {
-    VIEW.signal(View::Menu(page));
+pub fn present(scene: Scene) {
+    VIEW.signal(scene);
 }
 
 struct Bus<'a> {
@@ -78,14 +63,10 @@ pub async fn run<'a>(
     reset: Output<'a>,
     mut backlight: Output<'a>,
 ) {
-    use kb_display::st7789::DashboardMemory;
-    static MEMORY: static_cell::ConstStaticCell<DashboardMemory> =
-        static_cell::ConstStaticCell::new(DashboardMemory::EMPTY);
-    let mut panel = St7789::new(Bus { spi, cs, dc, reset }, MEMORY.take());
-    let mut view = View::Status(Status {
-        transport: Transport::Split,
-        ..Status::default()
-    });
+    static MEMORY: static_cell::ConstStaticCell<GraphicsMemory> =
+        static_cell::ConstStaticCell::new(GraphicsMemory::EMPTY);
+    let mut panel = GraphicsPanel::new(Bus { spi, cs, dc, reset }, MEMORY.take());
+    let mut view = Scene::EMPTY;
     loop {
         backlight.set_low();
         if !matches!(
@@ -96,24 +77,23 @@ pub async fn run<'a>(
             continue;
         }
         backlight.set_high();
+        let mut previous = None;
         loop {
             if let Some(next) = VIEW.try_take() {
                 view = next;
             }
             let next_frame = Instant::now() + Duration::from_hz(30);
-            let present = async {
-                match view {
-                    View::Status(status) => panel.present(status).await,
-                    View::Reference(page) => panel.present_reference(&page).await,
-                    View::Menu(page) => panel.present_menu(&page).await,
-                }
-            };
             if !matches!(
-                with_timeout(Duration::from_secs(2), present).await,
+                with_timeout(
+                    Duration::from_secs(2),
+                    panel.present(previous.as_ref(), &view)
+                )
+                .await,
                 Ok(Ok(()))
             ) {
                 break;
             }
+            previous = Some(view);
             view = VIEW.wait().await;
             Timer::at(next_frame).await;
         }

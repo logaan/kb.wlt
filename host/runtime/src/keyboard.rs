@@ -1,10 +1,12 @@
+use crate::TypedFunc;
 use crate::{CALL_FUEL, Error, Runtime};
 use core::cell::RefCell;
 use kb_core::pipeline::{
-    Action, Bounded, Input, Key, KeyEvent, KeyState, Middleware, Output, Pipeline, PipelineState,
-    StageError, TransformedOutput, Transition,
+    Action, Bounded, Input, Key, KeyEvent, KeyState, Middleware, Output, StageError,
+    TransformedOutput,
 };
-use wasmi::TypedFunc;
+#[cfg(not(target_os = "none"))]
+use kb_core::pipeline::{Pipeline, PipelineState, Transition};
 
 type Process = TypedFunc<(i32, i32, i32, i32, i32), i32>;
 type Transform = TypedFunc<(i32, i32, i32, i32), i32>;
@@ -17,6 +19,7 @@ struct Instance {
     post_process: TypedFunc<i32, ()>,
     post_transform: TypedFunc<i32, ()>,
     realloc: Realloc,
+    braille: Option<crate::BrailleBindings>,
     poisoned: bool,
 }
 
@@ -25,24 +28,29 @@ pub struct KeyboardComponent {
 }
 
 impl KeyboardComponent {
+    #[cfg(not(target_os = "none"))]
     pub fn new(bytes: &[u8]) -> Result<Self, Error> {
         Self::with_engine(bytes, &Runtime::engine(false))
     }
 
+    #[cfg(not(target_os = "none"))]
     fn with_engine(bytes: &[u8], engine: &wasmi::Engine) -> Result<Self, Error> {
-        let runtime = Runtime::with_engine(&[bytes], engine)?;
-        let instance = runtime.instance;
-        let store = &runtime.store;
-        let process = instance.get_typed_func(store, "kb:firmware/keyboard@0.1.0#process")?;
-        let transform =
-            instance.get_typed_func(store, "kb:firmware/keyboard@0.1.0#transform-output")?;
-        let post_process =
-            instance.get_typed_func(store, "cabi_post_kb:firmware/keyboard@0.1.0#process")?;
-        let post_transform = instance.get_typed_func(
-            store,
-            "cabi_post_kb:firmware/keyboard@0.1.0#transform-output",
-        )?;
-        let realloc = instance.get_typed_func(store, "cabi_realloc")?;
+        Self::from_runtime(Runtime::with_engine(&[bytes], engine)?)
+    }
+
+    #[cfg(target_os = "none")]
+    pub fn new_embedded() -> Result<Self, Error> {
+        Self::from_runtime(Runtime::new()?)
+    }
+
+    fn from_runtime(runtime: Runtime) -> Result<Self, Error> {
+        let process = runtime.func("kb:firmware/keyboard@0.1.0#process")?;
+        let transform = runtime.func("kb:firmware/keyboard@0.1.0#transform-output")?;
+        let post_process = runtime.func("cabi_post_kb:firmware/keyboard@0.1.0#process")?;
+        let post_transform =
+            runtime.func("cabi_post_kb:firmware/keyboard@0.1.0#transform-output")?;
+        let realloc = runtime.func("cabi_realloc")?;
+        let braille = crate::BrailleBindings::new(&runtime).ok();
         Ok(Self {
             instance: RefCell::new(Instance {
                 runtime,
@@ -51,9 +59,22 @@ impl KeyboardComponent {
                 post_process,
                 post_transform,
                 realloc,
+                braille,
                 poisoned: false,
             }),
         })
+    }
+
+    pub(crate) fn with_runtime<T>(
+        &mut self,
+        f: impl FnOnce(&mut Runtime) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let instance = self.instance.get_mut();
+        f(&mut instance.runtime)
+    }
+
+    pub(crate) fn braille_bindings(&mut self) -> Result<crate::BrailleBindings, Error> {
+        self.instance.get_mut().braille.ok_or(Error::InvalidChain)
     }
 
     pub fn process<const S: usize, const E: usize, const A: usize>(
@@ -97,10 +118,12 @@ impl KeyboardComponent {
     }
 }
 
+#[cfg(not(target_os = "none"))]
 pub struct KeyboardPipeline<const M: usize> {
     stages: [KeyboardComponent; M],
 }
 
+#[cfg(not(target_os = "none"))]
 impl<const M: usize> KeyboardPipeline<M> {
     pub fn new(modules: &[&[u8]; M]) -> Result<Self, Error> {
         if M == 0 || M > 2 {
@@ -156,7 +179,7 @@ impl Instance {
         if self.poisoned {
             return Err(Error::InvalidState);
         }
-        self.runtime.store.set_fuel(CALL_FUEL * 10)?;
+        self.runtime.set_fuel(CALL_FUEL * 10)?;
         Ok(())
     }
 
@@ -167,7 +190,7 @@ impl Instance {
         let bytes = i32::try_from(bytes).map_err(|_| Error::Capacity)?;
         let pointer = self
             .realloc
-            .call(&mut self.runtime.store, (0, 0, alignment, bytes))?;
+            .call(&mut self.runtime, (0, 0, alignment, bytes))?;
         if pointer < 0 {
             return Err(Error::InvalidReturn);
         }
@@ -178,10 +201,7 @@ impl Instance {
         let offset = (pointer as usize)
             .checked_add(offset)
             .ok_or(Error::InvalidReturn)?;
-        self.runtime
-            .memory
-            .write(&mut self.runtime.store, offset, bytes)
-            .map_err(|_| Error::InvalidReturn)
+        self.runtime.write(offset, bytes)
     }
 
     fn write_state(&mut self, state: &[u8]) -> Result<i32, Error> {
@@ -233,7 +253,7 @@ impl Instance {
         let state_pointer = self.write_state(state)?;
         let events_pointer = self.write_events(input.events.as_slice())?;
         let pointer = self.process.call(
-            &mut self.runtime.store,
+            &mut self.runtime,
             (
                 state_pointer,
                 state.len() as i32,
@@ -243,7 +263,7 @@ impl Instance {
             ),
         )?;
         let result = self.read_output(pointer);
-        self.post_process.call(&mut self.runtime.store, pointer)?;
+        self.post_process.call(&mut self.runtime, pointer)?;
         result
     }
 
@@ -255,7 +275,7 @@ impl Instance {
         let state_pointer = self.write_state(state)?;
         let actions_pointer = self.write_actions(actions)?;
         let pointer = self.transform.call(
-            &mut self.runtime.store,
+            &mut self.runtime,
             (
                 state_pointer,
                 state.len() as i32,
@@ -264,7 +284,7 @@ impl Instance {
             ),
         )?;
         let result = self.read_transform(pointer);
-        self.post_transform.call(&mut self.runtime.store, pointer)?;
+        self.post_transform.call(&mut self.runtime, pointer)?;
         result
     }
 

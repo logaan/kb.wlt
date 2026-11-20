@@ -11,7 +11,7 @@ pub const fn clear_command(vcom: bool) -> [u8; 2] {
     [4 | if vcom { 2 } else { 0 }, 0]
 }
 
-#[cfg(feature = "lvgl")]
+#[cfg(feature = "lvgl-mip")]
 pub fn encode_scene(scene: &crate::Scene, vcom: bool, output: &mut [u8; TRANSFER_BYTES]) {
     use crate::lvgl::{Profile, Strip};
 

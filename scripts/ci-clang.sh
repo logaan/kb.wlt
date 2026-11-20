@@ -21,3 +21,11 @@ if ! configure; then
   sudo apt-get "${options[@]}" install -y clang libclang-dev
   configure
 fi
+wabt="$RUNNER_TEMP/wabt"
+archive="$RUNNER_TEMP/wabt-1.0.42-linux-x64.tar.gz"
+mkdir -p "$wabt"
+curl -fsSL https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42-linux-x64.tar.gz -o "$archive"
+printf '84895407a6bbb80e918f33b16b2fb2206021c150b6bc9ff6f761263a745ab131  %s\n' "$archive" | sha256sum -c
+tar -xzf "$archive" -C "$wabt" --strip-components=1
+"$wabt/bin/wasm2c" --version
+printf '%s\n' "$wabt/bin" >> "$GITHUB_PATH"

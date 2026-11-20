@@ -14,11 +14,11 @@ ble = ["dep:nrf-sdc", "dep:nrf-mpsl", "dep:trouble-host", "dep:static_cell", "de
 split = ["ble", "nrf-sdc/central", "trouble-host/central", "trouble-host/scan"]
 satellite-left = ["split"]
 satellite-right = ["split"]
-prospector-display = ["dep:kb-display"]
+prospector-display = ["dep:kb-display", "kb-display/lvgl-tft"]
 toucan = ["split"]
 toucan-right = ["toucan"]
 toucan-dongle = ["toucan"]
-nice-view = ["dep:kb-display"]
+nice-view = ["dep:kb-display", "kb-display/lvgl-mip"]
 
 [dependencies]
 critical-section = { version = "1.2.0", features = ["restore-state-bool"] }
@@ -31,7 +31,7 @@ embassy-sync = "0.8.0"
 embassy-time = "0.5.1"
 embassy-usb = "0.6.0"
 embedded-storage = "0.3.2"
-embedded-alloc = { version = "0.7.0", default-features = false, features = ["llff"] }
+kb-client-session = { path = "../../clients/session" }
 kb-component-runtime = { path = "../../host/runtime" }
 kb-display = { path = "../../shared/display", optional = true }
 kb-core = { path = "../../shared/keyboard-core" }
@@ -41,6 +41,11 @@ nrf-mpsl = { version = "0.4.0", optional = true, features = ["nrf52840", "critic
 trouble-host = { version = "0.8.0", optional = true, default-features = false, features = ["derive", "gatt", "peripheral", "default-packet-pool", "default-packet-pool-mtu-128", "default-packet-pool-size-8", "security", "serde"] }
 static_cell = { version = "2.1.1", optional = true }
 kb-bond-storage = { path = "../../shared/bond-storage", optional = true }
+
+[build-dependencies]
+cc = "1"
+wasm-encoder = "0.251.0"
+wasmparser = "0.251.0"
 
 [[bin]]
 name = "paintbrush-satellite"

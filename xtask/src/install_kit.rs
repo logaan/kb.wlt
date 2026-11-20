@@ -267,6 +267,17 @@ pub fn generate(board: &str, images: &Path, output: &Path) -> Result {
     fs::write(output.join("KEYMAP.txt"), keymap)?;
     fs::write(output.join("BRAILLE.txt"), braille_reference()?)?;
     fs::write(
+        output.join("LICENSES.txt"),
+        concat!(
+            "LVGL 9.2.2\n",
+            include_str!("../../shared/display/lvgl/LICENSE"),
+            "\nMontserrat\n",
+            include_str!("../../shared/display/lvgl/OFL-Montserrat.txt"),
+            "\nWABT 1.0.42\n",
+            include_str!("../../host/runtime/embedded/LICENSE-wabt")
+        ),
+    )?;
+    fs::write(
         output.join("flash-uf2.sh"),
         include_bytes!("../../scripts/flash-uf2.sh"),
     )?;
