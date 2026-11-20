@@ -3,7 +3,7 @@ use kb_client_session::labels::label;
 use kb_component_build::Contract;
 use kb_component_runtime::{BrailleComponent, KeyboardComponent};
 use kb_core::{
-    matrix_link::{BRAILLE_THUMB, braille_keys},
+    matrix_link::{BRAILLE_THUMBS, braille_keys},
     pipeline::{Action, Input, KeyEvent, KeyState},
     reference::{Entry, LEADER},
     split::Layout,
@@ -60,7 +60,7 @@ fn toucan_map() -> Result<String> {
         writeln!(out, "{title}\n").unwrap();
         let mut keys = Vec::new();
         for pos in 0..42 {
-            let name = if pos == u16::from(BRAILLE_THUMB) {
+            let name = if (1 << pos) & BRAILLE_THUMBS != 0 {
                 "Braille".into()
             } else if braille {
                 dots(braille_keys(1 << pos))
@@ -103,9 +103,13 @@ fn toucan_map() -> Result<String> {
         );
         out.push('\n');
     }
-    out.push_str("Tap the left outer thumb to toggle Braille. Hold it for momentary Braille.\n");
-    out.push_str("Hold the outer left thumb first, add the other two, and hold all three for two seconds to switch hosts.\n\n");
+    out.push_str(
+        "Tap either outer thumb to toggle Braille. Hold either for momentary Braille.\n\
+         Either inner thumb is Space in Braille. Each half has all eight dots.\n\
+         A dot held on both halves releases when both keys are up.\n\n",
+    );
     out.push_str(&menu_cells());
+    out.push_str(TOUCAN_TARGET_MENU);
     Ok(out)
 }
 
@@ -131,13 +135,19 @@ fn menu_cells() -> String {
     )
 }
 
-fn braille_reference() -> Result<String> {
+const TOUCAN_TARGET_MENU: &str =
+    "Target        ⠞   Choose Prospector, BT 1–5, or USB from the Braille menu.\n";
+
+fn braille_reference(toucan: bool) -> Result<String> {
     let mut braille = BrailleComponent::new(include_bytes!(
         "../../clients/components/generated/braille.core.wasm"
     ))
     .map_err(|e| format!("braille: {e:?}"))?;
     let mut out = String::from("BRAILLE REFERENCE\nAn underlined cell includes Space.\n\n");
     out.push_str(&menu_cells());
+    if toucan {
+        out.push_str(TOUCAN_TARGET_MENU);
+    }
     out.push_str("Menu navigation\n");
     for (cell, action) in [
         (0x101, "Previous"),
@@ -245,18 +255,23 @@ pub fn generate(board: &str, images: &Path, output: &Path) -> Result {
     install.push_str(match contract {
         Contract::Keyboard => {
             "Connect Prospector to the computer over USB and power both halves.\n\
-             The right half pairs with the left. The left pairs with the Prospector.\n\
-             The computer sees kb.wlt Toucan Receiver as its USB keyboard.\n\n\
-             DIRECT BLUETOOTH\n\
-             Hold the outer left Braille thumb first, add the other two left thumb\n\
-             keys, and hold all three for two seconds to switch routes.\n\
-             Pair kb.wlt Toucan from the computer's Bluetooth settings.\n\
-             The halves work together with the Prospector off. Repeat the gesture\n\
-             to return to Prospector USB. The selected route persists.\n\n\
+             The right half pairs with the left. The left pairs with Prospector.\n\
+             Fresh installs type to kb.wlt Toucan Receiver over Prospector USB.\n\n\
+             CHOOSE A HOST\n\
+             Tap either outer thumb for Braille. Hold either inner thumb (Space)\n\
+             and chord ⠟. Chord t (⠞) in the menu to open Target. Choose Prospector,\n\
+             BT 1–5, or USB. The left half remembers the choice. Both displays show the\n\
+             selected target and each half’s measured battery estimate when available.\n\
+             For direct Bluetooth, choose an empty slot and pair kb.wlt Toucan.\n\
+             If an old host keeps reconnecting during pairing, temporarily turn\n\
+             Bluetooth off on that host. For USB, connect the left half to the\n\
+             computer by data cable. Its device name is kb.wlt Toucan USB.\n\n\
              SUBSEQUENT UPDATES\n\
              Connect the target boards with USB data cables. In Braille mode, open\n\
              Main Menu > Debug > UF2 Bootloader, select the available boards, and\n\
-             choose Enter UF2. Use Prospector USB mode to include the receiver.\n"
+             choose Enter UF2. The right half and Prospector must be linked to\n\
+             receive a command from Toucan. A touch-wired Prospector can enter its\n\
+             own bootloader from the same menu while disconnected.\n"
         }
         Contract::Braille => {
             "Connect Prospector to the computer over USB and power both halves.\n\
@@ -268,12 +283,21 @@ pub fn generate(board: &str, images: &Path, output: &Path) -> Result {
         }
     });
     install.push_str(
+        "\nPROSPECTOR TOUCH\n\
+         The same firmware runs on boards wired only for the LCD. Touch requires\n\
+         the CST816 panel wired to the XIAO (TP_IRQ P0.02, TP_RST P0.03, TP_SDA\n\
+         P0.04, TP_SCL P0.05). Tap to open, swipe to navigate, and hold to go back.\n",
+    );
+    install.push_str(
         "\nREFERENCE\nKEYMAP.txt    Physical layouts (left | right, top to bottom)\n\
          BRAILLE.txt   Menu navigation, Computer 8, UEB Grade 1\n",
     );
     fs::write(output.join("INSTALL.txt"), install)?;
     fs::write(output.join("KEYMAP.txt"), keymap)?;
-    fs::write(output.join("BRAILLE.txt"), braille_reference()?)?;
+    fs::write(
+        output.join("BRAILLE.txt"),
+        braille_reference(contract == Contract::Keyboard)?,
+    )?;
     fs::write(
         output.join("LICENSES.txt"),
         concat!(
@@ -299,7 +323,7 @@ mod tests {
     fn references_use_shipping_components_and_board_maps() {
         let toucan = toucan_map().unwrap();
         let paintbrush = paintbrush_map();
-        let reference = braille_reference().unwrap();
+        let reference = braille_reference(true).unwrap();
         assert!(
             [&toucan, &paintbrush, &reference]
                 .iter()
@@ -308,6 +332,22 @@ mod tests {
         for name in ["Left Ctrl", "Backspace", "Braille", "Space"] {
             assert!(toucan.contains(name), "{name}");
         }
+        let braille = toucan.split_once("BRAILLE\n\n").unwrap().1;
+        for (row, expected) in [
+            (1, "[-][⡀][⠄][⠂][⠁][-][-][⠈][⠐][⠠][⢀][-]"),
+            (2, "[-][⢀][⠠][⠐][⠈][-][-][⠁][⠂][⠄][⡀][-]"),
+            (3, "[Braille][-][Space][Space][-][Braille]"),
+        ] {
+            let actual = braille.lines().nth(row).unwrap();
+            assert_eq!(actual.split_whitespace().collect::<String>(), expected);
+        }
+        assert!(toucan.contains(TOUCAN_TARGET_MENU));
+        assert!(reference.contains(TOUCAN_TARGET_MENU));
+        assert!(
+            !braille_reference(false)
+                .unwrap()
+                .contains(TOUCAN_TARGET_MENU)
+        );
         assert!(
             paintbrush
                 .lines()

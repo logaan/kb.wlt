@@ -32,11 +32,11 @@ Images are written to `dist/`. Enter the appropriate board's UF2 bootloader and 
 ./scripts/flash-uf2.sh dist/toucan-prospector.uf2 /Volumes/XIAO-SENSE
 ```
 
-A release contains six UF2s across the Toucan and Paintbrush install kits. Use the matching images from the same kit. The Toucan left half handles typing and can send reports directly over Bluetooth or through its USB Prospector. Paintbrush sends reports through its USB Prospector. Normal builds compile the canonical client source. Release builds use its checked-in artifacts. After editing client sources, run `./scripts/build-components.sh` and commit the generated changes.
+A release contains six UF2s across the Toucan and Paintbrush install kits. Use the matching images from the same kit. The Toucan left half handles typing and can send reports through Prospector, to one of five Bluetooth hosts, or over its own USB port. Paintbrush sends reports through its USB Prospector. Normal builds compile the canonical client source. Release builds use its checked-in artifacts. After editing client sources, run `./scripts/build-components.sh` and commit the generated changes.
 
 ## Validation and releases
 
-The [browser emulator](emulator/) runs the Toucan component, both displays, and both simulated transports. The earlier Toucan USB configuration passed hardware testing. The current firmware and the Paintbrush kit still need hardware validation.
+The [browser emulator](emulator/) runs the Toucan component, both displays, and simulated host targets and touch input. The earlier Toucan USB configuration passed hardware testing. The current firmware and the Paintbrush kit still need hardware validation.
 
 `cargo xtask check` runs workspace tests and shared-crate cross-checks. `./scripts/build-artifacts.sh` checks both clients with Wasmi, cross-builds the six supported images with bounded guest memory and target flash and stack limits, and replaces the UF2s and checksums in `dist/release/`. `cargo xtask verify-release dist/release` rejects missing or extra images. Neither command flashes hardware.
 

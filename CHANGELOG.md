@@ -4,27 +4,26 @@
 
 ### Added
 
-- Toucan can type directly over Bluetooth or through Prospector USB. Hold the three left thumbs to switch routes.
-- Added a browser emulator for Toucan typing, Braille menus, both displays, and simulated USB and Bluetooth routes.
+- The Toucan Braille menu selects Prospector, one of five saved Bluetooth hosts, or direct USB through the left half. Both displays show the selected target and its connection state.
+- Added a browser emulator for Toucan typing, Braille menus, both displays, and simulated connections.
 - The Toucan home screens show link state and both halves’ battery levels.
 - The Braille Debug menu can request USB UF2 bootloader entry for selected, reachable XIAO boards.
+- A touch-wired Prospector supports menu gestures and can enter its local UF2 bootloader without a connected keyboard.
 
 ### Changed
 
 - The live Braille cell and its preview are centered together, with more space between the dots. Chords with no output leave the preview slot blank.
-- The emulator follows Toucan’s column stagger and thumb angles and places the Prospector above both halves. Use the three-thumb hold shown in Help to switch routes.
+- The emulator follows Toucan’s column stagger and thumb angles and places the Prospector above both halves.
 - Wavelet defines both kits’ display scenes and menu navigation. LVGL draws them on the Prospector and Toucan MIP.
 - The Braille reference uses cell diagrams and a four-column letter grid. Menus use larger text and keep command reminders in Help.
 - Install kits include UTF-8 Braille keymaps and board-specific connection instructions.
-
-- Toucan’s left outer thumb now toggles Braille on tap and activates it momentarily on hold. Removed the navigation layer.
-
+- Each Toucan half has all eight Braille dots and an inner Space thumb. Tap or hold either outer thumb to activate Braille. Removed the navigation layer.
 - Toucan Prospector redraws changed dashboard regions rather than streaming a full screen for each chord, and shows the menu gesture as two braille cells.
 
 ### Fixed
 
 - Braille chords forget keys released for 50 ms or more, so you can correct an extra key while holding the intended chord.
-- The Toucan route gesture cancels in-progress chords, and Bluetooth input resumes with neutral reports after protocol or suspend changes.
+- Toucan host changes release held keys and discard pending reports. Bluetooth input resumes with neutral reports after protocol or suspend changes.
 - The Toucan emulator cancels pending input during route switches and uses portrait Reference paging when the Prospector is offline.
 - The Toucan emulator aligns both displays to the device pixel grid for sharp text and Braille cells.
 - Page navigation follows the active display layout in Reference, Help, and the binding list.

@@ -1,6 +1,6 @@
 # Shared nRF52840 platform
 
-`nrf52840/` is the firmware Cargo workspace. Its manifest selects binary entry points from [toucan/](../toucan/), [paintbrush/](../paintbrush/), only. No standalone, example, diagnostic, or reset firmware entry points remain. Shared code provides clocks, USB HID, Nordic radio initialization and authentication, persistent bonds/settings, battery sensing, and the Prospector LCD bus.
+`nrf52840/` is the firmware Cargo workspace. Its manifest selects binary entry points from [toucan/](../toucan/), [paintbrush/](../paintbrush/), only. No standalone, example, diagnostic, or reset firmware entry points remain. Shared code provides clocks, USB HID, Nordic radio initialization and authentication, persistent bonds/settings, battery sensing, and the Prospector display and touch buses.
 
 Use the root target catalog. Firmware builds require WABT 1.0.42 for ahead-of-time compilation of the production component.
 
@@ -14,7 +14,7 @@ cargo xtask build prospector-pair
 
 ## Prospector display
 
-The Waveshare 1.69-inch Touch LCD Module uses an ST7789V2, with 240×280 native geometry and a 20-row controller offset. Both kits use the display in 280×240 landscape, with a 20-column controller offset in this orientation. Touch and automatic brightness are not implemented.
+The Waveshare 1.69-inch Touch LCD Module uses an ST7789V2, with 240×280 native geometry and a 20-row controller offset. Both kits use the display in 280×240 landscape, with a 20-column controller offset in this orientation. Touch requires the CST816 controller and four additional wires.
 
 | Signal | XIAO pin |
 | --- | --- |
@@ -24,6 +24,17 @@ The Waveshare 1.69-inch Touch LCD Module uses an ST7789V2, with 240×280 native 
 | DC, low for commands | P1.12 / D7 |
 | Reset, active low | P0.29 / D3 |
 | Backlight, active high | P1.11 / D6 |
+
+For boards wired for touch, connect the following signals in addition to the LCD wiring. Existing boards with only the LCD wired use the same receiver firmware and keyboard controls. [Waveshare module pinout](https://www.waveshare.com/wiki/1.69inch_Touch_LCD_Module)
+
+| Touch signal | XIAO pin |
+| --- | --- |
+| TP_IRQ, active low | P0.02 / D0 |
+| TP_RST, active low | P0.03 / D1 |
+| TP_SDA | P0.04 / D4 |
+| TP_SCL | P0.05 / D5 |
+
+Tap to open the menu or selected item, swipe to navigate, and hold to go back. With Prospector on a USB data cable, touch can open **Main Menu → Debug → UF2 Bootloader** and select the local receiver while the keyboard is disconnected. The Toucan keyboard and its linked Prospector share the active menu. The current touch wiring and gestures still need hardware validation.
 
 Normal firmware uses SPI2 at 4 MHz. Hardware testing found a blank LCD with the former SPI3/16 MHz configuration; slow software SPI and then SPI2 displayed content successfully. Initialization explicitly enables extended register writes and configures the panel before leaving sleep. Backlight GPIO control is active-high, despite the upstream overlay's initial PWM inversion setting.
 
