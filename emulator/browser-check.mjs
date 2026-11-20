@@ -346,7 +346,47 @@ try {
     await density.close();
   }
 
+  const compositor = await chromium.launch({
+    channel: "chrome",
+    args: ["--force-device-scale-factor=1.25", "--window-size=1280,1000"],
+  });
+  try {
+    const scaled = await compositor.newPage({ viewport: null });
+    await scaled.goto(url);
+    await scaled.locator('#runtime[data-status="ready"]').waitFor();
+    await scaled.keyboard.press("BracketRight");
+    await scaled.keyboard.down("KeyF");
+    await scaled.evaluate(async () => {
+      window.scrollTo(0, 71);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    const cdp = await scaled.context().newCDPSession(scaled);
+    const { data } = await cdp.send("Page.captureScreenshot", { format: "png", fromSurface: true });
+    const mismatches = await scaled.evaluate(async data => {
+      const captured = await fetch(`data:image/png;base64,${data}`).then(response => response.blob());
+      const image = await createImageBitmap(captured);
+      const frame = new OffscreenCanvas(image.width, image.height).getContext("2d");
+      frame.drawImage(image, 0, 0);
+      return ["prospector", "toucan-display"].map(id => {
+        const panel = document.getElementById(id);
+        const { left, top } = panel.getBoundingClientRect();
+        const { width, height } = panel;
+        const inset = id === "prospector" ? 30 : 0;
+        const rows = height - 2 * inset;
+        const native = panel.getContext("2d").getImageData(0, inset, width, rows).data;
+        const visible = frame.getImageData(Math.round(left * devicePixelRatio),
+          Math.round(top * devicePixelRatio) + inset, width, rows).data;
+        return native.reduce((count, channel, index) => count + Number(channel !== visible[index]), 0);
+      });
+    }, data);
+    assert.deepEqual(mismatches, [0, 0]);
+  } finally {
+    await compositor.close();
+  }
+
+  await page.bringToFront();
   await page.keyboard.press("BracketRight");
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
   const cleanBraille = await canvas("#prospector");
   await page.keyboard.down("KeyF");
   await page.waitForFunction(before => document.getElementById("prospector").toDataURL() !== before, cleanBraille);
