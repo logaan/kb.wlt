@@ -84,8 +84,10 @@ try {
     for (const code of codes.toReversed()) await page.keyboard.up(code);
     await page.waitForTimeout(40);
   }
+  const brailleHome = await canvas("#prospector");
   await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
   const namespace = await canvas("#prospector");
+  assert.notEqual(namespace, brailleHome);
   await chord("Space", "KeyF", "KeyD", "KeyS", "KeyK");
   assert.notEqual(await canvas("#prospector"), namespace);
   const categories = await canvas("#prospector");
@@ -141,6 +143,27 @@ try {
   await page.keyboard.press("KeyQ");
   assert.equal(await output(), beforeDisconnected + "q");
   await page.locator("#right-link").check();
+  await page.locator("#text-output").focus();
+
+  const routeThumbs = ["BracketRight", "Backspace", "MetaLeft"];
+  const lastReport = () => page.locator("#last-report").textContent();
+  const emptyReport = "00 00 00 00 00 00 00 00";
+  const beforeGuard = await output();
+  await page.keyboard.press("BracketRight");
+  await chord("Space", "KeyA", "KeyJ");
+  await page.keyboard.down("KeyF");
+  for (const code of routeThumbs) await page.keyboard.down(code);
+  assert.equal(await lastReport(), emptyReport);
+  await page.keyboard.up("KeyF");
+  await page.keyboard.down("KeyD");
+  for (const code of routeThumbs.toReversed()) await page.keyboard.up(code);
+  await page.keyboard.up("KeyD");
+  assert.equal(await page.locator("#route").textContent(), "Prospector USB");
+  assert.equal(await page.locator("#mode").textContent(), "Braille");
+  assert.equal(await output(), beforeGuard);
+  await chord("KeyF");
+  assert.equal(await output(), beforeGuard + "a");
+  await page.keyboard.press("BracketRight");
 
   await page.locator("#usb-link").uncheck();
   await page.locator("#text-output").focus();
@@ -148,11 +171,18 @@ try {
   await page.keyboard.press("KeyP");
   assert.equal(await output(), beforeSwitch);
   async function holdRouteThumbs(currentRoute, nextRoute) {
-    for (const code of ["BracketRight", "Backspace", "MetaLeft"]) await page.keyboard.down(code);
+    const before = await output();
+    for (const code of routeThumbs) await page.keyboard.down(code);
+    await page.keyboard.down("KeyP");
     await page.waitForTimeout(300);
     assert.equal(await page.locator("#route").textContent(), currentRoute);
+    assert.equal(await lastReport(), emptyReport);
     await page.waitForFunction(route => document.getElementById("route").value === route, nextRoute, { timeout: 4000 });
-    for (const code of ["MetaLeft", "Backspace", "BracketRight"]) await page.keyboard.up(code);
+    await page.keyboard.press("KeyQ");
+    for (const code of routeThumbs.toReversed()) await page.keyboard.up(code);
+    await page.keyboard.up("KeyP");
+    assert.equal(await lastReport(), emptyReport);
+    assert.equal(await output(), before);
   }
   await holdRouteThumbs("Prospector USB", "Toucan Bluetooth");
   assert.equal(await page.locator("#output-heading").textContent(), "Bluetooth output");
@@ -204,6 +234,7 @@ try {
   assert.equal(await output(), "b");
   await page.keyboard.press("KeyP");
   assert.equal(await output(), "bp");
+  await page.evaluate(() => localStorage.removeItem("kb.wlt.toucan.settings"));
   await page.reload();
   await page.locator('#runtime[data-status="ready"]').waitFor();
   assert.equal(await page.locator("#route").textContent(), "Prospector USB");
@@ -287,8 +318,54 @@ try {
   assert.equal(await touch.locator("#text-output").inputValue(), "");
   await touch.close();
 
+  await page.keyboard.press("BracketRight");
+  const cleanBraille = await canvas("#prospector");
+  await page.keyboard.down("KeyF");
+  await page.waitForFunction(before => document.getElementById("prospector").toDataURL() !== before, cleanBraille);
+  const singleDot = await canvas("#prospector");
+  await page.keyboard.down("KeyD");
+  await page.waitForFunction(before => document.getElementById("prospector").toDataURL() !== before, singleDot);
+  await page.keyboard.up("KeyD");
+  await page.waitForFunction(expected => document.getElementById("prospector").toDataURL() === expected, singleDot);
+  assert.equal(await output(), "");
+  await page.keyboard.up("KeyF");
+  assert.equal(await output(), "a");
+  await page.evaluate(() => {
+    for (const [type, code] of [["keydown", "KeyF"], ["keydown", "KeyD"], ["keyup", "KeyD"], ["keyup", "KeyF"]]) {
+      window.dispatchEvent(new KeyboardEvent(type, { code }));
+    }
+  });
+  assert.equal(await output(), "ab");
+  await page.keyboard.press("KeyA");
+  assert.equal(await output(), "a");
+
+  async function openAlphabet() {
+    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
+    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyK");
+    await chord("Space", "KeyA");
+  }
+
+  await openAlphabet();
+  const landscapeStart = await canvas("#prospector");
+  await chord("Space", "KeyF", "KeyJ", "KeyK", "KeyL");
+  const landscapePage = await canvas("#prospector");
+  assert.notEqual(landscapePage, landscapeStart);
+  await chord("KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
+  assert.equal(await canvas("#prospector"), landscapePage);
+
+  await page.locator(".links summary").click();
+  await page.locator("#usb-link").uncheck();
+  await page.locator("#text-output").focus();
+  await chord("Space", "KeyF", "KeyS", "KeyD");
+  const portraitStart = await canvas("#toucan-display");
+  await chord("Space", "KeyF", "KeyJ", "KeyK", "KeyL");
+  const portraitPage = await canvas("#toucan-display");
+  assert.notEqual(portraitPage, portraitStart);
+  await chord("KeyF", "KeyS", "KeyJ");
+  assert.equal(await canvas("#toucan-display"), portraitPage);
+
   assert.deepEqual(errors, []);
-  console.log("Chrome verified QWERTY, Braille, pointer keycaps, inline displays, the keyboard and touch route switch, route persistence, and laptop and tablet geometry.");
+  console.log("Chrome verified QWERTY, Braille release timing, pointer keycaps, inline displays, Reference paging, guarded keyboard and touch route switches, route persistence, and laptop and tablet geometry.");
 } finally {
   await browser?.close();
   server.kill();

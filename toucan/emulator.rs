@@ -149,18 +149,17 @@ extern "C" fn braille_mask(keys: u64) -> u16 {
 #[unsafe(no_mangle)]
 extern "C" fn route_update(keys: u64, now: u32) -> u8 {
     EMULATOR.with_borrow_mut(|state| {
+        let was_blocked = state.route_switch.blocked();
         let changed = state.route_switch.update(now, keys);
         let blocked = state.route_switch.blocked();
         if blocked {
             state.blocked |= keys;
         }
-        if changed {
+        if blocked && !was_blocked {
             state.session.cancel(0);
             state.clear_reports();
-            2
-        } else {
-            u8::from(blocked)
         }
+        if changed { 2 } else { u8::from(blocked) }
     })
 }
 

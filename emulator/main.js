@@ -247,6 +247,15 @@ async function run() {
     return leftLink.checked && connection.checked;
   }
 
+  function prospectorDocked() {
+    return !direct && leftLink.checked && usbLink.checked;
+  }
+
+  function updateViewport() {
+    const activePanel = element(prospectorDocked() ? "prospector" : "toucan-display");
+    adapter.set_viewport(activePanel.width, activePanel.height);
+  }
+
   function readModel() {
     const model = new Uint8Array(adapter.memory.buffer, adapter.model_bytes(), adapter.model_len()).slice();
     const detail = decoder.decode(new Uint8Array(adapter.memory.buffer, adapter.model_detail(), adapter.model_detail_len()));
@@ -262,7 +271,7 @@ async function run() {
       drawToucanDisplay(display, toucanDisplay.model, toucanDisplay.detail);
       previousToucanDisplay = toucanDisplay.key;
     }
-    if (direct || !leftLink.checked || !usbLink.checked) {
+    if (!prospectorDocked()) {
       adapter.update_model(Number(usbLink.checked) << 2, 255, 255, false, true);
     }
     const prospector = readModel();
@@ -311,17 +320,19 @@ async function run() {
     }
 
     const nextLayer = Boolean(adapter.braille_active());
-    if (nextLayer !== brailleActive) {
+    if (!ready || nextLayer !== brailleActive) {
       componentState = new Uint8Array();
       previousKeys = 0n;
       wakeAt = undefined;
+    }
+    if (nextLayer !== brailleActive) {
       brailleActive = nextLayer;
       updateLegends(brailleActive, thumb, baseKeys, dots);
     }
 
-    if (brailleActive) {
-      if (ready && adapter.braille_update(adapter.braille_mask(keys), nowMs)) saveSettings(adapter);
-    } else if (keys !== previousKeys || (wakeAt !== undefined && ((nowMs - wakeAt) | 0) >= 0)) {
+    if (ready && brailleActive) {
+      if (adapter.braille_update(adapter.braille_mask(keys), nowMs)) saveSettings(adapter);
+    } else if (ready && (keys !== previousKeys || (wakeAt !== undefined && ((nowMs - wakeAt) | 0) >= 0))) {
       const result = keyboard.process(componentState, { events: keyEdges(previousKeys, keys, nowMs), nowMs });
       const [state, actions] = keyboard.transformOutput(result.state, result.actions);
       componentState = state;
@@ -353,8 +364,7 @@ async function run() {
 
   function setTransport(bluetooth) {
     direct = bluetooth;
-    const activePanel = element(direct ? "toucan-display" : "prospector");
-    adapter.set_viewport(activePanel.width, activePanel.height);
+    updateViewport();
     element("route").value = direct ? "Toucan Bluetooth" : "Prospector USB";
     element("output-heading").textContent = direct ? "Bluetooth output" : "USB output";
     lastReport.setAttribute("aria-label", direct ? "Last Bluetooth report" : "Last USB report");
@@ -429,6 +439,7 @@ async function run() {
     field.addEventListener("change", () => {
       document.querySelector(".board-left").toggleAttribute("data-disconnected", !leftLink.checked);
       document.querySelector(".board-right").toggleAttribute("data-disconnected", !rightLink.checked);
+      updateViewport();
       if (field === leftLink || field === rightLink || field === (direct ? bluetoothLink : usbLink)) {
         cancel();
       } else {

@@ -17,9 +17,13 @@ Open [localhost:4173](http://127.0.0.1:4173). After changing Wavelet code, run `
 
 ## Keyboard and displays
 
-Click keycaps, tap them with multiple fingers, or use a physical keyboard. The physical `[` key maps to Escape, `/` maps to the bottom-right minus, and `\` maps to the right thumb Shift. Tap `]` to switch between QWERTY and braille. Hold it down to use braille until release. In braille, the keycaps show their dot or Space assignment. Hold the keys in a chord together, then release them. Chord Space with F, D, S, J and K to open the braille menu. Then chord Space with F, D, S and K for Reference, and Space with A to open the selected category.
+Click keycaps, tap them with multiple fingers, or use a physical keyboard. The physical `[` key maps to Escape, `/` maps to the bottom-right minus, and `\` maps to the right thumb Shift. Tap `]` to switch between QWERTY and braille. Hold it down to use braille until release. In braille, the keycaps show their dot or Space assignment. Hold the keys in a chord together, then release them. Keys released less than 50 milliseconds apart can join the same chord. Chord A alone for Backspace.
 
-The left Toucan half contains the monochrome display. The Prospector shows the color display above both halves. Select either display to expand a live preview inline while continuing to type. The Prospector clips its corners to the equivalent of a 30-pixel radius at native resolution. The MIP stays rectangular. Hold all three left thumbs for two seconds to switch between **Prospector USB** and **Toucan Bluetooth**. Their physical inputs are `]`, Backspace and left Meta. The active route appears below the keyboard. Both routes use the left half as the application host. Expand **Simulated connections** to change the battery levels or link states. Browser storage persists transport, menu and binding settings.
+Chord Space with F, D, S, J and K to open the braille menu. Repeat that chord for Main Menu. From either screen, chord Space with F, D, S and K for Reference, then Space with A to open the selected category.
+
+The left Toucan half contains the monochrome display. The Prospector shows the color display above both halves. Select either display to expand a live preview inline while continuing to type. The Prospector clips its corners to the equivalent of a 30-pixel radius at native resolution. The MIP stays rectangular.
+
+To switch between **Prospector USB** and **Toucan Bluetooth**, press and hold the outer left Braille thumb (`]`) first. Add Backspace and left Meta, then hold all three for two seconds. The active route appears below the keyboard. Both routes use the left half as the application host. Expand **Simulated connections** to change the battery levels or link states. Browser storage persists transport, menu and binding settings.
 
 The simulator validates components, key input, and display output. BLE, battery sensing, USB transport, and the physical displays require hardware validation.
 
