@@ -10,8 +10,6 @@ const viewer = element("display-viewer");
 const enlargedDisplay = element("enlarged-display");
 const usbLink = element("usb-link");
 const bluetoothLink = element("bluetooth-link");
-const usbTransport = element("transport-usb");
-const bluetoothTransport = element("transport-bluetooth");
 const leftLink = element("left-link");
 const rightLink = element("right-link");
 const leftBattery = element("left-battery");
@@ -26,8 +24,9 @@ const keycaps = positions.map(key => {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "key";
-  button.style.gridRow = key.row + 1;
-  button.style.gridColumn = key.column + 1;
+  button.style.setProperty("--key-x", key.x);
+  button.style.setProperty("--key-y", key.y);
+  button.style.setProperty("--key-angle", `${key.angle}deg`);
   button.disabled = true;
   if (key.row === 3 || key.column === (key.left ? 0 : 5)) button.dataset.alternate = "";
   element(key.left ? "left-keys" : "right-keys").append(button);
@@ -298,7 +297,11 @@ async function run() {
       if (positions[position].left ? leftLink.checked : rightLink.checked) matrix |= keyBit(position);
     }
     const route = adapter.route_update(matrix, nowMs);
-    if (route === 2) selectTransport(direct ? "usb" : "bluetooth", false);
+    if (route === 2) {
+      setTransport(!direct);
+      sink.keyboard_report(0n);
+      sink.consumer_report(0);
+    }
     ready &&= route === 0;
     const keys = adapter.matrix(matrix, nowMs, ready);
     for (const [position, keycap] of keycaps.entries()) {
@@ -346,17 +349,15 @@ async function run() {
     });
   }
 
-  function selectTransport(value, cancelInput = true) {
-    const nextDirect = value === "bluetooth";
-    if (cancelInput && direct !== nextDirect) cancel();
-    direct = nextDirect;
+  function setTransport(bluetooth) {
+    direct = bluetooth;
     const activePanel = element(direct ? "nice-view" : "prospector");
     adapter.set_viewport(activePanel.width, activePanel.height);
-    usbTransport.checked = !nextDirect;
-    bluetoothTransport.checked = nextDirect;
-    element("output-heading").textContent = nextDirect ? "Bluetooth output" : "USB output";
+    element("route").value = direct ? "Toucan Bluetooth" : "Prospector USB";
+    element("output-heading").textContent = direct ? "Bluetooth output" : "USB output";
+    lastReport.setAttribute("aria-label", direct ? "Last Bluetooth report" : "Last USB report");
     try {
-      localStorage.setItem(transportKey, nextDirect ? "bluetooth" : "usb");
+      localStorage.setItem(transportKey, direct ? "bluetooth" : "usb");
     } catch (error) {
       console.warn("Toucan transport could not be saved", error);
     }
@@ -364,10 +365,10 @@ async function run() {
   }
 
   try {
-    selectTransport(localStorage.getItem(transportKey));
+    setTransport(localStorage.getItem(transportKey) === "bluetooth");
   } catch (error) {
     console.warn("Toucan transport could not be loaded", error);
-    selectTransport("usb");
+    setTransport(false);
   }
 
   updateLegends(false, thumb, baseKeys, dots);
@@ -399,7 +400,7 @@ async function run() {
     }
     const position = physicalCodes.get(event.code);
     if (position === undefined || event.isComposing || event.target.closest?.(".links")) return;
-    const nativeControl = event.target.closest?.(".clear, .screen-toggle, .transport");
+    const nativeControl = event.target.closest?.(".clear, .screen-toggle");
     if (nativeControl && ["Enter", "Space", "Tab"].includes(event.code)) return;
     if (event.code === "Tab" && event.shiftKey) return;
     event.preventDefault();
@@ -422,9 +423,6 @@ async function run() {
     if (document.hidden && inputs.size) cancel();
   });
 
-  for (const input of [usbTransport, bluetoothTransport]) {
-    input.addEventListener("change", () => selectTransport(input.value));
-  }
   for (const field of [leftLink, rightLink, usbLink, bluetoothLink]) {
     field.addEventListener("change", () => {
       document.querySelector(".board-left").toggleAttribute("data-disconnected", !leftLink.checked);

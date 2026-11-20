@@ -10,6 +10,7 @@
 
 ### Changed
 
+- The emulator follows Toucan’s column stagger and thumb angles, places the Prospector above both halves, and switches output routes through the three-thumb hold.
 - Wavelet defines both kits’ display scenes and menu navigation. LVGL draws them on the Prospector and Toucan MIP.
 - The Braille reference uses cell diagrams and a four-column letter grid. Menus use larger text and keep command reminders in Help.
 - Install kits include UTF-8 Braille keymaps and board-specific connection instructions.

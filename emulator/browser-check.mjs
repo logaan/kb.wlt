@@ -31,6 +31,8 @@ try {
   await page.locator("#runtime[data-status]").waitFor();
   assert.equal(await page.locator("#runtime").textContent(), "Components ready", errors.join("\n"));
   assert.equal(await page.locator(".key").count(), 42);
+  assert.equal(await page.getByRole("radio").count(), 0);
+  assert.equal(await page.locator("#route").textContent(), "Prospector USB");
   assert.equal(await page.locator("#mode").textContent(), "QWERTY");
   assert.equal(await page.getByRole("button", { name: "Esc ([)" }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "- (/)" }).count(), 1);
@@ -129,10 +131,14 @@ try {
   const beforeSwitch = await output();
   await page.keyboard.press("KeyP");
   assert.equal(await output(), beforeSwitch);
-  for (const code of ["BracketRight", "Backspace", "MetaLeft"]) await page.keyboard.down(code);
-  await page.waitForTimeout(2100);
-  assert.equal(await page.locator("#transport-bluetooth").isChecked(), true);
-  for (const code of ["MetaLeft", "Backspace", "BracketRight"]) await page.keyboard.up(code);
+  async function holdRouteThumbs(currentRoute, nextRoute) {
+    for (const code of ["BracketRight", "Backspace", "MetaLeft"]) await page.keyboard.down(code);
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator("#route").textContent(), currentRoute);
+    await page.waitForFunction(route => document.getElementById("route").value === route, nextRoute, { timeout: 4000 });
+    for (const code of ["MetaLeft", "Backspace", "BracketRight"]) await page.keyboard.up(code);
+  }
+  await holdRouteThumbs("Prospector USB", "Toucan Bluetooth");
   assert.equal(await page.locator("#output-heading").textContent(), "Bluetooth output");
   assert.equal(await output(), beforeSwitch);
 
@@ -149,7 +155,7 @@ try {
   assert.equal(await canvas("#prospector"), standaloneProspector);
   await page.reload();
   await page.locator('#runtime[data-status="ready"]').waitFor();
-  assert.equal(await page.locator("#transport-bluetooth").isChecked(), true);
+  assert.equal(await page.locator("#route").textContent(), "Toucan Bluetooth");
 
   await page.keyboard.press("BracketRight");
   await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
@@ -171,32 +177,105 @@ try {
   await chord("KeyF");
   assert.equal(await output(), "b");
 
-  async function checkScale() {
-    const scale = await page.evaluate(() => {
+  await page.keyboard.press("BracketRight");
+  await page.locator(".links summary").click();
+  await page.locator("#bluetooth-link").uncheck();
+  await page.locator("#text-output").focus();
+  await page.keyboard.press("KeyP");
+  assert.equal(await output(), "b");
+  await holdRouteThumbs("Toucan Bluetooth", "Prospector USB");
+  assert.equal(await page.locator("#output-heading").textContent(), "USB output");
+  assert.equal(await output(), "b");
+  await page.keyboard.press("KeyP");
+  assert.equal(await output(), "bp");
+  await page.reload();
+  await page.locator('#runtime[data-status="ready"]').waitFor();
+  assert.equal(await page.locator("#route").textContent(), "Prospector USB");
+
+  async function checkGeometry() {
+    const geometry = await page.evaluate(() => {
       const rect = id => document.querySelector(id).getBoundingClientRect();
-      const [tab, q] = [...document.querySelectorAll("#left-keys .key")];
-      const ctrl = document.querySelectorAll("#left-keys .key")[6];
-      const dx = q.getBoundingClientRect().left - tab.getBoundingClientRect().left;
-      const dy = ctrl.getBoundingClientRect().top - tab.getBoundingClientRect().top;
+      const centerX = box => (box.left + box.right) / 2;
+      const centerY = box => (box.top + box.bottom) / 2;
+      const leftKeys = [...document.querySelectorAll("#left-keys .key")];
+      const rightKeys = [...document.querySelectorAll("#right-keys .key")];
+      const leftBoard = rect(".board-left");
+      const rightBoard = rect(".board-right");
+      const workbench = rect(".workbench");
+      const receiver = rect(".receiver");
+      const [tab, q] = leftKeys.map(key => key.getBoundingClientRect());
+      const ctrl = leftKeys[6].getBoundingClientRect();
+      const dx = q.left - tab.left;
+      const dy = ctrl.top - tab.top;
       const prospector = rect("#prospector");
       const niceView = rect("#nice-view");
-      return [prospector.width * 18 / dx, prospector.height * 17 / dy,
-        niceView.width * 18 / dx, niceView.height * 17 / dy, dx / dy];
+      const angles = keys => keys.map(key => {
+        const matrix = new DOMMatrixReadOnly(getComputedStyle(key).transform);
+        return Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI) + 0;
+      });
+      const topOffsets = keys => {
+        const top = Math.min(...keys.map(key => key.getBoundingClientRect().top));
+        return keys.map(key => (key.getBoundingClientRect().top - top) / dy);
+      };
+      const thumbs = [...leftKeys.slice(-3), ...rightKeys.slice(-3)];
+      const keyBounds = [leftKeys, rightKeys].flatMap((keys, index) => keys.map(key => {
+        const box = key.getBoundingClientRect();
+        const board = index === 0 ? leftBoard : rightBoard;
+        return box.left >= board.left && box.right <= board.right &&
+          box.top >= board.top && box.bottom <= board.bottom &&
+          document.elementFromPoint(centerX(box), centerY(box)) === key;
+      }));
+      return {
+        scale: [prospector.width * 18 / dx, prospector.height * 17 / dy,
+          niceView.width * 18 / dx, niceView.height * 17 / dy, dx / dy],
+        offsets: [...topOffsets(leftKeys.slice(0, 6)), ...topOffsets(rightKeys.slice(0, 6))],
+        angles: angles([...leftKeys.slice(0, 18), ...rightKeys.slice(0, 18), ...thumbs]),
+        thumbDepths: thumbs.map(key => (centerY(key.getBoundingClientRect()) - ctrl.top) / dy),
+        receiverOffset: centerX(receiver) - (leftBoard.left + rightBoard.right) / 2,
+        receiverGap: Math.min(leftBoard.top, rightBoard.top) - receiver.bottom,
+        alignedBoards: leftBoard.top === rightBoard.top,
+        fittingBoards: leftBoard.left >= workbench.left && rightBoard.right <= workbench.right,
+        fittingKeys: keyBounds.every(Boolean),
+        transforms: [".board-left", ".board-right"].map(selector => getComputedStyle(document.querySelector(selector)).transform),
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      };
     });
     for (const [index, expected] of [32.634, 27.972, 20.88, 24.36, 18 / 17].entries()) {
-      assert.ok(Math.abs(scale[index] - expected) < expected * 0.01, `Scale mismatch ${scale[index]} vs ${expected}`);
+      assert.ok(Math.abs(geometry.scale[index] - expected) < expected * 0.01, `Scale mismatch ${geometry.scale[index]} vs ${expected}`);
     }
+    for (const [index, expected] of [0.37, 0.37, 0.12, 0, 0.12, 0.24, 0.24, 0.12, 0, 0.12, 0.37, 0.37].entries()) {
+      assert.ok(Math.abs(geometry.offsets[index] - expected) < 0.002);
+    }
+    for (const [index, expected] of [2.221, 2.336, 2.632, 2.632, 2.336, 2.221].entries()) {
+      assert.ok(Math.abs(geometry.thumbDepths[index] - expected) < 0.003);
+    }
+    assert.deepEqual(geometry.angles, [...Array(36).fill(0), 0, 12, 24, -24, -12, 0]);
+    assert.ok(Math.abs(geometry.receiverOffset) < 0.5);
+    assert.ok(geometry.receiverGap >= 20);
+    assert.ok(geometry.alignedBoards && geometry.fittingBoards && geometry.fittingKeys);
+    assert.deepEqual(geometry.transforms, ["none", "none"]);
+    assert.equal(geometry.overflow, false);
   }
-  await checkScale();
+  await checkGeometry();
   await page.setViewportSize({ width: 390, height: 844 });
-  const overflow = await page.evaluate(() =>
-    document.documentElement.scrollWidth > document.documentElement.clientWidth);
-  assert.equal(overflow, false);
-  await checkScale();
-  const [workbench, left, right] = await Promise.all([".workbench", ".board-left", ".board-right"].map(selector => page.locator(selector).boundingBox()));
-  assert.ok(left.x >= workbench.x && right.x + right.width <= workbench.x + workbench.width);
+  await checkGeometry();
+  await page.setViewportSize({ width: 320, height: 640 });
+  await checkGeometry();
+
+  const touch = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  await touch.goto(url);
+  await touch.locator('#runtime[data-status="ready"]').waitFor();
+  const thumbs = await Promise.all([18, 19, 20].map(index => touch.locator("#left-keys .key").nth(index).boundingBox()));
+  const touchPoints = thumbs.map(({ x, y, width, height }, id) => ({ x: x + width / 2, y: y + height / 2, id }));
+  const session = await touch.context().newCDPSession(touch);
+  await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints });
+  await touch.waitForFunction(() => document.getElementById("route").value === "Toucan Bluetooth", undefined, { timeout: 4000 });
+  await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  assert.equal(await touch.locator("#text-output").inputValue(), "");
+  await touch.close();
+
   assert.deepEqual(errors, []);
-  console.log("Chrome verified QWERTY, punctuation, modifiers, pointer keycaps, Braille tap and hold, menu, binding editing, inline reference, simulated USB and Bluetooth routes, and display scale at desktop and mobile widths.");
+  console.log("Chrome verified QWERTY, Braille, pointer keycaps, inline displays, the keyboard and touch route switch, route persistence, and desktop and mobile geometry.");
 } finally {
   await browser?.close();
   server.kill();
