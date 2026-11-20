@@ -12,6 +12,7 @@ export function inlineScene(commands, strings) {
       result.push(first, second, bytes.length, ...bytes);
     } else if (opcode === 1 || opcode === 2 || opcode === 4) {
       result.push(w & 255, w >>> 8, h & 255, h >>> 8, first, second);
+      if (opcode === 4) result.push(third);
     } else {
       throw new Error(`Unknown display command ${opcode}`);
     }

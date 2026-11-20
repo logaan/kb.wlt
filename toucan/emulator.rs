@@ -160,7 +160,7 @@ extern "C" fn matrix(keys: u64, now: u32, ready: bool) -> u64 {
             if !braille && ready && braille_keys(keys) == 0 {
                 state.update_braille(0, now);
             }
-            state.session = Session::new(state.session.settings);
+            state.session.cancel(0);
             state.clear_reports();
             state.braille = braille;
         }
@@ -199,6 +199,11 @@ extern "C" fn key_action(tag: u8, usage: u16, modifiers: u8) {
             unsafe { keyboard_report(u64::from_le_bytes(report)) };
         }
     });
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn set_viewport(width: u16, height: u16) {
+    EMULATOR.with_borrow_mut(|state| state.session.set_viewport(width, height));
 }
 
 #[unsafe(no_mangle)]

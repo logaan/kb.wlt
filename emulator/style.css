@@ -153,7 +153,11 @@ canvas {
 .receiver canvas {
   width: calc(32.634 * var(--mm));
   height: auto;
-  border-radius: 5px;
+}
+
+#prospector,
+#enlarged-display[data-panel="prospector"] {
+  border-radius: 10.714285714% / 12.5%;
 }
 
 figcaption {
@@ -260,7 +264,6 @@ textarea:focus-visible {
 .satellite-display canvas {
   width: calc(20.88 * var(--mm));
   height: auto;
-  border-radius: 2px;
 }
 
 .workbench-footer {

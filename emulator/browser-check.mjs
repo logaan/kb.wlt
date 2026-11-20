@@ -37,6 +37,18 @@ try {
 
   const canvas = id => page.locator(id).evaluate(canvas =>
     canvas.toDataURL());
+  async function checkCorners(selector, rounded) {
+    const radius = await page.locator(selector).evaluate(element => getComputedStyle(element).borderTopLeftRadius);
+    if (rounded) {
+      const radii = radius.split(" ").map(Number.parseFloat);
+      assert.ok(Math.abs(radii[0] * 280 / 100 - 30) < 0.01);
+      assert.ok(Math.abs(radii[1] * 240 / 100 - 30) < 0.01);
+    } else {
+      assert.equal(radius, "0px");
+    }
+  }
+  await checkCorners("#prospector", true);
+  await checkCorners("#nice-view", false);
   const initialProspector = await canvas("#prospector");
   const initialNiceView = await canvas("#nice-view");
   assert.notEqual(initialProspector, initialNiceView);
@@ -77,6 +89,7 @@ try {
   const categories = await canvas("#prospector");
   await page.getByRole("button", { name: "Enlarge Prospector display" }).click();
   assert.equal(await page.locator("#display-viewer").isVisible(), true);
+  await checkCorners("#enlarged-display", true);
   assert.equal(await page.locator("dialog, [title], [popover]").count(), 0);
   const before = await canvas("#enlarged-display");
   await chord("Space", "KeyA");
@@ -84,6 +97,9 @@ try {
   assert.notEqual(await canvas("#enlarged-display"), before);
   await page.keyboard.press("Escape");
   assert.equal(await page.locator("#display-viewer").isVisible(), false);
+  await page.getByRole("button", { name: "Enlarge left Toucan nice!view display" }).click();
+  await checkCorners("#enlarged-display", false);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   assert.equal(await output(), "qW e-\t\npa");
 
   await page.keyboard.press("BracketRight");
@@ -135,6 +151,26 @@ try {
   await page.locator('#runtime[data-status="ready"]').waitFor();
   assert.equal(await page.locator("#transport-bluetooth").isChecked(), true);
 
+  await page.keyboard.press("BracketRight");
+  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
+  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
+  await chord("Space", "KeyJ");
+  await chord("Space", "KeyJ");
+  await chord("Space", "KeyA");
+  await chord("Space", "KeyA");
+  await chord("Space", "KeyA");
+  await chord("KeyF");
+  await chord("KeyF", "KeyD");
+  await chord("KeyF", "KeyJ");
+  await chord("KeyA");
+  await chord("Space", "KeyA");
+  assert.ok(await page.evaluate(() => localStorage.getItem("kb.wlt.toucan.settings")));
+  assert.equal(await output(), "");
+  await page.keyboard.press("BracketRight");
+  await page.keyboard.press("BracketRight");
+  await chord("KeyF");
+  assert.equal(await output(), "b");
+
   async function checkScale() {
     const scale = await page.evaluate(() => {
       const rect = id => document.querySelector(id).getBoundingClientRect();
@@ -160,7 +196,7 @@ try {
   const [workbench, left, right] = await Promise.all([".workbench", ".board-left", ".board-right"].map(selector => page.locator(selector).boundingBox()));
   assert.ok(left.x >= workbench.x && right.x + right.width <= workbench.x + workbench.width);
   assert.deepEqual(errors, []);
-  console.log("Chrome verified QWERTY, punctuation, modifiers, pointer keycaps, Braille tap and hold, menu, inline reference, simulated USB and Bluetooth routes, and display scale at desktop and mobile widths.");
+  console.log("Chrome verified QWERTY, punctuation, modifiers, pointer keycaps, Braille tap and hold, menu, binding editing, inline reference, simulated USB and Bluetooth routes, and display scale at desktop and mobile widths.");
 } finally {
   await browser?.close();
   server.kill();

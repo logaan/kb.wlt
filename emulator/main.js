@@ -183,8 +183,12 @@ async function run() {
       guest_step: (held, chord, keys) => stepResult(braille.step({ held, chord }, keys)),
       guest_map_cell: braille.mapCell,
       guest_navigate: display.navigate,
-      keyboard_report: sink.keyboard_report,
-      consumer_report: sink.consumer_report,
+      keyboard_report: report => {
+        if (hostReady()) sink.keyboard_report(report);
+      },
+      consumer_report: report => {
+        if (hostReady()) sink.consumer_report(report);
+      },
     },
   });
 
@@ -228,6 +232,7 @@ async function run() {
     previewButton = button;
     previewButton.setAttribute("aria-expanded", "true");
     displayedCanvas = element(id);
+    enlargedDisplay.dataset.panel = id;
     enlargedDisplay.width = displayedCanvas.width;
     enlargedDisplay.height = displayedCanvas.height;
     viewer.style.setProperty("--zoomed-width", `${displayedCanvas.width * 2}px`);
@@ -258,7 +263,7 @@ async function run() {
       drawNiceView(display, niceView.model, niceView.detail);
       previousNiceView = niceView.key;
     }
-    if (direct || !leftLink.checked) {
+    if (direct || !leftLink.checked || !usbLink.checked) {
       adapter.update_model(Number(usbLink.checked) << 2, 255, 255, false, true);
     }
     const prospector = readModel();
@@ -286,7 +291,7 @@ async function run() {
     requestAnimationFrame(() => safely(render));
   }
 
-  function update(ready = hostReady()) {
+  function update(ready = leftLink.checked) {
     const nowMs = (performance.now() - start) >>> 0;
     let matrix = 0n;
     for (const position of inputs.values()) {
@@ -334,13 +339,19 @@ async function run() {
 
   function cancel() {
     inputs.clear();
-    safely(() => update(false));
+    safely(() => {
+      update(false);
+      sink.keyboard_report(0n);
+      sink.consumer_report(0);
+    });
   }
 
   function selectTransport(value, cancelInput = true) {
     const nextDirect = value === "bluetooth";
     if (cancelInput && direct !== nextDirect) cancel();
     direct = nextDirect;
+    const activePanel = element(direct ? "nice-view" : "prospector");
+    adapter.set_viewport(activePanel.width, activePanel.height);
     usbTransport.checked = !nextDirect;
     bluetoothTransport.checked = nextDirect;
     element("output-heading").textContent = nextDirect ? "Bluetooth output" : "USB output";
