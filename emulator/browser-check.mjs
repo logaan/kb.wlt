@@ -104,6 +104,14 @@ try {
   await page.getByRole("button", { name: "Close", exact: true }).click();
   assert.equal(await output(), "qW e-\t\npa");
 
+  await chord("KeyF", "KeyD", "KeyK");
+  await chord("KeyF", "KeyS", "KeyJ", "KeyK");
+  await chord("KeyF", "KeyS", "KeyJ", "KeyK");
+  const lastNavigationHelp = await canvas("#prospector");
+  await chord("KeyF", "KeyS", "KeyJ", "KeyK");
+  assert.notEqual(await canvas("#prospector"), lastNavigationHelp);
+  assert.equal(await page.locator("#route").textContent(), "Prospector USB");
+
   await page.keyboard.press("BracketRight");
   assert.equal(await page.locator("#mode").textContent(), "QWERTY");
   await page.keyboard.down("BracketRight");
@@ -112,6 +120,14 @@ try {
   await chord("KeyF");
   await page.keyboard.up("BracketRight");
   assert.equal(await page.locator("#mode").textContent(), "QWERTY");
+  assert.equal(await output(), "qW e-\t\npaa");
+  await page.keyboard.down("BracketRight");
+  await page.waitForTimeout(240);
+  await page.keyboard.down("KeyF");
+  await page.keyboard.up("BracketRight");
+  await page.keyboard.up("KeyF");
+  assert.equal(await page.locator("#mode").textContent(), "QWERTY");
+  assert.equal(await output(), "qW e-\t\npaa");
 
   await page.locator(".links summary").click();
   await page.locator("#left-battery").fill("20");

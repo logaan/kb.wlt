@@ -303,7 +303,9 @@ async function run() {
       sink.consumer_report(0);
     }
     ready &&= route === 0;
-    const keys = adapter.matrix(matrix, nowMs, ready);
+    const matrixResult = adapter.matrix(matrix, nowMs, ready);
+    if (matrixResult < 0n) saveSettings(adapter);
+    const keys = BigInt.asUintN(positions.length, matrixResult);
     for (const [position, keycap] of keycaps.entries()) {
       keycap.toggleAttribute("data-pressed", Boolean(matrix & keyBit(position)));
     }

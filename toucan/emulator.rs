@@ -2,10 +2,12 @@
 
 use std::cell::RefCell;
 
-use kb_client_session::{Guest, Links, Model, Session};
+use kb_client_session::{Change, Guest, Links, Model, Session};
 use kb_core::KeyStroke;
 use kb_core::braille_hid::{Report, stroke_reports};
-use kb_core::matrix_link::{BRAILLE_THUMB, BrailleSwitch, RouteSwitch, braille_keys};
+use kb_core::matrix_link::{
+    BRAILLE_THUMB, BrailleSwitch, RouteSwitch, braille_keys, braille_transition_blocked,
+};
 use kb_core::pipeline::{Action, Key};
 use kb_core::preferences::{ENCODED_LEN, Settings};
 use kb_core::report_state::ReportState;
@@ -56,7 +58,6 @@ impl Guest for BrowserGuest {
 struct Emulator {
     layer_switch: BrailleSwitch,
     route_switch: RouteSwitch,
-    route_guard: bool,
     braille: bool,
     keys: u64,
     blocked: u64,
@@ -72,11 +73,10 @@ impl Emulator {
         Self {
             layer_switch: BrailleSwitch::default(),
             route_switch: RouteSwitch::new(),
-            route_guard: false,
             braille: false,
             keys: 0,
             blocked: 0,
-            session: Session::new(Settings::default()),
+            session: toucan_session(Settings::default()),
             reports: ReportState::new(),
             consumer: [0; 2],
             settings: [0; ENCODED_LEN],
@@ -98,6 +98,10 @@ impl Emulator {
 
     fn update_braille(&mut self, keys: u16, now: u32) -> u32 {
         let change = self.session.update(keys, now, &mut BrowserGuest).unwrap();
+        self.apply_braille_change(change)
+    }
+
+    fn apply_braille_change(&mut self, change: Change) -> u32 {
         if change.reset {
             self.clear_reports();
         }
@@ -122,6 +126,12 @@ impl Emulator {
     }
 }
 
+fn toucan_session(settings: Settings) -> Session {
+    let mut session = Session::new(settings);
+    session.enable_host_switch();
+    session
+}
+
 thread_local! {
     static EMULATOR: RefCell<Emulator> = RefCell::new(Emulator::new());
 }
@@ -140,12 +150,16 @@ extern "C" fn braille_mask(keys: u64) -> u16 {
 extern "C" fn route_update(keys: u64, now: u32) -> u8 {
     EMULATOR.with_borrow_mut(|state| {
         let changed = state.route_switch.update(now, keys);
-        state.route_guard =
-            RouteSwitch::active(keys) || (state.route_guard && keys & (7 << BRAILLE_THUMB) != 0);
+        let blocked = state.route_switch.blocked();
+        if blocked {
+            state.blocked |= keys;
+        }
         if changed {
+            state.session.cancel(0);
+            state.clear_reports();
             2
         } else {
-            u8::from(state.route_guard)
+            u8::from(blocked)
         }
     })
 }
@@ -153,14 +167,22 @@ extern "C" fn route_update(keys: u64, now: u32) -> u8 {
 #[unsafe(no_mangle)]
 extern "C" fn matrix(keys: u64, now: u32, ready: bool) -> u64 {
     EMULATOR.with_borrow_mut(|state| {
-        let braille = state.layer_switch.update(now, ready.then_some(keys));
         state.blocked &= keys;
+        let layer_keys = keys & !state.blocked;
+        let braille = state.layer_switch.update(now, ready.then_some(layer_keys));
+        let mut saved = 0;
         if braille != state.braille {
-            state.blocked |= if braille { state.keys & keys } else { keys };
-            if !braille && ready && braille_keys(keys) == 0 {
-                state.update_braille(0, now);
+            state.blocked |= braille_transition_blocked(braille, state.keys, keys);
+            if braille {
+                state.session.cancel(0);
+            } else {
+                let final_keys = ready.then(|| braille_keys(layer_keys));
+                let change = state
+                    .session
+                    .finish_momentary(final_keys, now, &mut BrowserGuest)
+                    .unwrap();
+                saved = state.apply_braille_change(change);
             }
-            state.session.cancel(0);
             state.clear_reports();
             state.braille = braille;
         }
@@ -169,7 +191,7 @@ extern "C" fn matrix(keys: u64, now: u32, ready: bool) -> u64 {
             state.clear_reports();
         }
         state.keys = if ready { keys } else { 0 };
-        state.keys & !state.blocked
+        (state.keys & !state.blocked) | (u64::from(saved) << 63)
     })
 }
 
@@ -255,7 +277,7 @@ extern "C" fn settings_len() -> usize {
 extern "C" fn load_settings() {
     EMULATOR.with_borrow_mut(|state| {
         if let Ok(settings) = Settings::decode(&state.settings) {
-            state.session = Session::new(settings);
+            state.session = toucan_session(settings);
         }
     });
 }
