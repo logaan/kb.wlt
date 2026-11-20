@@ -1,13 +1,16 @@
 use super::route;
 use crate::{
+    ble_bonds::BondStore,
     radio::{Bonds, Host},
     usb_hid::Output,
 };
-use embassy_futures::select::{Either, select};
+use core::{cell::Cell, future::pending};
+use embassy_futures::select::{Either, select, select3};
 use embassy_time::{Duration, Timer, with_timeout};
 use kb_core::{
     braille_hid::{Report, stroke_reports},
     hid::BRAILLE_BLE_REPORT_DESCRIPTOR,
+    host_target::Target,
 };
 use trouble_host::prelude::*;
 
@@ -83,21 +86,29 @@ struct DeviceInformation {
     pnp_id: [u8; 7],
 }
 
-struct Ready;
+fn schema(target: Target) -> u32 {
+    HID_SCHEMA + u32::from(target as u8 - Target::Bluetooth1 as u8)
+}
+
+pub(super) fn is_hid_peer(store: &BondStore<'_>, identity: &Identity) -> bool {
+    (HID_SCHEMA..HID_SCHEMA + 5).any(|schema| store.client(identity, schema).is_some())
+}
+
+struct Ready(Target);
 
 impl Drop for Ready {
     fn drop(&mut self) {
-        route::set_transport_ready(true, false);
+        route::set_transport_ready(self.0, false);
     }
 }
 
-pub(super) async fn advertise(stack: &Host<'_>, bonds: &Bonds) {
+pub(super) async fn advertise(stack: &Host<'_>, bonds: &Bonds, target: Target) {
+    let schema = schema(target);
     let server = KeyboardServer::new_with_config(GapConfig::Peripheral(PeripheralConfig {
         name: NAME,
         appearance: &appearance::human_interface_device::KEYBOARD,
     }))
     .unwrap();
-    let mut peripheral = stack.peripheral();
     let mut data = [0; 31];
     let len = AdStructure::encode_slice(
         &[
@@ -119,20 +130,19 @@ pub(super) async fn advertise(stack: &Host<'_>, bonds: &Bonds) {
         let epoch = crate::settings::radio_epoch();
         let _ = select(
             async {
-                let Ok(advertisement) = peripheral
-                    .advertise(
-                        &AdvertisementParameters::default(),
-                        Advertisement::ConnectableScannableUndirected {
-                            adv_data: &data[..len],
-                            scan_data: &[],
-                        },
-                    )
-                    .await
+                let Some(connection) = crate::radio::accept_peripheral(stack, &data[..len]).await
                 else {
                     return;
                 };
-                let Ok(connection) = advertisement.accept().await else {
-                    return;
+                let identity = connection.peer_identity();
+                let expected = {
+                    let store = bonds.lock().await;
+                    if super::relay::is_peer(&store, &identity)
+                        || !store.allows_client_peer(schema, &identity, connection.is_bonded_peer())
+                    {
+                        return;
+                    }
+                    store.client_peer(schema)
                 };
                 if connection.set_bondable(true).is_err() {
                     return;
@@ -145,13 +155,32 @@ pub(super) async fn advertise(stack: &Host<'_>, bonds: &Bonds) {
                 let _ = connection.set(&server.hid.keyboard, &[0; 8]);
                 let _ = connection.set(&server.hid.boot_keyboard, &[0; 8]);
                 let _ = connection.set(&server.hid.consumer, &[0; 2]);
-                if connection.raw().request_security().is_err() {
+                let encrypted = connection
+                    .raw()
+                    .security_level()
+                    .is_ok_and(|level| level.encrypted());
+                if encrypted {
+                    if expected.is_some() {
+                        bonds.lock().await.restore_client_table(
+                            &server.server,
+                            connection.raw(),
+                            schema,
+                        );
+                    }
+                } else if connection.raw().request_security().is_err() {
                     return;
                 }
-                let _ready = Ready;
-                let _ = select(
-                    events(&server, &connection, stack, bonds),
-                    reports(&server, &connection),
+                let _ready = Ready(target);
+                let authorized = Cell::new(encrypted && expected.is_some());
+                let _ = select3(
+                    events(&server, &connection, stack, bonds, target, &authorized),
+                    reports(&server, &connection, target, &authorized),
+                    async {
+                        Timer::after_secs(35).await;
+                        if authorized.get() {
+                            pending::<()>().await;
+                        }
+                    },
                 )
                 .await;
                 connection.raw().disconnect();
@@ -168,7 +197,10 @@ async fn events(
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     stack: &Host<'_>,
     bonds: &Bonds,
+    target: Target,
+    authorized: &Cell<bool>,
 ) {
+    let schema = schema(target);
     loop {
         match connection.next().await {
             GattConnectionEvent::Disconnected { .. } | GattConnectionEvent::PairingFailed(_) => {
@@ -178,17 +210,25 @@ async fn events(
                 bond: Some(bond), ..
             } => {
                 let mut store = bonds.lock().await;
-                store.remember(&bond).await;
-                store
-                    .remember_client_table(&server.server, connection.raw(), HID_SCHEMA)
-                    .await;
+                if !store.allows_client_peer(schema, &bond.identity, false) {
+                    return;
+                }
+                let table = server
+                    .server
+                    .get_client_att_table(connection.raw())
+                    .unwrap_or_else(|| ClientAttTable::builder().build());
+                store.remember_with_client(&bond, schema, table.raw()).await;
+                authorized.set(true);
             }
             GattConnectionEvent::Encrypted { security_level, .. } if security_level.encrypted() => {
-                bonds.lock().await.restore_client_table(
-                    &server.server,
-                    connection.raw(),
-                    HID_SCHEMA,
-                );
+                let store = bonds.lock().await;
+                if store
+                    .client(&connection.raw().peer_identity(), schema)
+                    .is_some()
+                {
+                    store.restore_client_table(&server.server, connection.raw(), schema);
+                    authorized.set(true);
+                }
             }
             GattConnectionEvent::RequestConnectionParams(request) => {
                 let _ = request.accept(None, stack).await;
@@ -218,15 +258,15 @@ async fn events(
                     matches!(&event, GattEvent::Write(_)).then(|| hid_state(server, connection));
                 if let Ok(reply) = event.accept() {
                     if previous.is_some_and(|state| state != hid_state(server, connection)) {
-                        route::set_transport_ready(true, false);
+                        route::set_transport_ready(target, false);
                     }
                     reply.send().await;
                 }
-                if preferences_changed {
+                if preferences_changed && authorized.get() {
                     bonds
                         .lock()
                         .await
-                        .remember_client_table(&server.server, connection.raw(), HID_SCHEMA)
+                        .remember_client_table(&server.server, connection.raw(), schema)
                         .await;
                 }
             }
@@ -262,6 +302,8 @@ fn hid_state(
 async fn reports(
     server: &KeyboardServer<'_>,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
+    target: Target,
+    authorized: &Cell<bool>,
 ) {
     let mut battery = 0xff;
     let mut generation = None;
@@ -285,13 +327,17 @@ async fn reports(
             awake,
             subscribed,
         } = hid_state(server, connection);
-        let ready = connection
-            .raw()
-            .security_level()
-            .is_ok_and(|level| level.encrypted())
+        let ready = authorized.get()
+            && connection
+                .raw()
+                .security_level()
+                .is_ok_and(|level| level.encrypted())
             && awake
             && subscribed;
-        route::set_transport_ready(true, ready);
+        route::set_transport_ready(target, ready);
+        if route::target() != target {
+            return;
+        }
         let Some(token) = route::connection().token() else {
             generation = None;
             Timer::after_millis(20).await;
@@ -308,14 +354,24 @@ async fn reports(
             consumer = [0; 2];
         }
         let Either::First((output_token, output)) =
-            select(route::OUTPUT.receive(), Timer::after_millis(20)).await
+            select(route::BLUETOOTH_REPORTS.receive(), Timer::after_millis(20)).await
         else {
             continue;
         };
         if output_token != token {
             continue;
         }
+        let mut released = None;
         let next = match output {
+            Output::Release(generation) => {
+                released = Some(generation);
+                [
+                    Some(Report::Keyboard([0; 8])),
+                    Some(Report::Consumer([0; 2])),
+                    None,
+                    None,
+                ]
+            }
             Output::Held(bytes) => [Some(Report::Keyboard(bytes)), None, None, None],
             Output::Stroke(stroke) => stroke_reports(consumer, stroke),
         };
@@ -324,11 +380,15 @@ async fn reports(
                 if route::connection().accepts(token) {
                     route::invalidate_pending_reports();
                 }
+                released = None;
                 break;
             }
             if let Report::Consumer(bytes) = report {
                 consumer = bytes;
             }
+        }
+        if let Some(generation) = released {
+            route::released(generation);
         }
     }
 }

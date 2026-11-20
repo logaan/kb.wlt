@@ -167,6 +167,44 @@ mod tests {
     }
 
     #[test]
+    fn releasing_an_old_target_rejects_queued_reports_before_arming_the_new_target() {
+        let previous = SessionGate::new().set_ready(true);
+        let queued = previous.token().unwrap();
+        let releasing = previous.invalidate();
+        let release = releasing.token().unwrap();
+        assert!(!releasing.accepts(queued));
+        assert!(releasing.accepts(release));
+
+        let next = releasing.set_ready(false).set_ready(true);
+        assert!(!next.accepts(queued));
+        assert!(!next.accepts(release));
+        let mut input = InputGate::new();
+        assert!(
+            input
+                .observe(next.generation(), next.ready(), 1, false)
+                .cancel
+        );
+        assert_eq!(
+            input
+                .observe(next.generation(), next.ready(), 1, false)
+                .keys,
+            None
+        );
+        assert_eq!(
+            input
+                .observe(next.generation(), next.ready(), 0, false)
+                .keys,
+            Some(0)
+        );
+        assert_eq!(
+            input
+                .observe(next.generation(), next.ready(), 1, false)
+                .keys,
+            Some(1)
+        );
+    }
+
+    #[test]
     fn reset_is_visible_even_without_observing_intermediate_disconnect() {
         let connected = SessionGate::new().set_ready(true);
         let queued = connected.token().unwrap();

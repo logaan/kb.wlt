@@ -128,6 +128,11 @@ impl<'d> BondStore<'d> {
     }
 
     #[cfg(feature = "toucan-display")]
+    pub fn allows_client_peer(&self, schema: u32, identity: &Identity, known: bool) -> bool {
+        self.records.allows_client_peer(schema, identity, known)
+    }
+
+    #[cfg(feature = "toucan-display")]
     pub async fn remember_with_client(&mut self, bond: &BondInformation, schema: u32, data: &[u8]) {
         let mut pending = self.records.inserting(bond);
         if pending.set_client(&bond.identity, schema, data).is_ok() {

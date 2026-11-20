@@ -192,12 +192,33 @@ async fn write_report<'d>(
 pub enum Output {
     Stroke(KeyStroke),
     Held([u8; 8]),
+    #[cfg(feature = "toucan-display")]
+    Release(u32),
 }
 
 pub async fn send_strokes<'d, const N: usize>(
     writer: &mut HidWriter<'d, impl Driver<'d>, 8>,
     consumer: &mut HidWriter<'d, impl Driver<'d>, 2>,
     strokes: &Channel<CriticalSectionRawMutex, (u32, Output), N>,
+) {
+    send_strokes_inner(writer, consumer, strokes, |_| {}).await;
+}
+
+#[cfg(feature = "toucan-display")]
+pub async fn send_strokes_with_release<'d, const N: usize>(
+    writer: &mut HidWriter<'d, impl Driver<'d>, 8>,
+    consumer: &mut HidWriter<'d, impl Driver<'d>, 2>,
+    strokes: &Channel<CriticalSectionRawMutex, (u32, Output), N>,
+    released: impl FnMut(u32),
+) {
+    send_strokes_inner(writer, consumer, strokes, released).await;
+}
+
+async fn send_strokes_inner<'d, const N: usize>(
+    writer: &mut HidWriter<'d, impl Driver<'d>, 8>,
+    consumer: &mut HidWriter<'d, impl Driver<'d>, 2>,
+    strokes: &Channel<CriticalSectionRawMutex, (u32, Output), N>,
+    #[allow(unused_variables, unused_mut)] mut released: impl FnMut(u32),
 ) {
     let mut bus_reset = BUS_RESET.load(Ordering::Relaxed);
     let mut previous_consumer = [0; 2];
@@ -238,6 +259,21 @@ pub async fn send_strokes<'d, const N: usize>(
                         break;
                     }
                     keyboard = report;
+                    continue;
+                }
+                #[cfg(feature = "toucan-display")]
+                Either::First((generation, Output::Release(request))) if generation == token => {
+                    if !write_report(writer, token, [0; 8]).await {
+                        break;
+                    }
+                    keyboard = [0; 8];
+                    release_pending =
+                        !release_consumer(consumer, token, &mut previous_consumer).await;
+                    ordered_release_pending = release_pending;
+                    consumer_confirmed = false;
+                    if !release_pending {
+                        released(request);
+                    }
                     continue;
                 }
                 Either::First(_) => continue,

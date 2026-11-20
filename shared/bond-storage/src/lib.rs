@@ -100,6 +100,18 @@ impl Records {
             })
     }
 
+    pub fn allows_client_peer(&self, schema: u32, identity: &Identity, known: bool) -> bool {
+        if let Some(peer) = self.client_peer(schema) {
+            return peer.match_identity(identity);
+        }
+        !known
+            && !self
+                .bonds
+                .iter()
+                .flatten()
+                .any(|bond| bond.identity.match_identity(identity))
+    }
+
     pub fn set_client(
         &mut self,
         identity: &Identity,
@@ -413,6 +425,38 @@ mod tests {
         assert_eq!(decode_records(payload).unwrap(), records);
         for end in 0..payload.len() {
             assert!(decode_records(&payload[..end]).is_err());
+        }
+    }
+
+    #[test]
+    fn numbered_clients_keep_independent_peers_and_reject_other_bonds() {
+        const LEGACY_HID: u32 = 0x5443_4849;
+        let mut records = Records::default();
+        let table = client_table();
+        for slot in 0..5 {
+            let host = bond(slot);
+            let schema = LEGACY_HID + u32::from(slot);
+            assert!(records.allows_client_peer(schema, &host.identity, false));
+            if slot > 0 {
+                assert!(!records.allows_client_peer(schema, &bond(0).identity, true));
+                assert!(!records.allows_client_peer(schema, &bond(0).identity, false));
+            }
+            records = records.inserting(&host);
+            records
+                .set_client(&host.identity, schema, table.raw())
+                .unwrap();
+        }
+        let mut bytes = [0; kb_core::storage::MAX_PAYLOAD_LEN];
+        let reloaded = decode_records(encode_records(&records, &mut bytes).unwrap()).unwrap();
+        for slot in 0..5 {
+            let schema = LEGACY_HID + u32::from(slot);
+            for host in 0..5 {
+                assert_eq!(
+                    reloaded.allows_client_peer(schema, &bond(host).identity, true),
+                    host == slot
+                );
+            }
+            assert!(!reloaded.allows_client_peer(schema, &bond(7).identity, false));
         }
     }
 

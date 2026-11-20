@@ -10,6 +10,8 @@ use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
 #[cfg(not(feature = "toucan-dongle"))]
 use embassy_futures::select::select;
+#[cfg(feature = "toucan-display")]
+use embassy_futures::select::select3;
 #[cfg(not(feature = "toucan-dongle"))]
 use embassy_nrf::gpio::{Input as GpioInput, Pull};
 use embassy_nrf::gpio::{Level, Output as GpioOutput, OutputDrive};
@@ -23,6 +25,8 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use embassy_time::{Instant, Timer};
 #[cfg(not(feature = "toucan-dongle"))]
 use kb_core::Debouncer;
+#[cfg(feature = "toucan-display")]
+use kb_core::host_target::Target;
 #[cfg(not(feature = "toucan-dongle"))]
 use kb_core::matrix_link::PACKET_LEN;
 #[cfg(feature = "toucan-right")]
@@ -202,7 +206,7 @@ pub async fn run(spawner: Spawner, role: Role) {
         )
     };
     let (central_count, peripheral_count) = if cfg!(feature = "toucan-display") {
-        (1, 1)
+        (1, 2)
     } else if role == Role::Dongle {
         (1, 0)
     } else {
@@ -237,7 +241,17 @@ pub async fn run(spawner: Spawner, role: Role) {
     #[cfg(feature = "toucan-display")]
     route::initialize();
     let saved = bonds.load_all().unwrap();
-    let mut resources: HostResources<DefaultPacketPool, 2, 6> = HostResources::new();
+    let mut resources: HostResources<
+        DefaultPacketPool,
+        {
+            if cfg!(feature = "toucan-display") {
+                3
+            } else {
+                2
+            }
+        },
+        6,
+    > = HostResources::new();
     let stack = trouble_host::new(controller, &mut resources)
         .set_random_address(address())
         .set_io_capabilities(IoCapabilities::NoInputNoOutput)
@@ -266,30 +280,45 @@ pub async fn run(spawner: Spawner, role: Role) {
         spawner.spawn(application::process_keys().unwrap());
     }
     #[cfg(feature = "toucan-display")]
-    let application = join(
-        scanner,
+    let application = join3(
+        join(scanner, receiver::run_usb(p.USBD)),
         join(
-            join(
-                crate::settings::run_saves(&bonds),
-                crate::settings::run_controls(&stack, &bonds),
-            ),
-            join(right_link::run(&stack, &bonds), async {
+            crate::settings::run_saves(&bonds),
+            crate::settings::run_controls(&stack, &bonds),
+        ),
+        join3(
+            right_link::run(&stack, &bonds),
+            async {
                 loop {
                     while !crate::settings::bluetooth_enabled() {
                         Timer::after_millis(100).await;
                     }
-                    let direct = route::direct();
-                    let _ = select(route::changed(direct), async {
-                        if direct {
-                            ble_hid::advertise(&stack, &bonds).await;
-                        } else {
-                            relay::advertise(&stack, &bonds).await;
-                        }
-                    })
+                    let epoch = crate::settings::radio_epoch();
+                    let _ = select3(
+                        crate::settings::radio_changed(epoch),
+                        route::reset_prospector(),
+                        relay::advertise(&stack, &bonds),
+                    )
                     .await;
-                    route::set_ready(false);
+                    route::set_transport_ready(Target::Prospector, false);
+                    Timer::after_millis(100).await;
                 }
-            }),
+            },
+            async {
+                loop {
+                    let target = route::target();
+                    if target.is_bluetooth() {
+                        let _ = select(
+                            route::changed(target),
+                            ble_hid::advertise(&stack, &bonds, target),
+                        )
+                        .await;
+                        route::set_transport_ready(target, false);
+                    } else {
+                        route::changed(target).await;
+                    }
+                }
+            },
         ),
     );
     #[cfg(feature = "toucan-right")]
@@ -479,7 +508,7 @@ mod ble_hid;
 #[cfg(feature = "toucan-display")]
 #[path = "bootloader_link.rs"]
 mod bootloader_link;
-#[cfg(feature = "toucan-dongle")]
+#[cfg(any(feature = "toucan-display", feature = "toucan-dongle"))]
 #[path = "receiver.rs"]
 pub(crate) mod receiver;
 #[cfg(any(feature = "toucan-display", feature = "toucan-dongle"))]

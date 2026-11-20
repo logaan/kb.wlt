@@ -5,7 +5,7 @@ use kb_client_session::{
 };
 use kb_component_runtime::{DisplayGuest, Error, KeyboardComponent};
 use kb_core::{
-    matrix_link::{BrailleSwitch, RouteSwitch, braille_keys, braille_transition_blocked},
+    matrix_link::{BrailleSwitch, braille_keys, braille_transition_blocked},
     menu::BluetoothAction,
     pipeline::{Bounded, Input, KeyEvent, KeyState},
     report_state::ReportState,
@@ -86,9 +86,9 @@ pub(super) async fn process_keys() {
     let mut matrix = right_link::Matrix::new();
     let mut app = Session::new(route::settings());
     app.enable_host_switch();
+    app.set_host_target(route::target());
     let mut gate = InputGate::new();
     let mut switch = BrailleSwitch::default();
-    let mut route_switch = RouteSwitch::new();
     let mut base = Base::new();
     let mut braille = false;
     let mut blocked = 0;
@@ -97,9 +97,8 @@ pub(super) async fn process_keys() {
     loop {
         let sample = matrix.poll(true).await;
         if let Some(previous) = route::take_import() {
-            app = Session::new(previous);
-            app.enable_host_switch();
-            app.cancel(braille_keys(sample.keys));
+            app.settings = previous;
+            app.cancel_for_link_change(braille_keys(sample.keys));
         }
         let viewport = if relay::docked() {
             (280, 240)
@@ -125,54 +124,39 @@ pub(super) async fn process_keys() {
                 },
         );
         let mut keys = sample.keys;
-        let was_routing = route_switch.blocked();
-        if route_switch.update(sample.now, keys) && !route::switch(&mut app.settings) {
-            app.busy();
-        }
-        let routing = route_switch.blocked();
-        let cancel = sample.invalidated || (routing && !was_routing);
-        if routing {
-            blocked |= keys;
-        }
         blocked &= keys;
         keys &= !blocked;
         let output = route::connection();
-        let input = gate.observe(output.generation(), true, keys, cancel);
+        let input = gate.observe(output.generation(), true, keys, sample.invalidated);
         if input.cancel {
             base = Base::new();
-            if routing {
-                app.cancel(braille_keys(keys));
-            } else {
-                app.cancel_for_link_change(braille_keys(keys));
-            }
-            if cancel {
+            app.cancel_for_link_change(braille_keys(keys));
+            if sample.invalidated {
                 gate.acknowledge_generation(route::invalidate_pending_reports());
             }
         }
-        let next = switch.update(sample.now, if routing { None } else { input.keys });
+        let next = switch.update(sample.now, input.keys);
         let transition = braille != next;
         let Some(guest) = client.as_mut() else {
             continue;
         };
         let mut final_change = Ok(None);
         if transition {
-            if !routing {
-                if braille {
-                    final_change = app
-                        .finish_momentary(input.keys.map(braille_keys), sample.now, guest)
-                        .map(Some);
-                } else {
-                    app.cancel(0);
-                }
-                blocked |= braille_transition_blocked(next, previous_keys, keys);
-                keys &= !blocked;
-                base = Base::new();
-                gate.acknowledge_generation(route::invalidate_pending_reports());
+            if braille {
+                final_change = app
+                    .finish_momentary(input.keys.map(braille_keys), sample.now, guest)
+                    .map(Some);
+            } else {
+                app.cancel(0);
             }
+            blocked |= braille_transition_blocked(next, previous_keys, keys);
+            keys &= !blocked;
+            base = Base::new();
+            gate.acknowledge_generation(route::invalidate_pending_reports());
             braille = next;
         }
         previous_keys = keys;
-        if !routing && (input.keys.is_some() || transition) {
+        if input.keys.is_some() || transition {
             let result = if transition && !braille {
                 final_change
             } else if braille {
@@ -196,6 +180,12 @@ pub(super) async fn process_keys() {
                             enter_bootloaders(change.bootloader, right_bootloader, dock_bootloader)
                                 .await;
                         app.bootloader_result(change.bootloader, accepted);
+                    }
+                    if let Some(target) = change.target {
+                        if !route::switch(target, &mut app.settings).await {
+                            app.busy();
+                        }
+                        app.set_host_target(route::target());
                     }
                     if change.reset {
                         gate.acknowledge_generation(route::invalidate_pending_reports());
@@ -230,9 +220,11 @@ pub(super) async fn process_keys() {
         let links = Links {
             online: 1
                 | (u8::from(sample.right_connected) << 1)
-                | (u8::from(output.ready()) << 2)
-                | (u8::from(route::direct()) << 4),
+                | (u8::from(route::connection().ready()) << 2)
+                | (u8::from(route::target().is_bluetooth()) << 4),
             battery: [crate::battery::level(), sample.right_battery],
+            target: route::target(),
+            connection: route::status(relay::docked()),
         };
         let model = if braille {
             app.model(links)
