@@ -8,6 +8,9 @@ const lastReport = element("last-report");
 const mode = element("mode");
 const viewer = element("display-viewer");
 const enlargedDisplay = element("enlarged-display");
+const prospector = element("prospector");
+const toucanDisplay = element("toucan-display");
+const boards = document.querySelector(".boards");
 const usbLink = element("usb-link");
 const bluetoothLink = element("bluetooth-link");
 const leftLink = element("left-link");
@@ -164,6 +167,41 @@ function batteryValue(field) {
   return field.value === "" ? 255 : Math.min(100, Math.max(0, field.valueAsNumber));
 }
 
+function sizeDisplay(canvas, availableWidth, zoom, ratio) {
+  const scale = Math.max(1, Math.min(zoom * Math.round(ratio), Math.floor(availableWidth * ratio / canvas.width)));
+  canvas.style.width = `${Math.ceil(canvas.width * scale / ratio * 64) / 64}px`;
+  canvas.style.height = `${Math.ceil(canvas.height * scale / ratio * 64) / 64}px`;
+  canvas.style.left = "0px";
+  canvas.style.top = "0px";
+}
+
+function alignDisplay(canvas, cssGrid, ratio) {
+  const hasWholeCssSide = [canvas.style.width, canvas.style.height].some(side => Number.isInteger(parseFloat(side)));
+  const grid = hasWholeCssSide ? cssGrid : 1 / ratio;
+  const { left, top } = canvas.getBoundingClientRect();
+  canvas.style.left = `${Math.round(left / grid) * grid - left}px`;
+  canvas.style.top = `${Math.round(top / grid) * grid - top}px`;
+}
+
+function resizeDisplays() {
+  const ratio = window.devicePixelRatio;
+  const grid = [1, 2, 3, 4, 5, 6, 7, 8].find(step => Math.abs(step * ratio - Math.round(step * ratio)) < 0.00001) ?? 1 / ratio;
+  const receiverFrame = getComputedStyle(prospector.parentElement);
+  const receiverInset = parseFloat(receiverFrame.paddingLeft) + parseFloat(receiverFrame.paddingRight)
+    + parseFloat(receiverFrame.borderLeftWidth) + parseFloat(receiverFrame.borderRightWidth);
+  sizeDisplay(prospector, boards.clientWidth - receiverInset, 1, ratio);
+  sizeDisplay(toucanDisplay, boards.clientWidth / 2, 1, ratio);
+  const desktop = boards.parentElement;
+  desktop.style.setProperty("--mip-width", toucanDisplay.style.width);
+  desktop.style.setProperty("--mip-height", toucanDisplay.style.height);
+  alignDisplay(prospector, grid, ratio);
+  alignDisplay(toucanDisplay, grid, ratio);
+  if (!viewer.hidden) {
+    sizeDisplay(enlargedDisplay, viewer.querySelector("header").clientWidth, 2, ratio);
+    alignDisplay(enlargedDisplay, grid, ratio);
+  }
+}
+
 async function run() {
   const { instantiate } = await import("./components/toucan.js");
   const modules = new Map();
@@ -235,12 +273,13 @@ async function run() {
     enlargedDisplay.dataset.panel = id;
     enlargedDisplay.width = displayedCanvas.width;
     enlargedDisplay.height = displayedCanvas.height;
-    viewer.style.setProperty("--zoomed-width", `${displayedCanvas.width * 2}px`);
     element("display-title").textContent = title;
     viewer.hidden = false;
+    resizeDisplays();
     drawEnlargedDisplay();
     enlargedDisplay.focus({ preventScroll: true });
     viewer.scrollIntoView({ block: "nearest" });
+    resizeDisplays();
   }
 
   function hostReady() {
@@ -457,6 +496,17 @@ async function run() {
     output.focus();
   });
 
+  resizeDisplays();
+  const displaySize = new ResizeObserver(() => requestAnimationFrame(resizeDisplays));
+  displaySize.observe(boards);
+  displaySize.observe(viewer);
+  function watchPixelRatio() {
+    matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener("change", () => {
+      resizeDisplays();
+      watchPixelRatio();
+    }, { once: true });
+  }
+  watchPixelRatio();
   render();
   sink.keyboard_report(0n);
   runtime.dataset.status = "ready";

@@ -250,12 +250,11 @@ try {
       const rightBoard = rect(".board-right");
       const workbench = rect(".workbench");
       const receiver = rect(".receiver");
+      const mipFrame = rect(".toucan-display-case");
       const [tab, q] = leftKeys.map(key => key.getBoundingClientRect());
       const ctrl = leftKeys[6].getBoundingClientRect();
       const dx = q.left - tab.left;
       const dy = ctrl.top - tab.top;
-      const prospector = rect("#prospector");
-      const toucanDisplay = rect("#toucan-display");
       const angles = keys => keys.map(key => {
         const matrix = new DOMMatrixReadOnly(getComputedStyle(key).transform);
         return Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI) + 0;
@@ -270,26 +269,26 @@ try {
         const board = index === 0 ? leftBoard : rightBoard;
         return box.left >= board.left && box.right <= board.right &&
           box.top >= board.top && box.bottom <= board.bottom &&
+          (box.right <= mipFrame.left || box.left >= mipFrame.right ||
+            box.top >= mipFrame.bottom || box.bottom <= mipFrame.top) &&
           document.elementFromPoint(centerX(box), centerY(box)) === key;
       }));
       return {
-        scale: [prospector.width * 18 / dx, prospector.height * 17 / dy,
-          toucanDisplay.width * 18 / dx, toucanDisplay.height * 17 / dy, dx / dy],
+        pitch: dx / dy,
         offsets: [...topOffsets(leftKeys.slice(0, 6)), ...topOffsets(rightKeys.slice(0, 6))],
         angles: angles([...leftKeys.slice(0, 18), ...rightKeys.slice(0, 18), ...thumbs]),
         thumbDepths: thumbs.map(key => (centerY(key.getBoundingClientRect()) - ctrl.top) / dy),
-        receiverOffset: centerX(receiver) - (leftBoard.left + rightBoard.right) / 2,
+        receiverOffset: centerX(receiver) - (leftBoard.right + rightBoard.left) / 2,
         receiverGap: Math.min(leftBoard.top, rightBoard.top) - receiver.bottom,
         alignedBoards: leftBoard.top === rightBoard.top,
+        attachedMip: Boolean(document.querySelector(".board-left > .toucan-display-case")),
         fittingBoards: leftBoard.left >= workbench.left && rightBoard.right <= workbench.right,
         fittingKeys: keyBounds.every(Boolean),
         transforms: [".board-left", ".board-right"].map(selector => getComputedStyle(document.querySelector(selector)).transform),
         overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       };
     });
-    for (const [index, expected] of [32.634, 27.972, 20.88, 24.36, 18 / 17].entries()) {
-      assert.ok(Math.abs(geometry.scale[index] - expected) < expected * 0.01, `Scale mismatch ${geometry.scale[index]} vs ${expected}`);
-    }
+    assert.ok(Math.abs(geometry.pitch - 18 / 17) < 0.002);
     for (const [index, expected] of [0.37, 0.37, 0.12, 0, 0.12, 0.24, 0.24, 0.12, 0, 0.12, 0.37, 0.37].entries()) {
       assert.ok(Math.abs(geometry.offsets[index] - expected) < 0.002);
     }
@@ -299,11 +298,28 @@ try {
     assert.deepEqual(geometry.angles, [...Array(36).fill(0), 0, 12, 24, -24, -12, 0]);
     assert.ok(Math.abs(geometry.receiverOffset) < 0.5);
     assert.ok(geometry.receiverGap >= 20);
-    assert.ok(geometry.alignedBoards && geometry.fittingBoards && geometry.fittingKeys);
+    assert.ok(geometry.alignedBoards && geometry.fittingBoards && geometry.fittingKeys && geometry.attachedMip);
     assert.deepEqual(geometry.transforms, ["none", "none"]);
     assert.equal(geometry.overflow, false);
   }
+
+  async function checkDeviceScale(page, selector, expectedScale) {
+    const { native, pixels, origin } = await page.locator(selector).evaluate(canvas => {
+      const { left, top, width, height } = canvas.getBoundingClientRect();
+      const ratio = devicePixelRatio;
+      return {
+        native: [canvas.width, canvas.height],
+        pixels: [width * ratio, height * ratio],
+        origin: [left * ratio, top * ratio],
+      };
+    });
+    assert.ok(pixels.every((size, axis) => Math.abs(size - native[axis] * expectedScale) < 0.05));
+    assert.ok(origin.every(position => Math.abs(position - Math.round(position)) < 0.05));
+  }
+
   await checkGeometry(page);
+  await checkDeviceScale(page, "#prospector", 1);
+  await checkDeviceScale(page, "#toucan-display", 1);
 
   const touch = await browser.newPage({ viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true });
   await touch.goto(url);
@@ -317,6 +333,18 @@ try {
   await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   assert.equal(await touch.locator("#text-output").inputValue(), "");
   await touch.close();
+
+  for (const ratio of [1.25, 1.5, 2]) {
+    const density = await browser.newPage({ viewport: { width: 1024, height: 768 }, deviceScaleFactor: ratio });
+    await density.goto(url);
+    await density.locator('#runtime[data-status="ready"]').waitFor();
+    await checkGeometry(density);
+    await checkDeviceScale(density, "#prospector", Math.round(ratio));
+    await checkDeviceScale(density, "#toucan-display", Math.round(ratio));
+    await density.getByRole("button", { name: "Enlarge Prospector display" }).click();
+    await checkDeviceScale(density, "#enlarged-display", 2 * Math.round(ratio));
+    await density.close();
+  }
 
   await page.keyboard.press("BracketRight");
   const cleanBraille = await canvas("#prospector");
@@ -365,7 +393,7 @@ try {
   assert.equal(await canvas("#toucan-display"), portraitPage);
 
   assert.deepEqual(errors, []);
-  console.log("Chrome verified QWERTY, Braille release timing, pointer keycaps, inline displays, Reference paging, guarded keyboard and touch route switches, route persistence, and laptop and tablet geometry.");
+  console.log("Chrome verified QWERTY, Braille release timing, Reference paging, guarded route switches, persistence, and native and enlarged display grids at standard, fractional, and high pixel densities.");
 } finally {
   await browser?.close();
   server.kill();

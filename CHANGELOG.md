@@ -24,6 +24,7 @@
 - Braille chords forget keys released for 50 ms or more, so you can correct an extra key while holding the intended chord.
 - The Toucan route gesture cancels in-progress chords, and Bluetooth input resumes with neutral reports after protocol or suspend changes.
 - The Toucan emulator cancels pending input during route switches and uses portrait Reference paging when the Prospector is offline.
+- The Toucan emulator aligns both displays to the device pixel grid for sharp text and Braille cells.
 - Page navigation follows the active display layout in Reference, Help, and the binding list.
 - Keep the Toucan receiver's component loader off the display poll stack and reserve display buffers in place so partial refresh does not exhaust startup RAM.
 

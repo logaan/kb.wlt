@@ -98,7 +98,10 @@ h1 {
 
 .desktop {
   container-type: inline-size;
-  --mm: min(calc(100cqw / 300), 3.6px);
+  --mip-width: 144px;
+  --mip-height: 168px;
+  --mip-case-width: calc(var(--mip-width) + 12px);
+  --mm: min(calc((100cqw - var(--mip-case-width)) / 285), 3.6px);
   display: grid;
   justify-items: center;
   row-gap: clamp(22px, 4vw, 42px);
@@ -110,6 +113,8 @@ h1 {
 }
 
 .receiver {
+  position: relative;
+  left: calc((var(--mip-case-width) - 8 * var(--mm)) / 2);
   display: grid;
   justify-items: center;
   gap: 9px;
@@ -124,19 +129,15 @@ h1 {
 }
 
 .receiver-case {
-  padding: clamp(4px, calc(2.5 * var(--mm)), 8px);
+  padding: 8px;
   border-radius: 11px;
 }
 
 canvas {
+  position: relative;
   display: block;
   background: #101816;
   image-rendering: pixelated;
-}
-
-.receiver canvas {
-  width: calc(32.634 * var(--mm));
-  height: auto;
 }
 
 #prospector,
@@ -164,7 +165,6 @@ figcaption {
   flex: none;
   width: calc(141 * var(--mm));
   height: calc(87 * var(--mm));
-  filter: drop-shadow(0 4px 0 #18211e) drop-shadow(0 8px 12px #06100c8c);
 }
 
 .board::before {
@@ -178,12 +178,37 @@ figcaption {
   content: "";
 }
 
+.board-left {
+  width: calc(133 * var(--mm) + var(--mip-case-width));
+  height: max(calc(87 * var(--mm)), calc(9 * var(--mm) + var(--mip-height) + 22px));
+}
+
+.board-left::before {
+  right: auto;
+  width: calc(141 * var(--mm));
+  height: calc(87 * var(--mm));
+}
+
+.board-left::after {
+  position: absolute;
+  z-index: 1;
+  top: calc(5 * var(--mm));
+  left: calc(127 * var(--mm));
+  width: calc(var(--mip-case-width) + 6 * var(--mm));
+  height: calc(var(--mip-height) + 20px + 4 * var(--mm));
+  border-radius: 10px;
+  background: linear-gradient(165deg, #59675f, #394741);
+  box-shadow: 0 4px 0 #18211e, 0 8px 12px #06100c8c;
+  content: "";
+}
+
 .board-right::before {
   transform: scaleX(-1);
 }
 
 .key-bank {
   position: absolute;
+  z-index: 2;
   top: calc(4 * var(--mm));
   left: calc(4 * var(--mm));
 }
@@ -256,15 +281,48 @@ textarea:focus-visible {
 
 .toucan-display-case {
   position: absolute;
+  z-index: 2;
   top: calc(9 * var(--mm));
-  left: calc(114 * var(--mm));
-  padding: clamp(1px, calc(1.45 * var(--mm)), 5px);
+  left: calc(130 * var(--mm));
+  padding: 5px;
   border-radius: 7px;
 }
 
-.toucan-display-case canvas {
-  width: calc(20.88 * var(--mm));
-  height: auto;
+@container (max-width: 660px) {
+  .receiver {
+    left: 0;
+  }
+
+  .boards {
+    --mm: min(calc(100cqw / 300), 3.6px);
+    align-items: end;
+  }
+
+  .board-left {
+    --display-offset: max(0px, calc(141 * var(--mm) - var(--mip-case-width) - 8px));
+    width: calc(141 * var(--mm));
+    height: calc(87 * var(--mm) + var(--mip-height) + 24px);
+  }
+
+  .board-left::before {
+    top: calc(var(--mip-height) + 24px);
+  }
+
+  .board-left::after {
+    top: 0;
+    left: var(--display-offset);
+    width: calc(var(--mip-case-width) + 8px);
+    height: calc(var(--mip-height) + 33px);
+  }
+
+  .board-left .key-bank {
+    top: calc(var(--mip-height) + 24px + 4 * var(--mm));
+  }
+
+  .toucan-display-case {
+    top: 4px;
+    left: calc(var(--display-offset) + 4px);
+  }
 }
 
 .workbench-footer {
@@ -435,7 +493,9 @@ textarea::placeholder {
   font: inherit;
 }
 
-[data-disconnected] {
+[data-disconnected]::before,
+[data-disconnected]::after,
+[data-disconnected] .key-bank {
   opacity: 0.55;
 }
 
@@ -495,14 +555,12 @@ textarea::placeholder {
 }
 
 #enlarged-display {
-  width: min(var(--zoomed-width), 100%);
-  height: auto;
   margin-inline: auto;
   outline: 0;
 }
 
 #viewer-reference-help {
-  max-width: min(var(--zoomed-width, 36rem), 100%);
+  max-width: 36rem;
   margin: 9px auto 0;
   color: var(--subtle);
   font-size: 0.8rem;
