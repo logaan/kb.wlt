@@ -30,7 +30,7 @@ A change confined to the conventional keymap runs on the left half. For a one-of
 
 Fresh installs use Prospector USB. Connect the Prospector to the computer with a data cable, then power both halves. The right half pairs with the left and the left pairs with Prospector automatically. The computer sees **kb.wlt Toucan Receiver** over USB.
 
-To change hosts, open the Braille menu and chord **t** (⠞) for **Target**. Move to **Prospector**, **BT 1–5**, or **USB**, then open the selected item. The left half saves the choice. Existing direct Bluetooth pairings carry over to BT 1. Both displays show the selected host and its connection state while Prospector is linked.
+To change hosts, open the Braille menu and chord **t** for **Target**. Move to **Prospector**, **BT 1–5**, or **USB**, then open the selected item. The left half saves the choice. Existing direct Bluetooth pairings carry over to BT 1. Both displays show the selected host and its connection state while Prospector is linked.
 
 - **Prospector** sends keystrokes to **kb.wlt Toucan Receiver** over the Prospector USB cable.
 - **BT 1–5** each remember one computer. Select an empty slot and pair **kb.wlt Toucan** in the computer’s Bluetooth settings. The two halves can work with Prospector powered off. If another paired computer keeps trying to reconnect while you pair a new slot, temporarily turn off Bluetooth on that computer.
@@ -49,7 +49,7 @@ Pressing the same dot on both halves counts as one dot, held until both keys are
 
 Chord keys together and release to type. Keys released less than 50 ms before the final release still count toward the chord. To correct an extra key, release it while holding the intended chord for at least 50 ms. Hold **F** to preview **a** before releasing it. The display previews the active Computer 8 or UEB Grade 1 result, including saved bindings. Buffered cells appear oldest first.
 
-Chord **⠟̲** to open the Braille menu. An underlined cell includes Space. Keep Space held and release the other keys between menu chords. **⠁̲** goes to the previous item, **⠈̲** goes to the next item, **⠑̲** opens the selected item, and **⠃̲** goes back. **⠓** opens Help. Reference, Configuration, Bindings, and Target are available with any selected host.
+Chord **⠟̲** to open the Braille menu. An underlined cell includes Space. Keep Space held and release the other keys between menu chords. **⠁̲** goes to the previous item, **⠈̲** goes to the next item, **⠑̲** opens the selected item, and **⠃̲** goes back. **(H)elp (⠓)** opens Help. Reference, Configuration, Bindings, and Target are available with any selected host.
 
 ## Displays and hardware status
 
