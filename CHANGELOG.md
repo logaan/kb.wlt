@@ -10,7 +10,7 @@
 
 ### Changed
 
-- The live Braille cell has more space around and between its dots, and the output preview sits lower. Chords with no output leave the preview blank.
+- The live Braille cell and its preview are centered together, with more space between the dots. Chords with no output leave the preview slot blank.
 - The emulator follows Toucan’s column stagger and thumb angles and places the Prospector above both halves. Use the three-thumb hold shown in Help to switch routes.
 - Wavelet defines both kits’ display scenes and menu navigation. LVGL draws them on the Prospector and Toucan MIP.
 - The Braille reference uses cell diagrams and a four-column letter grid. Menus use larger text and keep command reminders in Help.

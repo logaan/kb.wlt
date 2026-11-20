@@ -281,6 +281,14 @@ Def display-compact-text Fn {text: string w: s64}
 Def display-anchored-top Fn {top: s64 bottom: s64 center: s64 height: s64}
   max(top min(sub(center div(height 2)) sub(bottom height)))
 
+Def display-line-list Fn {frame: display-frame w: s64 first: s64 step: s64
+                         lines: list(string) visible: s64}
+  fold(Fn {acc: display-frame row: s64}
+    Let {tail: If eq(row sub(visible 1)) gt(len(lines) visible) false
+         line: If tail str-cat(get(lines row) "...") get(lines row)}
+      display-centered(acc 0 w add(first mul(row step)) 1 0 line w)
+    frame range(0 visible))
+
 Def display-line-text Fn {frame: display-frame w: s64 top: s64 bottom: s64 center: s64
                          text: string body-width: s64}
   Let {available: sub(bottom top)
@@ -297,23 +305,39 @@ Def display-line-text Fn {frame: display-frame w: s64 top: s64 bottom: s64 cente
            visible: min(len(lines) max(1 div(add(available gap) step)))
            height: sub(mul(visible step) gap)
            first: display-anchored-top(top bottom center height)}
-        fold(Fn {acc: display-frame row: s64}
-          Let {tail: If eq(row sub(visible 1)) gt(len(lines) visible) false
-               line: If tail str-cat(get(lines row) "...") get(lines row)}
-            display-centered(acc 0 w add(first mul(row step)) 1 0 line w)
-          frame range(0 visible))
+        display-line-list(frame w first step lines visible)
 
 Def display-typing Fn {w: s64 h: s64 model: list(u8) detail: string}
-  Let {body-width: If eq(len(detail) 0) 0 display-text-width(detail w 0)
+  Let {wide: display-wide(w)
+       large-height: If wide 52 35
+       large-descent: If wide 9 6
+       body-height: If wide 30 22
+       body-descent: If wide 5 4
+       margin: 8
+       gap: 6
+       line-gap: 2
+       body-width: If eq(len(detail) 0) 0 display-text-width(detail w 0)
        wrapped: gt(body-width sub(w 16))
-       dot-h: mul(div(If wrapped sub(div(h 3) 12) sub(div(h 2) 8) 4) 4)
-       dot-w: div(dot-h 2)
-       dot-y: sub(div(h 3) div(dot-h 2))
-       x: div(sub(w dot-w) 2)
-       held: display-get-wide(model 3)
        count: min(7 to-s64(display-get(model 10 0)))
-       buffer-h: If display-wide(w) 22 18
-       buffer-y: sub(h add(buffer-h 8))
+       buffer-h: If wide 22 18
+       buffer-y: sub(h add(buffer-h margin))
+       bottom: If eq(count 0) sub(h margin) sub(buffer-y gap)
+       ideal-dot-h: If wrapped sub(div(h 3) 12) sub(div(h 2) 8)
+       minimum-preview: If wrapped body-height large-height
+       maximum-dot-h: sub(bottom add(add(margin gap) minimum-preview))
+       dot-h: mul(div(min(ideal-dot-h maximum-dot-h) 4) 4)
+       dot-w: div(dot-h 2)
+       x: div(sub(w dot-w) 2)
+       step: add(body-height line-gap)
+       lines: If wrapped display-wrap(detail sub(w 28) w) The list(string) []
+       available: sub(bottom add(add(margin dot-h) gap))
+       visible: min(len(lines) div(add(available line-gap) step))
+       preview-h: If wrapped sub(mul(visible step) line-gap) large-height
+       descent: If wrapped body-descent large-descent
+       block-h: add(add(dot-h gap) preview-h)
+       dot-y: max(margin min(div(sub(h sub(block-h descent)) 2) sub(bottom block-h)))
+       preview-y: add(add(dot-y dot-h) gap)
+       held: display-get-wide(model 3)
        frame: display-dot-grid(display-empty x dot-y dot-w dot-h held true)
        frame: If eq(count 0) frame
          Let {stride: min(21 div(sub(w 12) count)) start: div(sub(w mul(stride count)) 2)}
@@ -322,9 +346,11 @@ Def display-typing Fn {w: s64 h: s64 model: list(u8) detail: string}
                min(15 sub(stride 2)) buffer-h display-get-wide(model add(15 mul(index 2))))
              frame range(0 count))}
     If eq(len(detail) 0) frame
-      display-line-text(frame w add(add(dot-y dot-h) 6)
-        If eq(count 0) sub(h 8) sub(buffer-y 6)
-        add(div(mul(h 2) 3) 4) detail body-width)
+    If wrapped display-line-list(frame w preview-y step lines visible)
+    If le(display-text-width(detail w 2) sub(w 16))
+      display-centered(frame 0 w preview-y 1 2 detail w)
+      Let {inset: div(sub(sub(large-height large-descent) sub(body-height body-descent)) 2)}
+        display-centered(frame 0 w add(preview-y inset) 1 0 detail w)
 
 Def display-section-count The s64 8
 

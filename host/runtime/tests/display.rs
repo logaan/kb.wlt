@@ -512,11 +512,11 @@ fn a_released_space_expires_before_the_rest_of_the_chord() {
 }
 
 #[test]
-fn live_cell_and_preview_are_spaced_on_both_displays() {
+fn live_cell_and_its_reserved_preview_slot_form_a_centered_group() {
     let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
     let field = |command: &[u8], offset| u16::from_le_bytes([command[offset], command[offset + 1]]);
-    for (width, height, large_font, body_font, former_diameter) in
-        [(280, 240, 52, 30, 26), (144, 168, 35, 22, 17)]
+    for (width, height, large_font, descent, body_font, former_diameter) in
+        [(280, 240, 52, 9, 30, 26), (144, 168, 35, 6, 22, 17)]
     {
         let mut model = [0; 21];
         model[0] = 1;
@@ -525,8 +525,8 @@ fn live_cell_and_preview_are_spaced_on_both_displays() {
         let idle = commands(idle.as_slice());
         assert_eq!(idle.len(), 1);
         assert_eq!(idle[0][9], 0);
-        assert!(field(idle[0], 3) >= 16);
-        assert_eq!(field(idle[0], 3) + field(idle[0], 7) / 2, height / 3);
+        assert!(field(idle[0], 3) >= 25);
+        assert_eq!(field(idle[0], 1) * 2 + field(idle[0], 5), width);
         assert_eq!(idle[0][10] & 0x40, 0x40);
         assert_eq!(
             (field(idle[0], 5) / 2).min(field(idle[0], 7) / 4) - 2,
@@ -541,12 +541,25 @@ fn live_cell_and_preview_are_spaced_on_both_displays() {
             let atoms = commands(rendered.as_slice());
             let cell = atoms[0];
             assert_eq!(cell[10] & 0xc0, 0xc0);
+            let blank = guest.render(width, height, &model, "").unwrap();
+            let blank = commands(blank.as_slice());
+            assert!(blank.iter().all(|atom| atom[0] == 4));
+            assert_eq!(blank[0], cell);
+            if !buffered {
+                assert_eq!(field(cell, 3), field(idle[0], 3));
+            }
             let text = atoms.iter().find(|atom| atom[0] == 3).unwrap();
             assert_eq!(&text[8..], b"a");
             assert_eq!(text[6], 2);
             let y = field(text, 3);
-            assert!((height * 2 / 3..=height * 2 / 3 + 9).contains(&(y + large_font / 2)));
-            assert!(y >= field(cell, 3) + field(cell, 7) + 6);
+            assert_eq!(y, field(cell, 3) + field(cell, 7) + 6);
+            if !buffered {
+                let first_ink = field(cell, 3) + 1;
+                let last_ink = y + large_font - descent - 1;
+                assert!((first_ink + last_ink).abs_diff(height - 1) <= 1);
+            } else {
+                assert!(field(atoms[1], 3) >= y + large_font + 6);
+            }
 
             let rendered = guest
                 .render(
