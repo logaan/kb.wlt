@@ -38,21 +38,23 @@ To change hosts, open the Braille menu and chord **t** (⠞) for **Target**. Mov
 
 Tap either outer thumb to switch between QWERTY and Braille. Hold either outer thumb for momentary Braille. Each half has all eight dots, and either inner thumb sends Space in Braille. The left inner thumb remains the GUI key in QWERTY.
 
-| Physical keys | Braille dots, left to right |
+| Physical keys | Braille cells, left to right |
 | --- | --- |
-| A S D F | 7 3 2 1 |
-| Z X C V | 8 6 5 4 |
-| J K L ; | 4 5 6 8 |
-| M , . / | 1 2 3 7 |
+| A S D F | ⡀ ⠄ ⠂ ⠁ |
+| Z X C V | ⢀ ⠠ ⠐ ⠈ |
+| J K L ; | ⠈ ⠐ ⠠ ⢀ |
+| M , . / | ⠁ ⠂ ⠄ ⡀ |
 
 Pressing the same dot on both halves counts as one dot, held until both keys are released.
 
 Chord keys together and release to type. Keys released less than 50 ms before the final release still count toward the chord. To correct an extra key, release it while holding the intended chord for at least 50 ms. Hold **F** to preview **a** before releasing it. The display previews the active Computer 8 or UEB Grade 1 result, including saved bindings. Buffered cells appear oldest first.
 
-Hold Space and chord **⠟** to open the Braille menu. Release the dots to choose another chord while keeping Space held. Space+**⠁** goes to the previous item, Space+**⠈** goes to the next item, Space+**⠑** opens the selected item, and Space+**⠃** goes back. **⠓** opens Help. Reference, Configuration, Bindings, and Target are available with any selected host.
+Chord **⠟̲** to open the Braille menu. An underlined cell includes Space. Keep Space held and release the other keys between menu chords. **⠁̲** goes to the previous item, **⠈̲** goes to the next item, **⠑̲** opens the selected item, and **⠃̲** goes back. **⠓** opens Help. Reference, Configuration, Bindings, and Target are available with any selected host.
 
 ## Displays and hardware status
 
 The MIP uses SCK P1.13, MOSI P1.15, and active-high CS P0.03 at 1 MHz with VCOM maintenance. The Prospector uses SPI2 at 4 MHz and renders 280×240 landscape. Both use Wavelet scenes rendered through LVGL. On a touch-wired Prospector, tap to open the menu or selected item, swipe to navigate, and hold to go back. [Toucan upgrade kit](https://shop.beekeeb.com/products/toucan-upgrade-kit) · [Prospector hardware](../firmware/README.md)
 
-The previous USB-receiver firmware passed typing, display, cross-half modifier, reconnection, and power-cycle tests. The current firmware and touch wiring still need hardware validation. Both displays use battery estimates derived from each half’s measured voltage. A reading can be unavailable before the first sample, when its half has no battery, or when a split link drops. The [browser emulator](../emulator/) exercises the host picker, menus, and both displays.
+The previous USB-receiver firmware passed typing, display, cross-half modifier, reconnection, and power-cycle tests. After flashing the current stock image, the left half enumerated as **kb.wlt Toucan USB**. ARM emulation and the browser verified the left-only Reference menu and UF2 request. Bluetooth, touch, and left-only menu operation still need physical testing.
+
+Both displays use battery estimates derived from each half’s measured voltage. A reading can be unavailable before the first sample, when its half has no battery, or when a split link drops. The browser emulator exercises the host picker, menus, and both displays. [Emulator setup](../emulator/)

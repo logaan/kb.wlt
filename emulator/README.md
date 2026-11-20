@@ -19,15 +19,15 @@ Open [localhost:4173](http://127.0.0.1:4173). After changing Wavelet code, run `
 
 Click keycaps, tap them with multiple fingers, or use a physical keyboard. The physical `[` key maps to Escape and `/` maps to the bottom-right minus. Tap either outer thumb (`]` or `\`) to toggle Braille, or hold it for momentary Braille. Both halves have a full eight-dot cell layout. The inner thumbs (left Meta and Space) act as Space in Braille. Hold the keys in a chord together, then release them. Keys released less than 50 milliseconds apart can join the same chord. Chord ⡀ alone for Backspace.
 
-Chord Space with ⠟ to open the Braille menu. Repeat that chord for Main Menu. From either screen, chord **r** (⠗) for Reference, then Space with ⡀ to open the selected category.
+Chord ⠟̲ to open the Braille menu. An underlined cell includes Space. Repeat that chord for Main Menu. From either screen, chord **r** (⠗) for Reference, then ⡀̲ to open the selected category.
 
 The left Toucan half contains the monochrome display. The Prospector shows the color display above both halves. Use **Enlarge** on the Prospector or select the MIP to expand a live preview inline while continuing to type. The Prospector clips its corners to the equivalent of a 30-pixel radius at native resolution. The MIP stays rectangular.
 
 Touch or click either view of the Prospector display to open its menu. Swipe or drag in a direction to move, tap to select, and hold then release to go back. With the keyboard disconnected, the display still opens the menu and can enter its own UF2 bootloader from Debug.
 
-To switch the host target, open the Braille menu and chord **t** (⠞) for Target. Use Space with ⠄ or ⠠ to move and Space with ⡀ to choose Prospector, BT 1–5, or USB. The selected target appears below the keyboard. Expand **Simulated connections** to change the battery levels or link states. Browser storage persists the target, menu and binding settings.
+To switch the host target, open the Braille menu and chord **t** (⠞) for Target. Chord ⠄̲ or ⠠̲ to move and ⡀̲ to choose Prospector, BT 1–5, or USB. The selected target appears below the keyboard. Expand **Simulated connections** to change the battery levels or link states. Browser storage persists the target, menu and binding settings.
 
-In the Braille menu, chord **d** (⠙) for Debug, then Space with ⡀ for **UF2 Bootloader**. Use Space with ⠠ to move down, Space with ⠄ to move up, and Space with ⡀ to toggle a device. The MIP shows an empty box for an available device, a filled box for a selected device, and an X for an unavailable device. Select **Enter UF2** to request bootloader mode for the selected devices. Turn the devices back on in **Simulated connections** to resume using them.
+In the Braille menu, chord **d** (⠙) for Debug, then ⡀̲ for **UF2 Bootloader**. Chord ⠠̲ to move down, ⠄̲ to move up, and ⡀̲ to toggle a device. The MIP shows an empty box for an available device, a filled box for a selected device, and an X for an unavailable device. Select **Enter UF2** to request bootloader mode for the selected devices. Turn the devices back on in **Simulated connections** to resume using them.
 
 The simulator validates components, key input, and display output. BLE, battery sensing, USB transport, and the physical displays require hardware validation.
 
