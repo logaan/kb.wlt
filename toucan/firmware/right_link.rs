@@ -1,7 +1,10 @@
-use super::{KEY_CHANGED, KEYS, PACKET_LEN, SERVICE_BYTES, SERVICE_UUID, SNAPSHOT_UUID};
+use super::{
+    BOOTLOADER_UUID, KEY_CHANGED, KEYS, PACKET_LEN, SERVICE_BYTES, SERVICE_UUID, SNAPSHOT_UUID,
+    bootloader_link,
+};
 use crate::radio::{Bonds, Host};
 use core::sync::atomic::Ordering;
-use embassy_futures::select::{Either3, select, select3};
+use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use kb_core::matrix_link::{Receiver, Side, Snapshot, joined_matrix};
@@ -9,6 +12,7 @@ use trouble_host::prelude::*;
 
 static EVENTS: Channel<CriticalSectionRawMutex, LinkEvent, 32> = Channel::new();
 static ADVERTISEMENTS: Channel<CriticalSectionRawMutex, Address, 4> = Channel::new();
+pub(super) static BOOTLOADER: bootloader_link::Link = bootloader_link::Link::new();
 
 #[derive(Clone, Copy)]
 enum LinkEvent {
@@ -158,11 +162,38 @@ async fn receive_snapshots(
         else {
             return;
         };
+        let bootloader = with_timeout(
+            Duration::from_secs(1),
+            client.characteristic_by_uuid::<u8>(service, &BOOTLOADER_UUID),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok);
+        let boot_session = BOOTLOADER.session();
         let mut opens = true;
+        let mut check_bootloader_at = bootloader.as_ref().map(|_| Instant::now());
         loop {
-            let Ok(notification) = with_timeout(Duration::from_secs(1), listener.next()).await
-            else {
-                break;
+            let notification = match select(
+                boot_session.next(),
+                with_timeout(Duration::from_secs(1), listener.next()),
+            )
+            .await
+            {
+                Either::First(request) => {
+                    let Some(characteristic) = bootloader.as_ref() else {
+                        boot_session.finish(request, false);
+                        continue;
+                    };
+                    if !boot_session
+                        .send(request, client.write_characteristic(characteristic, &[1]))
+                        .await
+                    {
+                        break;
+                    }
+                    continue;
+                }
+                Either::Second(Ok(notification)) => notification,
+                Either::Second(Err(_)) => break,
             };
             let Ok(snapshot) = Snapshot::decode(notification.as_ref()) else {
                 continue;
@@ -177,6 +208,23 @@ async fn receive_snapshots(
                     opens,
                 })
                 .is_err();
+            if check_bootloader_at.is_some_and(|at| Instant::now() >= at) {
+                if let Some(characteristic) = bootloader.as_ref() {
+                    let mut ready = [0];
+                    let reply = with_timeout(
+                        Duration::from_millis(750),
+                        client.read_characteristic(characteristic, &mut ready),
+                    )
+                    .await;
+                    if reply.is_err() {
+                        break;
+                    }
+                    let enabled = matches!(reply, Ok(Ok(1))) && ready == [1];
+                    boot_session.set_ready(enabled);
+                    check_bootloader_at =
+                        (!enabled).then(|| Instant::now() + Duration::from_millis(350));
+                }
+            }
         }
     };
     let events = async {

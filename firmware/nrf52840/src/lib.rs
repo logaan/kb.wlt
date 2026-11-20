@@ -64,6 +64,13 @@ mod battery;
 
 pub mod usb_hid;
 
+#[cfg(any(
+    feature = "toucan-right",
+    feature = "toucan-display",
+    feature = "prospector-display"
+))]
+mod bootloader;
+
 #[cfg(feature = "toucan-display")]
 #[path = "../../../toucan/firmware/display.rs"]
 pub mod toucan_display;

@@ -1,6 +1,8 @@
 use super::{relay, right_link, route};
 use crate::usb_hid::Output;
-use kb_client_session::{Links, Model, Session};
+use kb_client_session::{
+    BOOTLOADER_LEFT, BOOTLOADER_PROSPECTOR, BOOTLOADER_RIGHT, Links, Model, Session,
+};
 use kb_component_runtime::{DisplayGuest, Error, KeyboardComponent};
 use kb_core::{
     matrix_link::{BrailleSwitch, RouteSwitch, braille_keys, braille_transition_blocked},
@@ -105,6 +107,23 @@ pub(super) async fn process_keys() {
             (144, 168)
         };
         app.set_viewport(viewport.0, viewport.1);
+        let right_bootloader = right_link::BOOTLOADER
+            .available()
+            .filter(|_| sample.right_connected);
+        let dock_bootloader = relay::BOOTLOADER.available();
+        app.set_bootloader_devices(
+            BOOTLOADER_LEFT
+                | if right_bootloader.is_some() {
+                    BOOTLOADER_RIGHT
+                } else {
+                    0
+                }
+                | if dock_bootloader.is_some() {
+                    BOOTLOADER_PROSPECTOR
+                } else {
+                    0
+                },
+        );
         let mut keys = sample.keys;
         let was_routing = route_switch.blocked();
         if route_switch.update(sample.now, keys) && !route::switch(&mut app.settings) {
@@ -121,7 +140,11 @@ pub(super) async fn process_keys() {
         let input = gate.observe(output.generation(), true, keys, cancel);
         if input.cancel {
             base = Base::new();
-            app.cancel(braille_keys(keys));
+            if routing {
+                app.cancel(braille_keys(keys));
+            } else {
+                app.cancel_for_link_change(braille_keys(keys));
+            }
             if cancel {
                 gate.acknowledge_generation(route::invalidate_pending_reports());
             }
@@ -165,6 +188,15 @@ pub(super) async fn process_keys() {
                     continue;
                 }
                 Ok(Some(change)) => {
+                    if change.bootloader != 0 {
+                        let generation = route::invalidate_pending_reports();
+                        gate.observe(generation, true, keys, true);
+                        app.cancel_for_link_change(braille_keys(keys));
+                        let accepted =
+                            enter_bootloaders(change.bootloader, right_bootloader, dock_bootloader)
+                                .await;
+                        app.bootloader_result(change.bootloader, accepted);
+                    }
                     if change.reset {
                         gate.acknowledge_generation(route::invalidate_pending_reports());
                     }
@@ -218,4 +250,18 @@ pub(super) async fn process_keys() {
             }
         }
     }
+}
+
+async fn enter_bootloaders(requested: u8, right: Option<u32>, dock: Option<u32>) -> u8 {
+    let (right, dock) = embassy_futures::join::join(
+        right_link::BOOTLOADER.request(right.filter(|_| requested & BOOTLOADER_RIGHT != 0)),
+        relay::BOOTLOADER.request(dock.filter(|_| requested & BOOTLOADER_PROSPECTOR != 0)),
+    )
+    .await;
+    let accepted =
+        if right { BOOTLOADER_RIGHT } else { 0 } | if dock { BOOTLOADER_PROSPECTOR } else { 0 };
+    if requested & BOOTLOADER_LEFT != 0 && accepted == requested & !BOOTLOADER_LEFT {
+        crate::bootloader::enter_uf2().await;
+    }
+    accepted
 }

@@ -248,15 +248,23 @@ pub fn generate(board: &str, images: &Path, output: &Path) -> Result {
              The right half pairs with the left. The left pairs with the Prospector.\n\
              The computer sees kb.wlt Toucan Receiver as its USB keyboard.\n\n\
              DIRECT BLUETOOTH\n\
-             Hold all three left thumb keys for two seconds to switch routes.\n\
+             Hold the outer left Braille thumb first, add the other two left thumb\n\
+             keys, and hold all three for two seconds to switch routes.\n\
              Pair kb.wlt Toucan from the computer's Bluetooth settings.\n\
-             The halves work together with the Prospector off. Hold the same three\n\
-             thumbs again to return to Prospector USB. The selected route persists.\n"
+             The halves work together with the Prospector off. Repeat the gesture\n\
+             to return to Prospector USB. The selected route persists.\n\n\
+             SUBSEQUENT UPDATES\n\
+             Connect the target boards with USB data cables. In Braille mode, open\n\
+             Main Menu > Debug > UF2 Bootloader, select the available boards, and\n\
+             choose Enter UF2. Use Prospector USB mode to include the receiver.\n"
         }
         Contract::Braille => {
             "Connect Prospector to the computer over USB and power both halves.\n\
              The halves pair automatically with the Prospector.\n\
-             The computer sees kb.wlt Split Receiver as its USB keyboard.\n"
+             The computer sees kb.wlt Split Receiver as its USB keyboard.\n\n\
+             SUBSEQUENT UPDATES\n\
+             With Prospector on USB, open Main Menu > Debug > UF2 Bootloader,\n\
+             select Prospector, and choose Enter UF2. Use Reset on the Paintbrush halves.\n"
         }
     });
     install.push_str(

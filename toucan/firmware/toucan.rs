@@ -47,6 +47,10 @@ const SERVICE_UUID: Uuid = Uuid::new_long(SERVICE_BYTES);
 const SNAPSHOT_UUID: Uuid = Uuid::new_long([
     0x44, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x22, 0x00, 0x17, 0x7a,
 ]);
+#[cfg(any(feature = "toucan-right", feature = "toucan-display"))]
+const BOOTLOADER_UUID: Uuid = Uuid::new_long([
+    0x45, 0x02, 0x12, 0x11, 0x4b, 0x57, 0xa7, 0x98, 0x6c, 0xaa, 0x03, 0xaf, 0x22, 0x00, 0x17, 0x7a,
+]);
 static COMPONENT_FAILED: AtomicBool = AtomicBool::new(false);
 #[cfg(not(feature = "toucan-dongle"))]
 static KEYS: AtomicU32 = AtomicU32::new(0);
@@ -70,6 +74,8 @@ mod satellite_gatt {
     pub(super) struct KeyService {
         #[characteristic(uuid = SNAPSHOT_UUID, read, notify, permissions(encrypted))]
         pub(super) snapshot: [u8; PACKET_LEN],
+        #[characteristic(uuid = BOOTLOADER_UUID, read, write, permissions(encrypted))]
+        pub(super) bootloader: u8,
     }
 }
 #[cfg(feature = "toucan-right")]
@@ -117,6 +123,8 @@ impl Matrix {
 }
 
 pub async fn run(spawner: Spawner, role: Role) {
+    #[cfg(any(feature = "toucan-right", feature = "toucan-dongle"))]
+    spawner.spawn(crate::bootloader::remote_reset().unwrap());
     let mut config = crate::clock_config();
     config.time_interrupt_priority = Priority::P3;
     let p = embassy_nrf::init(config);
@@ -382,30 +390,19 @@ async fn satellite(stack: &Host<'_>, bonds: &Bonds, side: Side, boot: u32) {
                 let _ = select(KEY_CHANGED.wait(), Timer::after_millis(100)).await;
             }
         };
-        let connected = select(
-            gatt_events(
-                &server.server,
-                crate::ble_bonds::TOUCAN_LINK_SCHEMA,
-                &connection,
-                bonds,
-            ),
-            notify,
-        );
+        let connected = select(gatt_events(&server, &connection, bonds), notify);
         let _ = connected.await;
     }
 }
 
 #[cfg(feature = "toucan-right")]
-async fn gatt_events<
-    M: embassy_sync::blocking_mutex::raw::RawMutex,
-    const AT: usize,
-    const CN: usize,
->(
-    server: &AttributeServer<'_, M, DefaultPacketPool, AT, CN>,
-    schema: u32,
+async fn gatt_events(
+    server: &SatelliteServer<'_>,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     bonds: &Bonds,
 ) {
+    let schema = crate::ble_bonds::TOUCAN_LINK_SCHEMA;
+    let raw = connection.raw();
     loop {
         match connection.next().await {
             GattConnectionEvent::Disconnected { .. } => return,
@@ -415,17 +412,31 @@ async fn gatt_events<
                 let mut bonds = bonds.lock().await;
                 bonds.remember(&bond).await;
                 bonds
-                    .remember_client_table(server, connection.raw(), schema)
+                    .remember_client_table(&server.server, raw, schema)
                     .await;
             }
             GattConnectionEvent::Encrypted { security_level, .. } if security_level.encrypted() => {
                 bonds
                     .lock()
                     .await
-                    .restore_client_table(server, connection.raw(), schema);
+                    .restore_client_table(&server.server, raw, schema);
             }
             GattConnectionEvent::Gatt { event } => {
-                let changed = matches!(&event, GattEvent::Write(_));
+                let event = match event {
+                    GattEvent::Read(read) if read.handle() == server.keys.bootloader.handle => {
+                        let ready = bootloader_ready(connection, server, bonds).await;
+                        let _ = connection.set(&server.keys.bootloader, &u8::from(ready));
+                        GattEvent::Read(read)
+                    }
+                    GattEvent::Write(write) if write.handle() == server.keys.bootloader.handle => {
+                        let ready = bootloader_ready(connection, server, bonds).await;
+                        crate::bootloader::acknowledge(write, ready, || {}).await;
+                        continue;
+                    }
+                    event => event,
+                };
+                let changed = matches!(&event, GattEvent::Write(write)
+                    if server.keys.snapshot.cccd_handle == Some(write.handle()));
                 if let Ok(reply) = event.accept() {
                     reply.send().await;
                 }
@@ -433,7 +444,7 @@ async fn gatt_events<
                     bonds
                         .lock()
                         .await
-                        .remember_client_table(server, connection.raw(), schema)
+                        .remember_client_table(&server.server, raw, schema)
                         .await;
                 }
             }
@@ -442,12 +453,32 @@ async fn gatt_events<
     }
 }
 
+#[cfg(feature = "toucan-right")]
+async fn bootloader_ready(
+    connection: &GattConnection<'_, '_, DefaultPacketPool>,
+    server: &SatelliteServer<'_>,
+    bonds: &Bonds,
+) -> bool {
+    let raw = connection.raw();
+    raw.security_level().is_ok_and(|level| level.encrypted())
+        && raw.is_bonded_peer()
+        && server.keys.snapshot.should_notify(connection)
+        && bonds
+            .lock()
+            .await
+            .client(&raw.peer_identity(), crate::ble_bonds::TOUCAN_LINK_SCHEMA)
+            .is_some()
+}
+
 #[cfg(feature = "toucan-display")]
 #[path = "application.rs"]
 mod application;
 #[cfg(feature = "toucan-display")]
 #[path = "ble_hid.rs"]
 mod ble_hid;
+#[cfg(feature = "toucan-display")]
+#[path = "bootloader_link.rs"]
+mod bootloader_link;
 #[cfg(feature = "toucan-dongle")]
 #[path = "receiver.rs"]
 pub(crate) mod receiver;

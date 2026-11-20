@@ -1,6 +1,6 @@
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::Instant;
-use kb_client_session::{Links, Model, Session};
+use kb_client_session::{BOOTLOADER_PROSPECTOR, Links, Model, Session};
 use kb_component_runtime::DisplayGuest;
 use kb_core::{
     KeyStroke,
@@ -32,6 +32,7 @@ pub async fn run<G: DisplayGuest>(
         .and_then(|blob| Settings::decode(blob.as_slice()).ok())
         .unwrap_or_default();
     let mut app = Session::new(settings);
+    app.set_bootloader_devices(BOOTLOADER_PROSPECTOR);
     let mut pending = Bounded::<KeyStroke, 128>::default();
     let mut input = InputGate::new();
     let mut displayed = None;
@@ -70,6 +71,11 @@ pub async fn run<G: DisplayGuest>(
                 crate::usb_hid::invalidate_pending_reports();
                 continue;
             };
+            if change.bootloader == BOOTLOADER_PROSPECTOR {
+                OUTPUT.clear();
+                crate::usb_hid::invalidate_pending_reports();
+                crate::bootloader::enter_uf2().await;
+            }
             if change.reset {
                 OUTPUT.clear();
                 pending = Default::default();

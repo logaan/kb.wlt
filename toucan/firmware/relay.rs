@@ -22,6 +22,7 @@ const HID: Uuid = Uuid::new_long(uuid_bytes(2));
 const DISPLAY: Uuid = Uuid::new_long(uuid_bytes(3));
 const USB: Uuid = Uuid::new_long(uuid_bytes(4));
 const PREFERENCES: Uuid = Uuid::new_long(uuid_bytes(5));
+const BOOTLOADER_UUID: Uuid = Uuid::new_long(uuid_bytes(6));
 use kb_core::preferences::ENCODED_LEN;
 
 #[cfg(feature = "toucan-display")]
@@ -35,7 +36,7 @@ async fn request<T, E>(operation: impl Future<Output = Result<T, E>>) -> Option<
 #[cfg(feature = "toucan-display")]
 mod left {
     use super::*;
-    use crate::toucan::route;
+    use crate::toucan::{bootloader_link, route};
     use core::{
         cell::Cell,
         sync::atomic::{AtomicBool, Ordering},
@@ -45,6 +46,7 @@ mod left {
     use kb_core::preferences::Settings;
 
     static DOCKED: AtomicBool = AtomicBool::new(false);
+    pub(crate) static BOOTLOADER: bootloader_link::Link = bootloader_link::Link::new();
     pub(crate) fn docked() -> bool {
         DOCKED.load(Ordering::Relaxed)
     }
@@ -128,6 +130,9 @@ mod left {
             )
             .await?;
             let usb = request(client.characteristic_by_uuid::<[u8; 5]>(service, &USB)).await?;
+            let bootloader =
+                request(client.characteristic_by_uuid::<u8>(service, &BOOTLOADER_UUID)).await;
+            let boot_session = BOOTLOADER.session();
             DOCKED.store(true, Ordering::Relaxed);
             let _session = DockConnection;
             if crate::settings::current().is_none() {
@@ -177,12 +182,26 @@ mod left {
                         request(client.write_characteristic(&display, packet.encode().as_slice()))
                             .await?;
                         sequence = sequence.wrapping_add(1);
+                        if BOOTLOADER.available().is_none() {
+                            if let Some(characteristic) = bootloader.as_ref() {
+                                let mut ready = [0];
+                                boot_session.set_ready(
+                                    request(client.read_characteristic(characteristic, &mut ready))
+                                        .await?
+                                        == 1
+                                        && ready == [1],
+                                );
+                            }
+                        }
                     }
                     last_view = model;
                 }
                 match select(
                     route::OUTPUT.receive(),
-                    select(CHANGED.wait(), Timer::after_millis(100)),
+                    select(
+                        boot_session.next(),
+                        select(CHANGED.wait(), Timer::after_millis(100)),
+                    ),
                 )
                 .await
                 {
@@ -199,7 +218,17 @@ mod left {
                         request(client.write_characteristic(&hid, &packet)).await?;
                         poll = false;
                     }
-                    Either::Second(Either::Second(())) => poll = true,
+                    Either::Second(Either::First(command)) => {
+                        let Some(characteristic) = bootloader.as_ref() else {
+                            boot_session.finish(command, false);
+                            continue;
+                        };
+                        boot_session
+                            .send(command, client.write_characteristic(characteristic, &[1]))
+                            .await;
+                        return None;
+                    }
+                    Either::Second(Either::Second(Either::Second(()))) => poll = true,
                     _ => poll = false,
                 }
             }
@@ -209,7 +238,7 @@ mod left {
 }
 
 #[cfg(feature = "toucan-display")]
-pub(super) use left::{advertise, docked, publish};
+pub(super) use left::{BOOTLOADER, advertise, docked, publish};
 
 #[cfg(feature = "toucan-dongle")]
 mod dock {
@@ -265,6 +294,8 @@ mod dock {
         usb: [u8; 5],
         #[characteristic(uuid=PREFERENCES,value=[0u8;ENCODED_LEN],read,permissions(encrypted))]
         preferences: [u8; ENCODED_LEN],
+        #[characteristic(uuid=BOOTLOADER_UUID,read,write,permissions(encrypted))]
+        bootloader: u8,
     }
 
     async fn screen() {
@@ -367,6 +398,7 @@ mod dock {
         let Ok(conn) = conn.with_attribute_server(&server.server) else {
             return;
         };
+        let mut relaying = false;
         loop {
             match conn.next().await {
                 GattConnectionEvent::Disconnected { .. } => break,
@@ -378,6 +410,24 @@ mod dock {
                         break;
                     }
                     let reply = match event {
+                        GattEvent::Read(read)
+                            if read.handle() == server.relay.bootloader.handle =>
+                        {
+                            let ready = u8::from(relaying && conn.raw().is_bonded_peer());
+                            let _ = conn.set(&server.relay.bootloader, &ready);
+                            read.accept()
+                        }
+                        GattEvent::Write(write)
+                            if write.handle() == server.relay.bootloader.handle =>
+                        {
+                            let ready = relaying && conn.raw().is_bonded_peer();
+                            crate::bootloader::acknowledge(write, ready, || {
+                                REPORTS.clear();
+                                crate::usb_hid::invalidate_pending_reports();
+                            })
+                            .await;
+                            continue;
+                        }
                         GattEvent::Read(read) if read.handle() == server.relay.usb.handle => {
                             let usb = crate::usb_hid::connection();
                             let mut status = [0; 5];
@@ -396,6 +446,7 @@ mod dock {
                             }) else {
                                 break;
                             };
+                            relaying = true;
                             VIEW.signal(Some(model));
                             write.accept_unprocessed()
                         }

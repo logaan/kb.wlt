@@ -22,6 +22,8 @@ Flash all three matching images for the initial upgrade. Enter each board's boot
 
 The stock XIAO S140 v7 bootloader loads at `0x27000`. The `--s140v6` and `--nosd` build options select alternate origins for matching bootloaders and add suffixes to the output files.
 
+For subsequent updates, connect the target boards to USB with data cables. In Braille mode open **Main Menu → Debug → UF2 Bootloader**, select the boards, and choose **Enter UF2**. The right half and Prospector are available while linked to the left. Switch to Prospector USB mode to select the receiver. If some remote requests fail, boards that accepted the request enter UF2 and the left half stays running. Double-tap a board’s reset button to enter UF2 directly.
+
 A change confined to the conventional keymap runs on the left half. For a one-off build, run `cargo xtask build toucan-left-satellite-display --source path/to/keymap.wlt`. Build the left half and Prospector together after changing display behavior or shared contracts. Regenerate checked-in artifacts after editing Wavelet code. [Canonical Wavelet source](../clients/components/toucan-keymap/toucan-keymap.wlt)
 
 ## Connect and type
