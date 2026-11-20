@@ -1,0 +1,679 @@
+Package "kb:braille-display@0.1.0"
+
+DefType command {opcode: u8 x: u16 y: u16 w: u16 h: u16 first: u8 second: u8 third: u8}
+DefType display-frame {commands: list(command) labels: list(string)}
+DefType display-entry {label: string cells: list(u16) mnemonic: string}
+
+Def display-empty {commands: The list(command) [] labels: The list(string) []}
+
+Def display-box Fn {frame: display-frame opcode: u8 x: s64 y: s64 w: s64 h: s64 color: u8 radius: u8}
+  Match frame [({commands: commands labels: labels}
+    {commands: push(commands {opcode: opcode x: to-u16(x) y: to-u16(y)
+                              w: to-u16(w) h: to-u16(h) first: color second: radius third: 0})
+     labels: labels})]
+
+Def display-text Fn {frame: display-frame x: s64 y: s64 color: u8 size: u8 text: string}
+  Match frame [({commands: commands labels: labels}
+    {commands: push(commands {opcode: 3 x: to-u16(x) y: to-u16(y)
+                              w: 0 h: 0 first: color second: size third: to-u8(len(labels))})
+     labels: push(labels text)})]
+
+Def display-dots Fn {frame: display-frame x: s64 y: s64 w: s64 h: s64 cell: u16}
+  Match frame [({commands: commands labels: labels}
+    {commands: push(commands {opcode: 4 x: to-u16(x) y: to-u16(y)
+                              w: to-u16(w) h: to-u16(h)
+                              first: to-u8(rem(to-s64(cell) 256))
+                              second: to-u8(div(to-s64(cell) 256)) third: 0})
+     labels: labels})]
+
+Def display-get Fn {model: list(u8) index: s64 fallback: u8}
+  If lt(index len(model)) get(model index) fallback
+
+Def display-get-wide Fn {model: list(u8) index: s64}
+  to-u16(add(to-s64(display-get(model index 0)) mul(256 to-s64(display-get(model add(index 1) 0)))))
+
+Def display-bit Fn {flags: u8 bit: s64}
+  eq(rem(div(to-s64(flags) bit) 2) 1)
+
+Def display-home-battery Fn {frame: display-frame x: s64 y: s64 w: s64 level: u8 active: bool}
+  Let {color: If active The u8 5 The u8 6
+       shell: display-box(frame 2 x y w 20 color 3)
+       terminal: display-box(shell 1 add(x w) add(y 6) 3 8 color 1)}
+    If eq(level 255)
+      display-box(terminal 1 sub(add(x div(w 2)) 4) add(y 9) 8 2 color 1)
+      If eq(level 0) terminal
+        display-box(terminal 1 add(x 3) add(y 3) max(1 div(mul(sub(w 6) to-s64(min(level 100))) 100)) 14 color 1)
+
+Def display-home Fn {w: s64 h: s64 model: list(u8)}
+  Let {flags: display-get(model 7 0)
+       y: sub(div(h 2) 10)
+       mid: div(w 2)
+       battery-width: max(24 min(40 sub(div(w 3) 16)))
+       left: sub(div(w 5) div(battery-width 2))
+       right: sub(div(mul(w 4) 5) div(battery-width 2))
+       color: If display-bit(flags 4) The u8 5 The u8 6
+       frame: display-home-battery(display-empty left y battery-width display-get(model 8 255) display-bit(flags 1))
+       frame: display-home-battery(frame right y battery-width display-get(model 9 255) display-bit(flags 2))
+       frame: display-box(frame 2 sub(mid 7) y 14 11 color 2)
+       frame: display-box(frame 2 sub(mid 5) sub(y 5) 10 6 color 1)
+       frame: display-box(frame 1 sub(mid 3) sub(y 4) 2 3 color 0)
+       frame: display-box(frame 1 add(mid 1) sub(y 4) 2 3 color 0)}
+    display-box(frame 1 sub(mid 1) add(y 10) 2 14 color 1)
+
+Def display-body-width Fn {text: string} mul(len(text) 8)
+Def display-centered Fn {frame: display-frame x: s64 w: s64 y: s64 color: u8 size: u8 text: string}
+  Let {glyph: Match size [(1 11) (2 17) (_ 8)]
+       approx-width: mul(len(text) glyph)}
+    display-text(frame add(x max(0 div(sub(w approx-width) 2))) y color size text)
+
+Def display-line-text Fn {frame: display-frame w: s64 h: s64 text: string}
+  Let {length: len(text)
+       per-row: max(1 div(sub(w 12) 9))
+       y: div(mul(h 3) 4)}
+    If le(mul(length 18) sub(w 16))
+      display-centered(frame 0 w sub(y 17) 1 2 text)
+    If le(length per-row)
+      display-centered(frame 0 w sub(y 8) 1 0 text)
+      Let {chars: split(text "")
+           rows: div(add(length sub(per-row 1)) per-row)
+           top: max(div(h 2) sub(y mul(rows 9)))}
+        fold(Fn {acc: display-frame row: s64}
+          Let {start: add(1 mul(row per-row))
+               line: str-cat(map(Fn {i: s64} get(chars i)
+                             range(start min(add(length 1) add(start per-row)))))}
+            display-centered(acc 0 w add(top mul(row 17)) 1 0 line)
+          frame range(0 rows))
+
+Def display-typing Fn {w: s64 h: s64 model: list(u8) detail: string}
+  Let {half: div(h 2)
+       dot-h: mul(div(sub(half 12) 4) 4)
+       dot-w: div(dot-h 2)
+       x: div(sub(w dot-w) 2)
+       held: display-get-wide(model 3)
+       count: min(7 to-s64(display-get(model 10 0)))
+       frame: display-dots(display-empty x 6 dot-w dot-h held)
+       frame: If eq(count 0) frame
+         Let {stride: min(21 div(sub(w 12) count)) start: div(sub(w mul(stride count)) 2)}
+           fold(Fn {acc: display-frame index: s64}
+             display-dots(acc add(start mul(stride index)) add(half 4)
+               min(15 sub(stride 2)) 22 display-get-wide(model add(15 mul(index 2))))
+             frame range(0 count))}
+    If eq(len(detail) 0) frame display-line-text(frame w h detail)
+
+Def display-section-count The s64 8
+
+Def display-section-title Fn {section: s64}
+  Match section [
+    (0 "Lowercase")
+    (1 "Capitals")
+    (2 "Punctuation")
+    (3 "Digits")
+    (4 "Navigation")
+    (5 "Editing")
+    (6 "UEB Wordsigns")
+    (7 "UEB Shortforms")
+    (_ "Reference")]
+
+Def display-letter-cell Fn {index: s64}
+  get(The list(u16) [1 3 9 25 17 11 27 19 10 26 5 7 13 29 21 15 31 23 14 30 37 39 58 45 61 53] index)
+
+Def display-entry-row Fn {label: string cells: list(u16)}
+  The display-entry {label: label cells: cells mnemonic: ""}
+
+Def display-contraction-row Fn {label: string cells: list(u16) mnemonic: string}
+  The display-entry {label: label cells: cells mnemonic: mnemonic}
+
+Def display-section-length Fn {section: s64}
+  Match section [(0 26) (1 26) (2 32) (3 10) (4 8) (5 14) (6 23) (7 75) (_ 0)]
+
+Def display-symbol Fn {index: s64 ueb: bool}
+  Match index [
+    (0 display-entry-row("!" If ueb [22] [46]))
+    (1 display-entry-row("\"" If ueb [32 54] [16]))
+    (2 display-entry-row("#" If ueb [56 57] [60]))
+    (3 display-entry-row("$" If ueb [8 14] [43]))
+    (4 display-entry-row("%" If ueb [40 52] [41]))
+    (5 display-entry-row("&" If ueb [8 47] [47]))
+    (6 display-entry-row("'" If ueb [4] [4]))
+    (7 display-entry-row("(" If ueb [16 35] [55]))
+    (8 display-entry-row(")" If ueb [16 28] [62]))
+    (9 display-entry-row("*" If ueb [16 20] [33]))
+    (10 display-entry-row("+" If ueb [16 22] [44]))
+    (11 display-entry-row("," If ueb [2] [32]))
+    (12 display-entry-row("-" If ueb [36] [36]))
+    (13 display-entry-row("." If ueb [50] [40]))
+    (14 display-entry-row("/" If ueb [56 12] [12]))
+    (15 display-entry-row(":" If ueb [18] [49]))
+    (16 display-entry-row(";" If ueb [6] [48]))
+    (17 display-entry-row("<" If ueb [8 35] [35]))
+    (18 display-entry-row(">" If ueb [8 28] [28]))
+    (19 display-entry-row("=" If ueb [16 54] [63]))
+    (20 display-entry-row("?" If ueb [48 38] [57]))
+    (21 display-entry-row("@" If ueb [8 1] [72]))
+    (22 display-entry-row("[" If ueb [40 35] [106]))
+    (23 display-entry-row("]" If ueb [40 28] [123]))
+    (24 display-entry-row("\\" If ueb [56 33] [115]))
+    (25 display-entry-row("^" If ueb [8 34] [88]))
+    (26 display-entry-row("_" If ueb [40 36] [56]))
+    (27 display-entry-row("`" If ueb [40 33] [8]))
+    (28 display-entry-row("{" If ueb [56 35] [42]))
+    (29 display-entry-row("}" If ueb [56 28] [59]))
+    (30 display-entry-row("|" If ueb [56 51] [51]))
+    (31 display-entry-row("~" If ueb [8 20] [24]))
+    (_ display-entry-row("" []))]
+
+Def display-wordsign Fn {index: s64}
+  Match index [
+    (0 display-contraction-row("as" [53] "z"))
+    (1 display-contraction-row("but" [3] "b"))
+    (2 display-contraction-row("can" [9] "c"))
+    (3 display-contraction-row("do" [25] "d"))
+    (4 display-contraction-row("every" [17] "e"))
+    (5 display-contraction-row("from" [11] "f"))
+    (6 display-contraction-row("go" [27] "g"))
+    (7 display-contraction-row("have" [19] "h"))
+    (8 display-contraction-row("it" [45] "x"))
+    (9 display-contraction-row("just" [26] "j"))
+    (10 display-contraction-row("knowledge" [5] "k"))
+    (11 display-contraction-row("like" [7] "l"))
+    (12 display-contraction-row("more" [13] "m"))
+    (13 display-contraction-row("not" [29] "n"))
+    (14 display-contraction-row("people" [15] "p"))
+    (15 display-contraction-row("quite" [31] "q"))
+    (16 display-contraction-row("rather" [23] "r"))
+    (17 display-contraction-row("so" [14] "s"))
+    (18 display-contraction-row("that" [30] "t"))
+    (19 display-contraction-row("us" [37] "u"))
+    (20 display-contraction-row("very" [39] "v"))
+    (21 display-contraction-row("will" [58] "w"))
+    (22 display-contraction-row("you" [61] "y"))
+    (_ display-entry-row("" []))]
+
+Def display-shortform Fn {index: s64}
+  Match index [
+    (0 display-contraction-row("about" [1 3] "ab"))
+    (1 display-contraction-row("above" [1 3 39] "abv"))
+    (2 display-contraction-row("according" [1 9] "ac"))
+    (3 display-contraction-row("across" [1 9 23] "acr"))
+    (4 display-contraction-row("after" [1 11] "af"))
+    (5 display-contraction-row("afternoon" [1 11 29] "afn"))
+    (6 display-contraction-row("afterward" [1 11 58] "afw"))
+    (7 display-contraction-row("again" [1 27] "ag"))
+    (8 display-entry-row("against" [1 27 12]))
+    (9 display-contraction-row("almost" [1 7 13] "alm"))
+    (10 display-contraction-row("already" [1 7 23] "alr"))
+    (11 display-contraction-row("also" [1 7] "al"))
+    (12 display-entry-row("although" [1 7 57]))
+    (13 display-contraction-row("altogether" [1 7 30] "alt"))
+    (14 display-contraction-row("always" [1 7 58] "alw"))
+    (15 display-entry-row("because" [6 9]))
+    (16 display-entry-row("before" [6 11]))
+    (17 display-entry-row("behind" [6 19]))
+    (18 display-entry-row("below" [6 7]))
+    (19 display-entry-row("beneath" [6 29]))
+    (20 display-entry-row("beside" [6 14]))
+    (21 display-entry-row("between" [6 30]))
+    (22 display-entry-row("beyond" [6 61]))
+    (23 display-contraction-row("blind" [3 7] "bl"))
+    (24 display-contraction-row("braille" [3 23 7] "brl"))
+    (25 display-entry-row("children" [33 29]))
+    (26 display-entry-row("conceive" [18 9 39]))
+    (27 display-entry-row("conceiving" [18 9 39 27]))
+    (28 display-contraction-row("could" [9 25] "cd"))
+    (29 display-contraction-row("deceive" [25 9 39] "dcv"))
+    (30 display-contraction-row("deceiving" [25 9 39 27] "dcvg"))
+    (31 display-contraction-row("declare" [25 9 7] "dcl"))
+    (32 display-contraction-row("declaring" [25 9 7 27] "dclg"))
+    (33 display-contraction-row("either" [17 10] "ei"))
+    (34 display-entry-row("first" [11 12]))
+    (35 display-contraction-row("friend" [11 23] "fr"))
+    (36 display-contraction-row("good" [27 25] "gd"))
+    (37 display-contraction-row("great" [27 23 30] "grt"))
+    (38 display-entry-row("herself" [19 59 11]))
+    (39 display-contraction-row("him" [19 13] "hm"))
+    (40 display-contraction-row("himself" [19 13 11] "hmf"))
+    (41 display-contraction-row("immediate" [10 13 13] "imm"))
+    (42 display-contraction-row("its" [45 14] "xs"))
+    (43 display-contraction-row("itself" [45 11] "xf"))
+    (44 display-contraction-row("letter" [7 23] "lr"))
+    (45 display-contraction-row("little" [7 7] "ll"))
+    (46 display-entry-row("much" [13 33]))
+    (47 display-entry-row("must" [13 12]))
+    (48 display-contraction-row("myself" [13 61 11] "myf"))
+    (49 display-contraction-row("necessary" [29 17 9] "nec"))
+    (50 display-contraction-row("neither" [29 17 10] "nei"))
+    (51 display-entry-row("oneself" [16 21 11]))
+    (52 display-entry-row("ourselves" [51 23 39 14]))
+    (53 display-contraction-row("paid" [15 25] "pd"))
+    (54 display-entry-row("perceive" [15 59 9 39]))
+    (55 display-entry-row("perceiving" [15 59 9 39 27]))
+    (56 display-entry-row("perhaps" [15 59 19]))
+    (57 display-contraction-row("quick" [31 5] "qk"))
+    (58 display-contraction-row("receive" [23 9 39] "rcv"))
+    (59 display-contraction-row("receiving" [23 9 39 27] "rcvg"))
+    (60 display-contraction-row("rejoice" [23 26 9] "rjc"))
+    (61 display-contraction-row("rejoicing" [23 26 9 27] "rjcg"))
+    (62 display-contraction-row("said" [14 25] "sd"))
+    (63 display-entry-row("should" [41 25]))
+    (64 display-entry-row("such" [14 33]))
+    (65 display-entry-row("themselves" [46 13 39 14]))
+    (66 display-entry-row("thyself" [57 61 11]))
+    (67 display-contraction-row("today" [30 25] "td"))
+    (68 display-contraction-row("together" [30 27 23] "tgr"))
+    (69 display-contraction-row("tomorrow" [30 13] "tm"))
+    (70 display-contraction-row("tonight" [30 29] "tn"))
+    (71 display-contraction-row("would" [58 25] "wd"))
+    (72 display-contraction-row("your" [61 23] "yr"))
+    (73 display-contraction-row("yourself" [61 23 11] "yrf"))
+    (74 display-contraction-row("yourselves" [61 23 39 14] "yrvs"))
+    (_ display-entry-row("" []))]
+
+Def display-navigation-entry Fn {index: s64}
+  Match index [
+    (0 display-entry-row("Left" [257]))
+    (1 display-entry-row("Right" [264]))
+    (2 display-entry-row("Up" [260]))
+    (3 display-entry-row("Down" [288]))
+    (4 display-entry-row("Home" [263]))
+    (5 display-entry-row("End" [312]))
+    (6 display-entry-row("Page Up" [316]))
+    (7 display-entry-row("Page Down" [313]))
+    (_ display-entry-row("" []))]
+
+Def display-editing-entry Fn {index: s64}
+  Match index [
+    (0 display-entry-row("Space" [256]))
+    (1 display-entry-row("Tab" [286]))
+    (2 display-entry-row("Return" [273]))
+    (3 display-entry-row("Escape" [259]))
+    (4 display-entry-row("Backspace" [281]))
+    (5 display-entry-row("Backspace" [64]))
+    (6 display-entry-row("Return" [128]))
+    (7 display-entry-row("Return" [320]))
+    (8 display-entry-row("Return" [384]))
+    (9 display-entry-row("Shift" [328]))
+    (10 display-entry-row("Control" [324]))
+    (11 display-entry-row("Option" [322]))
+    (12 display-entry-row("Command" [321]))
+    (13 display-entry-row("Globe" [336]))
+    (_ display-entry-row("" []))]
+
+Def display-reference-entry Fn {section: s64 index: s64 ueb: bool}
+  Match section [
+    (0 display-entry-row(str-cat(to-char(add(97 index))) [display-letter-cell(index)]))
+    (1 display-entry-row(str-cat(to-char(add(65 index)))
+         If ueb [32 display-letter-cell(index)] [to-u16(add(64 to-s64(display-letter-cell(index))))]))
+    (2 display-symbol(index ueb))
+    (3 display-entry-row(str-cat(to-char(add(48 index)))
+         If ueb [60 get(The list(u16) [26 1 3 9 25 17 11 27 19 10] index)]
+           [get(The list(u16) [52 2 6 18 50 34 22 54 38 20] index)]))
+    (4 display-navigation-entry(index))
+    (5 display-editing-entry(index))
+    (6 display-wordsign(index))
+    (7 display-shortform(index))
+    (_ display-entry-row("" []))]
+
+Def display-mnemonic Fn {cell: u16}
+  Match rem(to-s64(cell) 256) [
+    (1 "a") (3 "b") (9 "c") (25 "d") (17 "e") (11 "f")
+    (27 "g") (19 "h") (10 "i") (26 "j") (5 "k") (7 "l")
+    (13 "m") (29 "n") (21 "o") (15 "p") (31 "q") (23 "r")
+    (14 "s") (30 "t") (37 "u") (39 "v") (58 "w") (45 "x")
+    (61 "y") (53 "z")
+    (_ "")]
+
+Def display-reference-cols Fn {section: s64 w: s64}
+  If lt(section 4) 4
+    If ge(w 220) 2 1
+
+Def display-visible-rows Fn {screen: u8 selected: s64 w: s64 h: s64}
+  If eq(screen 4)
+    If lt(div(selected 256) 4) 4 max(1 min(6 div(sub(h 54) 24)))
+    max(1 min(8 div(sub(h 52) 23)))
+
+Def display-reference-row Fn {frame: display-frame section: s64 index: s64
+                              x: s64 y: s64 w: s64 h: s64 ueb: bool selected: bool}
+  Let {frame: If selected display-box(frame 1 x y w sub(h 1) 8 3)
+                 If eq(rem(index 2) 0) display-box(frame 1 x y w sub(h 1) 7 2) frame}
+    Match display-reference-entry(section index ueb) [({label: label cells: cells mnemonic: mnemonic}
+      Let {compact: lt(section 4)
+           count: len(cells)
+           label-width: mul(len(label) 7)
+           stride: If compact max(8 min(14 div(sub(w 13) max(count 1))))
+             max(9 min(14 div(sub(sub(w label-width) 10) max(count 1))))
+           start: If compact add(x 12) sub(add(x sub(w mul(count stride))) 4)
+           cell-width: min(12 sub(stride 1))
+           frame: display-text(frame add(x 3) add(y div(sub(h 16) 2)) 1 0 label)}
+        If gt(len(mnemonic) 0)
+          display-text(frame sub(add(x w) add(display-body-width(mnemonic) 5)) add(y div(sub(h 16) 2)) 3 0 mnemonic)
+          fold(Fn {acc: display-frame offset: s64}
+            Let {cell: get(cells offset)
+                 cell-x: add(start mul(offset stride))
+                 cell-y: add(y max(0 div(sub(h 21) 2)))
+                 letter: If ge(section 7) display-mnemonic(cell) ""}
+              If gt(len(letter) 0)
+                display-text(acc cell-x add(y div(sub(h 16) 2)) 3 0 letter)
+                display-dots(acc cell-x cell-y cell-width 21 cell)
+            frame range(0 count)))]
+
+Def display-bar Fn {frame: display-frame w: s64 h: s64 screen: u8}
+  Let {y: sub(h 21)
+       frame: display-box(frame 1 0 y w 21 7 0)
+       editor: If eq(screen 11) true eq(screen 12)
+       x: 57
+       frame: display-text(frame 5 add(y 2) 1 0 "(H)elp (")
+       frame: display-dots(frame x add(y 2) 9 17 If editor The u16 275 The u16 19)
+       frame: display-text(frame add(x 10) add(y 2) 1 0 ")")
+       tip: Match screen [
+         (2 "")
+         (4 If ge(w 230) "(P)rev / (N)ext heading" "(N)ext")
+         (5 "Esc Back")
+         (11 "Esc Back")
+         (12 "Return  Save")
+         (13 If ge(w 220) "Esc Back" "(N)ext")
+         (_ If ge(w 180) "Return  Open" "Open")]}
+    If eq(len(tip) 0) frame
+      Let {tip-x: sub(sub(w display-body-width(tip)) 6)}
+        If ge(tip-x add(x 17)) display-text(frame tip-x add(y 2) 2 0 tip) frame
+
+Def display-heading Fn {frame: display-frame w: s64 title: string}
+  Let {body: If ge(mul(len(title) 11) sub(w 11)) The u8 0 The u8 1}
+    display-text(display-box(frame 1 0 0 w 25 3 0) 7 If eq(body 0) 4 1 9 body title)
+
+Def display-grid Fn {w: s64 h: s64 model: list(u8) selected: s64}
+  Let {section: div(selected 256)
+       index: rem(selected 256)
+       cols: display-reference-cols(section w)
+       rows: display-visible-rows(4 selected w h)
+       page: mul(cols rows)
+       start: mul(div(index page) page)
+       count: min(page max(0 sub(display-section-length(section) start)))
+       cell-w: div(sub(w 8) cols)
+       cell-h: If lt(section 4) div(sub(h 51) rows) If ge(section 6) 21 24
+       frame: display-heading(display-empty w display-section-title(section))
+       frame: If ge(section 6) display-text(frame 7 sub(h 40) 2 0 "Reference only") frame
+       frame: fold(Fn {acc: display-frame offset: s64}
+         Let {row: div(offset cols) col: rem(offset cols) i: add(start offset)}
+           display-reference-row(acc section i
+             add(4 mul(col cell-w)) add(27 mul(row cell-h)) sub(cell-w 1) cell-h
+             display-bit(display-get(model 7 0) 8) eq(i index))
+         frame range(0 count))}
+    display-bar(frame w h 4)
+
+Def display-detail Fn {w: s64 h: s64 model: list(u8) selected: s64}
+  Let {section: min(div(selected 256) sub(display-section-count 1))
+       index: min(rem(selected 256) sub(display-section-length(section) 1))
+       frame: display-heading(display-empty w display-section-title(section))}
+    Match display-reference-entry(section index display-bit(display-get(model 7 0) 8)) [
+      ({label: label cells: cells mnemonic: mnemonic}
+        Let {count: max(1 len(cells))
+             stride: min(37 div(sub(w 16) count))
+             start: div(sub(w mul(stride count)) 2)
+             top: max(58 sub(div(h 2) 14))
+             frame: display-centered(frame 0 w 32 1 1 label)
+             frame: fold(Fn {acc: display-frame offset: s64}
+               Let {cell: get(cells offset) x: add(start mul(stride offset))
+                    mnemonic: display-mnemonic(cell)
+                    acc: display-dots(acc x top sub(stride 4) 42 cell)}
+                 If eq(len(mnemonic) 0) acc
+                   display-text(acc add(x div(stride 3)) add(top 44)
+                     If ge(cell 256) The u8 4 The u8 3 0 mnemonic)
+               frame range(0 len(cells)))}
+          display-bar(frame w h 5))]
+
+Def display-menu-count Fn {screen: u8}
+  Match screen [(2 4) (3 display-section-count) (6 4) (7 3) (8 12) (10 6) (13 10) (_ 0)]
+
+Def display-menu-title Fn {screen: u8}
+  Match screen [
+    (2 "Braille Menu")
+    (3 "Reference")
+    (6 "Main Menu")
+    (7 "Configuration")
+    (8 "Bindings")
+    (9 "Diagnostics")
+    (10 "Edit Binding")
+    (11 "Capture Chord")
+    (12 "Expansion")
+    (13 "Help")
+    (_ "")]
+
+Def display-menu-label Fn {screen: u8 index: s64 ueb: bool}
+  Match screen [
+    (3 display-section-title(index))
+    (7 Match index [
+      (0 If ueb "UEB Grade 1" "Computer 8")
+      (1 "Reconnect")
+      (2 "Clear pairings")
+      (_ "")])
+    (8 str-cat("Slot " to-string(add(index 1))))
+    (10 Match index [
+      (0 "One chord")
+      (1 "Two chords")
+      (2 "Three chords")
+      (3 "Four chords")
+      (4 "Edit expansion")
+      (5 "Delete binding")
+      (_ "")])
+    (_ Match index [
+      (0 "(R)eference")
+      (1 "(C)onfiguration")
+      (2 "(B)indings")
+      (3 "(D)iagnostics")
+      (_ "")])]
+
+Def display-menu-list Fn {frame: display-frame screen: u8 w: s64 h: s64 selected: s64 ueb: bool}
+  Let {rows: display-visible-rows(screen selected w h)
+       start: mul(div(selected rows) rows)
+       count: min(rows max(0 sub(display-menu-count(screen) start)))}
+    fold(Fn {acc: display-frame offset: s64}
+      Let {y: add(27 mul(offset 23))
+           index: add(start offset)
+           acc: If eq(index selected) display-box(acc 1 4 y sub(w 8) 22 8 3)
+                  If eq(rem(index 2) 0) display-box(acc 1 4 y sub(w 8) 22 7 2) acc}
+        display-text(acc 8 add(y 3) 1 0 display-menu-label(screen index ueb))
+      frame range(0 count))
+
+Def display-notice Fn {notice: u8}
+  Match notice [
+    (1 "Applied")
+    (2 "Deleted")
+    (3 "Busy")
+    (4 "Invalid text")
+    (5 "Text is full")
+    (6 "Enter expansion")
+    (7 "Trigger is in use")
+    (8 "Reserved chord")
+    (9 "Empty slot")
+    (10 "Radio requested")
+    (_ "")]
+
+Def display-triggers Fn {frame: display-frame w: s64 y: s64 model: list(u8)}
+  Let {offset: add(15 mul(2 min(to-s64(display-get(model 10 0)) 7)))
+       count: min(to-s64(display-get(model offset 0)) 4)}
+    If eq(count 0) frame
+      Let {stride: min(28 div(sub(w 12) count))
+           start: div(sub(w mul(count stride)) 2)}
+        fold(Fn {acc: display-frame index: s64}
+          display-dots(acc add(start mul(index stride)) y min(19 sub(stride 2)) 30
+            display-get-wide(model add(add(offset 1) mul(2 index))))
+          frame range(0 count))
+
+Def display-menu Fn {screen: u8 w: s64 h: s64 model: list(u8) selected: s64 detail: string}
+  Let {flags: display-get(model 7 0)
+       frame: display-heading(display-empty w display-menu-title(screen))
+       frame: Match screen [
+         (8 Let {frame: display-menu-list(frame screen w sub(h 54) selected display-bit(flags 8))
+                  frame: display-triggers(frame w sub(h 74) model)}
+              display-text(frame 8 sub(h 39) 2 0 If eq(len(detail) 0) "Empty slot" detail))
+         (9 Let {frame: display-text(frame 8 34 1 0 If display-bit(flags 4) "USB ready" "USB waiting")
+                  frame: display-text(frame 8 56 1 0 If display-bit(flags 1) "Left connected" "Left offline")
+                  frame: display-text(frame 8 78 1 0 If display-bit(flags 2) "Right connected" "Right offline")}
+              If eq(len(detail) 0) frame display-text(frame 8 101 2 0 detail))
+         (11 Let {count: display-get(model 14 0) captured: display-get(model 13 0)
+                  frame: display-text(frame 8 34 1 0
+                    str-cat(to-string(min(count add(captured 1))) " of " to-string(count)))}
+               display-triggers(frame w 58 model))
+         (12 If eq(len(detail) 0) frame display-line-text(frame w sub(h 34) detail))
+         (_ display-menu-list(frame screen w h selected display-bit(display-get(model 7 0) 8)))]
+       notice: display-notice(display-get(model 11 0))
+       frame: If eq(len(notice) 0) frame
+         display-text(display-box(frame 1 0 sub(h 41) w 20 0 0) 8 sub(h 40) 4 0 notice)}
+    display-bar(frame w h screen)
+
+Def display-help Fn {w: s64 h: s64 selected: s64}
+  Let {frame: display-heading(display-empty w "Help")
+       cols: If ge(w 220) 2 1
+       count: If eq(cols 2) 10 5
+       start: If eq(cols 2) 0 mul(div(selected 5) 5)
+       col-width: div(sub(w 8) cols)
+       row-h: div(sub(h 70) 5)
+       frame: fold(Fn {acc: display-frame i: s64}
+         Let {index: add(start i)
+              entry: Match index [
+                (8 display-entry-row("Escape" [259]))
+                (9 display-entry-row("Return" [273]))
+                (_ display-navigation-entry(index))]}
+           Match entry [({label: label cells: cells mnemonic: mnemonic}
+             Let {x: add(4 mul(rem(i cols) col-width))
+                  y: add(27 mul(div(i cols) row-h))
+                  acc: display-text(acc add(x 3) add(y 2) 1 0 label)}
+               display-dots(acc add(x sub(col-width 24)) y 12 18 get(cells 0)))]
+         frame range(0 count))}
+    display-bar(display-text(frame 7 sub(h 41) 4 0 "Purple means Space") w h 13)
+
+Export {iface: "kb:firmware/display@0.1.0"
+        name: render
+        params: {width: u16 height: u16 model: list(u8) detail: string}
+        result: tuple(list(command) list(string))}
+Def render Fn {width: u16 height: u16 model: list(u8) detail: string}
+  Let {w: to-s64(max(128 width)) h: to-s64(max(144 height))
+       screen: display-get(model 0 0)
+       selected: to-s64(display-get-wide(model 1))
+       frame: Match screen [
+         (0 display-home(w h model))
+         (1 display-typing(w h model detail))
+         (4 display-grid(w h model selected))
+         (5 display-detail(w h model selected))
+         (13 display-help(w h selected))
+         (_ display-menu(screen w h model selected detail))]}
+    Match frame [({commands: commands labels: labels} tuple2(commands labels))]
+
+Def display-result Fn {screen: u8 selected: u16 action: u8}
+  to-u32(add(add(to-s64(screen) mul(to-s64(selected) 256)) mul(to-s64(action) 16777216)))
+
+Def display-command Fn {cell: u16}
+  Match cell [
+    (257 1)
+    (264 2)
+    (260 3)
+    (288 4)
+    (263 5)
+    (312 6)
+    (316 7)
+    (313 8)
+    (259 9)
+    (273 10)
+    (128 10)
+    (320 10)
+    (384 10)
+    (_ 0)]
+
+Def display-menu-shortcut Fn {cell: u16}
+  Match rem(to-s64(cell) 256) [
+    (23 3)
+    (9 7)
+    (3 8)
+    (25 9)
+    (_ 0)]
+
+Def display-menu-open Fn {screen: u8 selected: u16}
+  Match screen [
+    (2 display-result(display-menu-shortcut(get(The list(u16) [23 9 3 25] min(selected 3))) 0 0))
+    (3 display-result(4 to-u16(mul(min(to-s64(selected) sub(display-section-count 1)) 256)) 0))
+    (6 display-result(get(The list(u8) [3 7 8 9] min(selected 3)) 0 0))
+    (7 display-result(screen selected 1))
+    (8 display-result(10 selected 1))
+    (10 display-result(screen selected 1))
+    (12 display-result(screen selected 1))
+    (_ display-result(screen selected 0))]
+
+Def display-menu-back Fn {screen: u8 selected: u16}
+  Match screen [
+    (2 display-result(1 0 2))
+    (3 display-result(6 0 2))
+    (6 display-result(1 0 2))
+    (7 display-result(6 1 2))
+    (8 display-result(6 2 2))
+    (9 display-result(6 3 2))
+    (10 display-result(8 selected 2))
+    (11 display-result(10 0 2))
+    (12 display-result(8 0 2))
+    (13 display-result(6 0 2))
+    (_ display-result(6 0 2))]
+
+Def display-menu-move Fn {screen: u8 selected: u16 command: s64 visible: u8}
+  Let {last: max(0 sub(display-menu-count(screen) 1))
+       index: Match command [
+         (1 sub(to-s64(selected) 1)) (2 add(to-s64(selected) 1))
+         (3 sub(to-s64(selected) 1)) (4 add(to-s64(selected) 1))
+         (5 0) (6 last)
+         (7 sub(to-s64(selected) max(1 to-s64(visible)))) (8 add(to-s64(selected) max(1 to-s64(visible))))
+         (_ to-s64(selected))]}
+    display-result(screen to-u16(min(last max(0 index))) 0)
+
+Def display-letter-index Fn {cell: u16 fallback: s64}
+  Match cell [
+    (1 0) (3 1) (9 2) (25 3) (17 4) (11 5) (27 6) (19 7)
+    (10 8) (26 9) (5 10) (7 11) (13 12) (29 13) (21 14) (15 15)
+    (31 16) (23 17) (14 18) (30 19) (37 20) (39 21) (58 22) (45 23)
+    (61 24) (53 25) (_ fallback)]
+
+Def display-reference-move Fn {screen: u8 selected: u16 command: s64 cell: u16 visible: u8}
+  Let {section: min(div(to-s64(selected) 256) sub(display-section-count 1)) index: rem(to-s64(selected) 256)
+       last: sub(display-section-length(section) 1)
+       cols: If lt(section 4) 4 If gt(visible 6) 2 1
+       moved: Match command [
+         (1 sub(index 1)) (2 add(index 1))
+         (3 sub(index cols)) (4 add(index cols))
+         (5 0) (6 last)
+         (7 sub(index max(cols to-s64(visible)))) (8 add(index max(cols to-s64(visible))))
+         (_ If lt(section 2) display-letter-index(cell index) index)]}
+    Match command [
+      (9 If eq(screen 5) display-result(4 selected 0) display-result(3 to-u16(section) 0))
+      (10 display-result(5 selected 0))
+      (_ If eq(cell 29) display-result(screen to-u16(mul(256 rem(add(section 1) display-section-count))) 0)
+         If eq(cell 15) display-result(screen to-u16(mul(256 rem(add(section sub(display-section-count 1)) display-section-count))) 0)
+         display-result(screen to-u16(add(mul(section 256) max(0 min(last moved)))) 0))]
+
+Export {iface: "kb:firmware/display@0.1.0"
+        name: navigate
+        params: {screen: u8 selected: u16 cell: u16 visible: u8}
+        result: u32}
+Def navigate Fn {screen: u8 selected: u16 cell: u16 visible: u8}
+  Let {command: display-command(cell)
+       shortcut: display-menu-shortcut(cell)
+       editor: If eq(screen 11) true eq(screen 12)}
+    If eq(cell 0) display-result(screen selected 0)
+    If lt(screen 2)
+      If eq(cell 287) display-result(2 0 6) display-result(screen selected 0)
+    If eq(screen 13)
+      If eq(command 9) display-menu-back(screen selected)
+      If eq(cell 29) display-menu-move(screen selected 8 5)
+      If eq(cell 15) display-menu-move(screen selected 7 5)
+        display-menu-move(screen selected command 5)
+    If If editor eq(cell 275) eq(cell 19)
+      display-result(13 0 4)
+    If eq(cell 287)
+      If eq(screen 2) display-result(6 0 0) display-result(2 0 6)
+    If eq(screen 4) display-reference-move(screen selected command cell visible)
+    If eq(screen 5) display-reference-move(screen selected command cell visible)
+    If eq(command 9) display-menu-back(screen selected)
+    If editor
+      If If eq(screen 12) eq(command 10) false
+        display-menu-open(screen selected)
+        display-result(screen selected 3)
+    If If eq(screen 2) gt(shortcut 0) If eq(screen 6) gt(shortcut 0) false
+      display-result(shortcut 0 0)
+    If eq(command 10) display-menu-open(screen selected)
+      display-menu-move(screen selected command If eq(screen 8) to-u8(max(1 sub(to-s64(visible) 2))) visible)
