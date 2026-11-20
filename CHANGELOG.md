@@ -21,6 +21,7 @@
 
 ### Fixed
 
+- The Toucan route gesture cancels in-progress chords, and Bluetooth input resumes with neutral reports after protocol or suspend changes.
 - Keep the Toucan receiver's component loader off the display poll stack and reserve display buffers in place so partial refresh does not exhaust startup RAM.
 
 ## [0.2.0] - 2026-11-20

@@ -271,16 +271,13 @@ pub async fn run(spawner: Spawner, role: Role) {
                         Timer::after_millis(100).await;
                     }
                     let direct = route::direct();
-                    let _ = select(
-                        async {
-                            if direct {
-                                ble_hid::advertise(&stack, &bonds).await;
-                            } else {
-                                relay::advertise(&stack, &bonds).await;
-                            }
-                        },
-                        route::changed(direct),
-                    )
+                    let _ = select(route::changed(direct), async {
+                        if direct {
+                            ble_hid::advertise(&stack, &bonds).await;
+                        } else {
+                            relay::advertise(&stack, &bonds).await;
+                        }
+                    })
                     .await;
                     route::set_ready(false);
                 }

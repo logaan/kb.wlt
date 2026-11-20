@@ -87,7 +87,7 @@ struct Ready;
 
 impl Drop for Ready {
     fn drop(&mut self) {
-        route::set_ready(false);
+        route::set_transport_ready(true, false);
     }
 }
 
@@ -214,7 +214,12 @@ async fn events(
                     [server.hid.keyboard.cccd_handle, server.hid.boot_keyboard.cccd_handle,
                      server.hid.consumer.cccd_handle, server.battery.level.cccd_handle]
                         .contains(&Some(write.handle())));
+                let previous =
+                    matches!(&event, GattEvent::Write(_)).then(|| hid_state(server, connection));
                 if let Ok(reply) = event.accept() {
+                    if previous.is_some_and(|state| state != hid_state(server, connection)) {
+                        route::set_transport_ready(true, false);
+                    }
                     reply.send().await;
                 }
                 if preferences_changed {
@@ -230,13 +235,36 @@ async fn events(
     }
 }
 
+#[derive(PartialEq)]
+struct HidState {
+    boot: bool,
+    awake: bool,
+    subscribed: bool,
+}
+
+fn hid_state(
+    server: &KeyboardServer<'_>,
+    connection: &GattConnection<'_, '_, DefaultPacketPool>,
+) -> HidState {
+    let boot = connection.get(&server.hid.protocol).unwrap_or(1) == 0;
+    let keyboard = if boot {
+        &server.hid.boot_keyboard
+    } else {
+        &server.hid.keyboard
+    };
+    HidState {
+        boot,
+        awake: connection.get(&server.hid.control_point).unwrap_or(1) != 0,
+        subscribed: keyboard.should_notify(connection),
+    }
+}
+
 async fn reports(
     server: &KeyboardServer<'_>,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
 ) {
     let mut battery = 0xff;
     let mut generation = None;
-    let mut protocol = 1;
     let mut consumer = [0; 2];
     loop {
         let measured = crate::battery::level();
@@ -252,24 +280,18 @@ async fn reports(
             }
             battery = measured;
         }
-        let mode = connection.get(&server.hid.protocol).unwrap_or(1);
-        if protocol != mode {
-            route::set_ready(false);
-            protocol = mode;
-        }
-        let boot = protocol == 0;
-        let keyboard = if boot {
-            &server.hid.boot_keyboard
-        } else {
-            &server.hid.keyboard
-        };
+        let HidState {
+            boot,
+            awake,
+            subscribed,
+        } = hid_state(server, connection);
         let ready = connection
             .raw()
             .security_level()
             .is_ok_and(|level| level.encrypted())
-            && connection.get(&server.hid.control_point).unwrap_or(1) != 0
-            && keyboard.should_notify(connection);
-        route::set_ready(ready);
+            && awake
+            && subscribed;
+        route::set_transport_ready(true, ready);
         let Some(token) = route::connection().token() else {
             generation = None;
             Timer::after_millis(20).await;
@@ -299,7 +321,9 @@ async fn reports(
         };
         for report in next.into_iter().flatten() {
             if !send(server, connection, token, boot, report).await {
-                route::invalidate_pending_reports();
+                if route::connection().accepts(token) {
+                    route::invalidate_pending_reports();
+                }
                 break;
             }
             if let Report::Consumer(bytes) = report {
@@ -316,9 +340,6 @@ async fn send(
     boot: bool,
     report: Report,
 ) -> bool {
-    if !route::connection().accepts(token) {
-        return false;
-    }
     let notify = async {
         match report {
             Report::Keyboard(bytes) if boot => {
@@ -336,7 +357,11 @@ async fn send(
         }
     };
     matches!(
-        with_timeout(Duration::from_millis(100), notify).await,
-        Ok(Ok(()))
+        select(
+            route::session_ended(token),
+            with_timeout(Duration::from_millis(100), notify)
+        )
+        .await,
+        Either::Second(Ok(Ok(())))
     )
 }

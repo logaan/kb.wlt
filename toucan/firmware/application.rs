@@ -106,21 +106,23 @@ pub(super) async fn process_keys() {
         };
         app.set_viewport(viewport.0, viewport.1);
         let mut keys = sample.keys;
+        let was_routing = route_switch.blocked();
         if route_switch.update(sample.now, keys) && !route::switch(&mut app.settings) {
             app.busy();
         }
         let routing = route_switch.blocked();
+        let cancel = sample.invalidated || (routing && !was_routing);
         if routing {
             blocked |= keys;
         }
         blocked &= keys;
         keys &= !blocked;
         let output = route::connection();
-        let input = gate.observe(output.generation(), true, keys, sample.invalidated);
+        let input = gate.observe(output.generation(), true, keys, cancel);
         if input.cancel {
             base = Base::new();
             app.cancel(braille_keys(keys));
-            if sample.invalidated {
+            if cancel {
                 gate.acknowledge_generation(route::invalidate_pending_reports());
             }
         }
@@ -131,26 +133,23 @@ pub(super) async fn process_keys() {
         };
         let mut final_change = Ok(None);
         if transition {
-            if braille {
-                let final_keys = if routing {
-                    None
+            if !routing {
+                if braille {
+                    final_change = app
+                        .finish_momentary(input.keys.map(braille_keys), sample.now, guest)
+                        .map(Some);
                 } else {
-                    input.keys.map(braille_keys)
-                };
-                final_change = app
-                    .finish_momentary(final_keys, sample.now, guest)
-                    .map(Some);
-            } else {
-                app.cancel(0);
+                    app.cancel(0);
+                }
+                blocked |= braille_transition_blocked(next, previous_keys, keys);
+                keys &= !blocked;
+                base = Base::new();
+                gate.acknowledge_generation(route::invalidate_pending_reports());
             }
             braille = next;
-            blocked |= braille_transition_blocked(braille, previous_keys, keys);
-            keys &= !blocked;
-            base = Base::new();
-            gate.acknowledge_generation(route::invalidate_pending_reports());
         }
         previous_keys = keys;
-        if input.keys.is_some() || transition {
+        if !routing && (input.keys.is_some() || transition) {
             let result = if transition && !braille {
                 final_change
             } else if braille {

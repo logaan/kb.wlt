@@ -106,7 +106,7 @@ mod left {
             };
             let _ = select(events, send(stack, &conn)).await;
         }
-        route::set_ready(false);
+        route::set_transport_ready(false, false);
         conn.disconnect();
     }
 
@@ -159,10 +159,10 @@ mod left {
                     }
                     let generation = u32::from_le_bytes(state[1..5].try_into().unwrap());
                     if remote.is_some_and(|prev| prev != generation) {
-                        route::set_ready(false);
+                        route::set_transport_ready(false, false);
                     }
                     remote = Some(generation);
-                    route::set_ready(state[0] == 1);
+                    route::set_transport_ready(false, state[0] == 1);
                     last_poll = embassy_time::Instant::now();
                 }
                 let model = VIEW.lock(Cell::get);

@@ -6,6 +6,7 @@ use core::{
 use embassy_sync::{
     blocking_mutex::{Mutex, raw::CriticalSectionRawMutex},
     channel::Channel,
+    signal::Signal,
 };
 use embassy_time::{Duration, Timer, with_timeout};
 use kb_core::{
@@ -17,6 +18,7 @@ pub(super) static OUTPUT: Channel<CriticalSectionRawMutex, (u32, Output), 64> = 
 static DIRECT: AtomicBool = AtomicBool::new(false);
 static SESSION: Mutex<CriticalSectionRawMutex, Cell<SessionGate>> =
     Mutex::new(Cell::new(SessionGate::new()));
+static SESSION_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 pub(super) fn direct() -> bool {
     DIRECT.load(Ordering::Relaxed)
@@ -71,11 +73,24 @@ pub(super) fn set_ready(ready: bool) {
     if gate.ready() != ready {
         OUTPUT.clear();
         SESSION.lock(|state| state.set(gate.set_ready(ready)));
+        SESSION_CHANGED.signal(());
+    }
+}
+
+pub(super) fn set_transport_ready(transport_is_direct: bool, ready: bool) {
+    if direct() == transport_is_direct && (!ready || crate::settings::bluetooth_enabled()) {
+        set_ready(ready);
     }
 }
 
 pub(super) fn connection() -> SessionGate {
     SESSION.lock(Cell::get)
+}
+
+pub(super) async fn session_ended(generation: u32) {
+    while connection().accepts(generation) {
+        SESSION_CHANGED.wait().await;
+    }
 }
 
 pub(super) fn invalidate_pending_reports() -> u32 {
@@ -85,6 +100,7 @@ pub(super) fn invalidate_pending_reports() -> u32 {
         state.set(next);
         next
     });
+    SESSION_CHANGED.signal(());
     if next.ready() {
         let _ = OUTPUT.try_send((
             next.generation(),
