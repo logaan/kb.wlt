@@ -205,6 +205,18 @@ Def display-centered Fn {frame: display-frame x: s64 w: s64 y: s64 color: u8 siz
   Let {estimate: display-text-width(text viewport size)}
     display-text(frame add(x max(0 div(sub(w estimate) 2))) y color size text)
 
+Def display-line Fn {frame: display-frame x: s64 y: s64 end-x: s64 end-y: s64 color: u8 width: u8}
+  Match frame [({commands: commands labels: labels}
+    {commands: push(commands {opcode: 5 x: to-u16(x) y: to-u16(y) w: to-u16(end-x) h: to-u16(end-y)
+                              first: color second: width third: 0})
+     labels: labels})]
+
+Def display-arc Fn {frame: display-frame x: s64 y: s64 radius: u16 start: u16 sweep: u8 color: u8 width: u8}
+  Match frame [({commands: commands labels: labels}
+    {commands: push(commands {opcode: 6 x: to-u16(x) y: to-u16(y) w: radius h: start
+                              first: color second: width third: sweep})
+     labels: labels})]
+
 Def display-home-battery Fn {frame: display-frame mid: s64 y: s64 w: s64 level: u8 active: bool}
   Let {wide: display-wide(w)
        width: If wide 64 40
@@ -222,40 +234,46 @@ Def display-home-battery Fn {frame: display-frame mid: s64 y: s64 w: s64 level: 
          If eq(level 0) frame
            display-box(frame 1 add(x 4) add(y 4) max(1 div(mul(sub(width 8) to-s64(min(level 100))) 100))
              sub(height 8) color 2)
-         Let {dx: div(sub(width 10) 8) dy: div(sub(height 5) 8)}
-           fold(Fn {acc: display-frame step: s64}
-             display-box(acc 1 add(add(x 5) mul(step dx)) add(add(y 3) mul(step dy))
-               max(2 dx) max(2 dy) color 0)
-             frame range(0 8))}
+         display-line(frame add(x 5) add(y 4) add(x sub(width 6)) add(y sub(height 5)) color 3)}
     display-centered(frame label-x label-w add(y add(height 5)) 1 0 reading w)
 
 Def display-home-signal Fn {frame: display-frame mid: s64 y: s64 connected: bool}
   If connected
-    Let {frame: display-box(frame 1 sub(mid 8) y 16 3 5 1)
-         frame: display-box(frame 1 sub(mid 13) add(y 3) 5 3 5 1)
-         frame: display-box(frame 1 add(mid 8) add(y 3) 5 3 5 1)
-         frame: display-box(frame 1 sub(mid 5) add(y 8) 10 3 5 1)
-         frame: display-box(frame 1 sub(mid 8) add(y 11) 3 3 5 1)
-         frame: display-box(frame 1 add(mid 5) add(y 11) 3 3 5 1)
-         frame: display-box(frame 1 sub(mid 3) add(y 16) 6 3 5 1)}
-      display-box(frame 1 sub(mid 2) add(y 23) 4 4 5 2)
-    fold(Fn {acc: display-frame step: s64}
-      Let {x: add(sub(mid 9) mul(step 3))
-           acc: display-box(acc 1 x add(y add(4 mul(step 3))) 4 3 6 1)}
-        display-box(acc 1 x sub(add(y 22) mul(step 3)) 4 3 6 1)
-      frame range(0 6))
+    Let {center: add(y 25)
+         frame: display-arc(frame mid center 24 225 90 5 3)
+         frame: display-arc(frame mid center 17 225 90 5 3)
+         frame: display-arc(frame mid center 10 225 90 5 3)}
+      display-box(frame 1 sub(mid 2) add(y 23) 5 5 5 3)
+    Let {left: sub(mid 9)
+         right: add(mid 9)
+         top: add(y 4)
+         bottom: add(y 22)
+         frame: display-line(frame left top right bottom 6 3)}
+      display-line(frame right top left bottom 6 3)
+
+Def display-target-label Fn {target: u8}
+  Match target [
+    (0 "Prospector") (1 "BT 1") (2 "BT 2") (3 "BT 3") (4 "BT 4") (5 "BT 5") (6 "USB")
+    (_ "No target")]
 
 Def display-home Fn {w: s64 h: s64 model: list(u8)}
   Let {flags: display-get(model 7 0)
        wide: display-wide(w)
-       battery-y: If wide sub(div(h 2) 17) add(div(h 2) 2)
-       center-y: If wide sub(div(h 2) 14) sub(div(h 3) 13)
+       selection: display-get(model 15 255)
+       target: display-target-label(selection)
+       connection: display-get(model 16 0)
+       status: Match connection [(1 "Offline") (2 "Connecting") (3 "Connected") (_ "Unknown")]
+       battery-y: sub(h If wide 86 56)
        mid: div(w 2)
        left: If wide add(div(w 5) 4) div(w 4)
        right: sub(w left)
-       frame: display-home-battery(display-empty left battery-y w display-get(model 8 255) display-bit(flags 1))
-       frame: display-home-battery(frame right battery-y w display-get(model 9 255) display-bit(flags 2))}
-    display-home-signal(frame mid center-y display-bit(flags 4))
+       frame: If gt(selection 6)
+         display-centered(display-empty 0 w If wide 37 27 1 0 If wide "Awaiting Toucan" "No target" w)
+         Let {frame: display-centered(display-empty 0 w If wide 20 12 1 1 target w)}
+           display-centered(frame 0 w If wide 62 38 1 0 status w)
+       frame: display-home-signal(frame mid If wide 95 67 eq(connection 3))
+       frame: display-home-battery(frame left battery-y w display-get(model 8 255) display-bit(flags 1))}
+    display-home-battery(frame right battery-y w display-get(model 9 255) display-bit(flags 2))
 
 DefType display-wrapped {lines: list(string) pending: string used: s64}
 
@@ -712,8 +730,9 @@ Def display-detail Fn {w: s64 h: s64 model: list(u8) selected: s64}
                frame range(0 len(cells)))}
           display-bar(frame w h 5))]
 
-Def display-menu-count Fn {screen: u8}
-  Match screen [(2 4) (3 display-section-count) (6 4) (7 3) (8 12) (10 6) (14 4) (_ 0)]
+Def display-menu-count Fn {screen: u8 host-switch: bool}
+  Match screen [(2 If host-switch 5 4) (3 display-section-count) (6 If host-switch 5 4)
+    (7 3) (8 12) (10 6) (14 4) (15 7) (17 3) (_ 0)]
 
 Def display-menu-title Fn {screen: u8 w: s64}
   Match screen [
@@ -727,6 +746,8 @@ Def display-menu-title Fn {screen: u8 w: s64}
     (11 If display-wide(w) "Capture Chord" "Capture")
     (12 "Expansion")
     (13 "Help")
+    (15 "Host Target")
+    (17 "Prospector")
     (_ "")]
 
 Def display-menu-label Fn {screen: u8 index: s64 ueb: bool wide: bool}
@@ -746,38 +767,44 @@ Def display-menu-label Fn {screen: u8 index: s64 ueb: bool wide: bool}
       (4 If wide "Edit expansion" "Edit text")
       (5 If wide "Delete binding" "Delete")
       (_ "")])
+    (15 display-target-label(to-u8(index)))
+    (17 get(The list(string) ["Reference" "Debug" "Touch Help"] index))
     (_ Match index [
       (0 "(R)eference")
       (1 If wide "(C)onfiguration" "(C)onfig")
       (2 "(B)indings")
       (3 "(D)ebug")
+      (4 "(T)arget")
       (_ "")])]
 
 Def display-menu-preview-h Fn {screen: u8} If eq(screen 8) 50 0
 
-Def display-menu-list-row-h Fn {screen: u8 w: s64 h: s64}
-  If If display-wide(w) If eq(screen 2) true eq(screen 6) false
-    max(display-menu-row-h(w) div(sub(h add(add(display-header-h(w) 3) display-footer-h(w))) 4))
+Def display-menu-list-row-h Fn {screen: u8 w: s64 h: s64 host-switch: bool}
+  If If eq(screen 2) true eq(screen 6)
+    If If display-wide(w) true host-switch
+      div(display-row-space(w h) display-menu-count(screen host-switch))
+      display-menu-row-h(w)
     display-menu-row-h(w)
 
-Def display-menu-rows Fn {screen: u8 w: s64 h: s64}
+Def display-menu-rows Fn {screen: u8 w: s64 h: s64 host-switch: bool}
   Let {available: sub(display-row-space(w h) display-menu-preview-h(screen))}
-    max(1 min(8 div(available display-menu-list-row-h(screen w h))))
+    max(1 min(If eq(screen 15) 4 8 div(available display-menu-list-row-h(screen w h host-switch))))
 
-Def display-menu-list Fn {frame: display-frame screen: u8 w: s64 h: s64 selected: s64 ueb: bool}
-  Let {rows: display-menu-rows(screen w h)
+Def display-menu-list Fn {frame: display-frame screen: u8 w: s64 h: s64 selected: s64 flags: u8}
+  Let {host-switch: display-bit(flags 32)
+       rows: display-menu-rows(screen w h host-switch)
        start: mul(div(selected rows) rows)
-       count: min(rows max(0 sub(display-menu-count(screen) start)))
+       count: min(rows max(0 sub(display-menu-count(screen host-switch) start)))
        wide: display-wide(w)
        top: add(display-header-h(w) 3)
-       row-h: display-menu-list-row-h(screen w h)
+       row-h: display-menu-list-row-h(screen w h host-switch)
        text-offset: div(sub(row-h display-body-h(w)) 2)}
     fold(Fn {acc: display-frame offset: s64}
       Let {y: add(top mul(offset row-h))
            index: add(start offset)
            acc: If eq(index selected) display-selection(acc 1 y sub(w 2) sub(row-h 1) wide)
                   If eq(rem(index 2) 0) display-box(acc 1 1 y sub(w 2) sub(row-h 1) 7 2) acc}
-        display-text(acc 8 add(y text-offset) 1 0 display-menu-label(screen index ueb wide))
+        display-text(acc 8 add(y text-offset) 1 0 display-menu-label(screen index display-bit(flags 8) wide))
       frame range(0 count))
 
 Def display-notice Fn {notice: u8}
@@ -850,14 +877,10 @@ Def display-menu Fn {screen: u8 w: s64 h: s64 model: list(u8) selected: s64 deta
        top: add(display-header-h(w) 7)
        step: add(display-body-h(w) 4)
        frame: Match screen [
-         (8 Let {frame: display-menu-list(frame screen w h selected display-bit(flags 8))
+         (8 Let {frame: display-menu-list(frame screen w h selected flags)
                   frame: display-triggers(frame w sub(h add(bar 52)) model)}
               display-text(frame 8 sub(h add(bar 19)) 2 3 If eq(len(detail) 0) "Empty slot" display-compact-text(detail w)))
-         (9 Let {frame: display-text(frame 8 top 1 0 If display-bit(flags 16)
-                    If display-wide(w)
-                      If display-bit(flags 4) "Bluetooth ready" "Bluetooth waiting"
-                      If display-bit(flags 4) "BLE ready" "BLE waiting"
-                    If display-bit(flags 4) "USB ready" "USB waiting")
+         (9 Let {frame: display-text(frame 8 top 1 0 display-target-label(display-get(model 15 255)))
                   frame: display-text(frame 8 add(top step) 1 0 If display-bit(flags 1) If display-wide(w) "Left connected" "Left online" "Left offline")
                   frame: display-text(frame 8 add(top mul(step 2)) 1 0 If display-bit(flags 2) If display-wide(w) "Right connected" "Right online" "Right offline")
                   button-y: add(top mul(step 3))
@@ -871,21 +894,28 @@ Def display-menu Fn {screen: u8 w: s64 h: s64 model: list(u8) selected: s64 deta
                Let {end: sub(h add(bar 17))}
                  display-line-text(frame w div(end 2) end div(mul(end 3) 4)
                    detail display-text-width(detail w 0)))
-         (_ display-menu-list(frame screen w h selected display-bit(flags 8)))]
+         (_ display-menu-list(frame screen w h selected flags))]
        notice: display-notice(display-get(model 11 0))
        frame: If eq(len(notice) 0) frame
          display-text(display-box(frame 1 0 sub(h mul(2 bar)) w bar 0 0) 8 sub(h mul(2 bar)) 4 3 notice)}
-    display-bar(frame w h screen)
+    If eq(screen 17) frame display-bar(frame w h screen)
+
+Def display-touch-help Fn {w: s64 h: s64}
+  Let {frame: display-heading(display-empty w "Touch Help")
+       top: add(display-header-h(w) 8)
+       step: add(display-body-h(w) 4)
+       frame: display-text(frame 8 top 1 0 "Swipe to move")
+       frame: display-text(frame 8 add(top step) 1 0 "Tap to select")}
+    display-text(frame 8 add(top mul(step 2)) 1 0 "Hold to go back")
 
 Def display-host-help Fn {w: s64 h: s64}
-  Let {wide: display-wide(w)
-       frame: display-heading(display-empty w "Switch Host")
+  Let {frame: display-heading(display-empty w "Host Target")
        top: add(display-header-h(w) 6)
        step: add(display-body-h(w) 2)
-       frame: display-text(frame 7 top 1 0 If wide "Left outer thumb" "Left outer")
-       frame: display-text(frame 7 add(top step) 1 0 If wide "first, then both" "thumb first")
-       frame: display-text(frame 7 add(top mul(step 2)) 1 0 "Hold all three")
-       frame: display-text(frame 7 add(top mul(step 3)) 1 0 "for 2 seconds")}
+       frame: display-text(frame 7 top 1 0 "Braille menu")
+       frame: display-text(frame 7 add(top step) 1 0 "T for Target")
+       frame: display-text(frame 7 add(top mul(step 2)) 1 0 "Up / Down")
+       frame: display-text(frame 7 add(top mul(step 3)) 1 0 "Return picks")}
     display-bar(frame w h 13)
 
 Def display-help-rows The s64 4
@@ -930,6 +960,7 @@ Def render Fn {width: u16 height: u16 model: list(u8) detail: string}
                display-host-help(w h)
                display-help(w h selected))
          (14 display-bootloader(w h model selected))
+         (18 display-touch-help(w h))
          (_ display-menu(screen w h model selected detail))]}
     Match frame [({commands: commands labels: labels} tuple2(commands labels))]
 
@@ -959,19 +990,22 @@ Def display-menu-shortcut Fn {cell: u16}
     (9 7)
     (3 8)
     (25 9)
+    (30 15)
     (_ 0)]
 
 Def display-menu-open Fn {screen: u8 selected: u16}
   Match screen [
-    (2 display-result(display-menu-shortcut(get(The list(u16) [23 9 3 25] min(selected 3))) 0 0))
+    (2 display-result(get(The list(u8) [3 7 8 9 15] min(selected 4)) 0 0))
     (3 display-result(4 to-u16(mul(min(to-s64(selected) sub(display-section-count 1)) 256)) 0))
-    (6 display-result(get(The list(u8) [3 7 8 9] min(selected 3)) 0 0))
+    (6 display-result(get(The list(u8) [3 7 8 9 15] min(selected 4)) 0 0))
     (7 display-result(screen selected 1))
     (8 display-result(10 selected 1))
     (9 display-result(14 0 0))
     (10 display-result(screen selected 1))
     (12 display-result(screen selected 1))
     (14 display-result(screen selected 1))
+    (15 display-result(16 0 1))
+    (17 display-result(get(The list(u8) [3 9 18] min(selected 2)) 0 0))
     (_ display-result(screen selected 0))]
 
 Def display-menu-back Fn {screen: u8 selected: u16}
@@ -987,10 +1021,13 @@ Def display-menu-back Fn {screen: u8 selected: u16}
     (12 display-result(8 0 2))
     (13 display-result(6 0 2))
     (14 display-result(9 0 2))
+    (15 display-result(6 4 2))
+    (17 display-result(1 0 2))
+    (18 display-result(17 2 2))
     (_ display-result(6 0 2))]
 
-Def display-menu-move Fn {screen: u8 selected: u16 command: s64 page: s64}
-  Let {last: max(0 sub(display-menu-count(screen) 1))
+Def display-menu-move Fn {screen: u8 selected: u16 command: s64 page: s64 host-switch: bool}
+  Let {last: max(0 sub(display-menu-count(screen host-switch) 1))
        index: Match command [
          (1 sub(to-s64(selected) 1)) (2 add(to-s64(selected) 1))
          (3 sub(to-s64(selected) 1)) (4 add(to-s64(selected) 1))
@@ -1048,12 +1085,26 @@ Export {iface: "kb:firmware/display@0.1.0"
         params: {screen: u8 selected: u16 cell: u16 view: viewport}
         result: u32}
 Def navigate Fn {screen: u8 selected: u16 cell: u16 view: viewport}
+  If eq(cell 0) display-result(screen selected 0)
+    display-navigate(screen selected display-command(cell) cell view)
+
+DefType navigation [up down left right enter escape]
+
+Export {iface: "kb:firmware/display@0.1.0"
+        name: navigate-action
+        params: {screen: u8 selected: u16 action: navigation view: viewport}
+        result: u32}
+Def navigate-action Fn {screen: u8 selected: u16 action: navigation view: viewport}
+  If If lt(screen 2) true eq(screen 16)
+    display-result(2 0 6)
+    Let {command: Match action [(up 3) (down 4) (left 1) (right 2) (enter 10) (escape 9)]}
+      display-navigate(screen selected command 0 view)
+
+Def display-navigate Fn {screen: u8 selected: u16 command: s64 cell: u16 view: viewport}
   Match view [({width: width height: height host-switch: host-switch}
   Let {w: display-width(width) h: display-height(height)
-       command: display-command(cell)
        shortcut: display-menu-shortcut(cell)
        editor: If eq(screen 11) true eq(screen 12)}
-    If eq(cell 0) display-result(screen selected 0)
     If lt(screen 2)
       If eq(cell 287) display-result(2 0 6) display-result(screen selected 0)
     If eq(screen 13) display-help-move(selected command cell host-switch)
@@ -1065,10 +1116,10 @@ Def navigate Fn {screen: u8 selected: u16 cell: u16 view: viewport}
     If eq(screen 5) display-reference-move(screen selected command cell w h)
     If eq(command 9) display-menu-back(screen selected)
     If editor
-      If If eq(screen 12) eq(command 10) false
+      If If eq(command 10) If eq(screen 12) true eq(cell 0) false
         display-menu-open(screen selected)
-        display-result(screen selected 3)
-    If If eq(screen 2) gt(shortcut 0) If eq(screen 6) gt(shortcut 0) false
+        display-result(screen selected If eq(cell 0) 0 3)
+    If If If eq(shortcut 15) host-switch gt(shortcut 0) If eq(screen 2) true eq(screen 6) false
       display-result(shortcut 0 0)
     If eq(command 10) display-menu-open(screen selected)
-      display-menu-move(screen selected command display-menu-rows(screen w h)))]
+      display-menu-move(screen selected command display-menu-rows(screen w h host-switch) host-switch))]

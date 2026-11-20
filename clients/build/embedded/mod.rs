@@ -16,10 +16,12 @@ const ABI: &[(&str, usize, usize)] = &[
     ("kb:firmware/braille@0.1.0#step", 3, 1),
     ("kb:firmware/display@0.1.0#render", 6, 1),
     ("kb:firmware/display@0.1.0#navigate", 6, 1),
+    ("kb:firmware/display@0.1.0#navigate-action", 6, 1),
     ("cabi_post_kb:firmware/braille@0.1.0#map-cell", 1, 0),
     ("cabi_post_kb:firmware/braille@0.1.0#step", 1, 0),
     ("cabi_post_kb:firmware/display@0.1.0#render", 1, 0),
     ("cabi_post_kb:firmware/display@0.1.0#navigate", 1, 0),
+    ("cabi_post_kb:firmware/display@0.1.0#navigate-action", 1, 0),
 ];
 
 const KEYBOARD_ABI: &[(&str, usize, usize)] = &[

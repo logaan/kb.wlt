@@ -298,7 +298,7 @@ pub(crate) fn validate(component: &[u8], contract: Contract) -> Result<(), Strin
         let functions: &[&str] = match interface.as_str() {
             "kb:firmware/braille@0.1.0" => Contract::Braille.functions(),
             "kb:firmware/keyboard@0.1.0" => Contract::Keyboard.functions(),
-            "kb:firmware/display@0.1.0" => &["render", "navigate"],
+            "kb:firmware/display@0.1.0" => &["render", "navigate", "navigate-action"],
             _ => continue,
         };
         for name in functions {
@@ -317,7 +317,9 @@ pub(crate) fn validate(component: &[u8], contract: Contract) -> Result<(), Strin
                     "{name} has incompatible canonical function bindings"
                 ));
             }
-            if !matches!(*name, "map-cell" | "navigate") && memory != &Some((0, "memory".into())) {
+            if !matches!(*name, "map-cell" | "navigate" | "navigate-action")
+                && memory != &Some((0, "memory".into()))
+            {
                 return Err(format!("{name} has an incompatible canonical memory"));
             }
         }

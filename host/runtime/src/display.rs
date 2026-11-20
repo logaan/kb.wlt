@@ -1,5 +1,5 @@
 use crate::{BrailleComponent, BrailleState, Error, KeyboardComponent, Runtime};
-use kb_client_session::{Guest, Viewport};
+use kb_client_session::{Guest, Navigation, Viewport};
 use kb_core::{KeyStroke, pipeline::Bounded};
 
 pub trait DisplayGuest: Guest<Error = Error> {
@@ -41,7 +41,19 @@ macro_rules! display_guest {
                 cell: u16,
                 view: Viewport,
             ) -> Result<u32, Error> {
-                self.with_runtime(|runtime| runtime.navigate(screen, selected, cell, view))
+                self.with_runtime(|runtime| runtime.navigate(screen, selected, cell, view, false))
+            }
+
+            fn navigate_action(
+                &mut self,
+                screen: u8,
+                selected: u16,
+                navigation: Navigation,
+                view: Viewport,
+            ) -> Result<u32, Error> {
+                self.with_runtime(|runtime| {
+                    runtime.navigate(screen, selected, u16::from(navigation as u8), view, true)
+                })
             }
         }
 
@@ -80,25 +92,35 @@ impl Runtime {
         &mut self,
         screen: u8,
         selected: u16,
-        cell: u16,
+        argument: u16,
         view: Viewport,
+        semantic: bool,
     ) -> Result<u32, Error> {
         self.set_fuel(crate::CALL_FUEL)?;
-        let navigate =
-            self.func::<(i32, i32, i32, i32, i32, i32), i32>("kb:firmware/display@0.1.0#navigate")?;
+        let (function, post) = if semantic {
+            (
+                "kb:firmware/display@0.1.0#navigate-action",
+                "cabi_post_kb:firmware/display@0.1.0#navigate-action",
+            )
+        } else {
+            (
+                "kb:firmware/display@0.1.0#navigate",
+                "cabi_post_kb:firmware/display@0.1.0#navigate",
+            )
+        };
+        let navigate = self.func::<(i32, i32, i32, i32, i32, i32), i32>(function)?;
         let value = navigate.call(
             self,
             (
                 screen.into(),
                 selected.into(),
-                cell.into(),
+                argument.into(),
                 view.width.into(),
                 view.height.into(),
                 i32::from(view.host_switch),
             ),
         )?;
-        self.func::<i32, ()>("cabi_post_kb:firmware/display@0.1.0#navigate")?
-            .call(self, value)?;
+        self.func::<i32, ()>(post)?.call(self, value)?;
         Ok(value as u32)
     }
 

@@ -2,11 +2,14 @@
 
 use std::cell::RefCell;
 
-use kb_client_session::{Change, Guest, Links, Model, Session, Viewport};
+use kb_client_session::{
+    BOOTLOADER_PROSPECTOR, Change, Guest, Links, Model, Navigation, Session, Viewport,
+};
 use kb_core::KeyStroke;
 use kb_core::braille_hid::{Report, stroke_reports};
+use kb_core::host_target::{Target, TargetConnection};
 use kb_core::matrix_link::{
-    BRAILLE_THUMB, BrailleSwitch, RouteSwitch, braille_keys, braille_transition_blocked,
+    BRAILLE_THUMBS, BrailleSwitch, braille_keys, braille_transition_blocked,
 };
 use kb_core::pipeline::{Action, Key};
 use kb_core::preferences::{ENCODED_LEN, Settings};
@@ -24,12 +27,25 @@ unsafe extern "C" {
         height: u16,
         host_switch: bool,
     ) -> u32;
+    fn guest_navigate_action(
+        screen: u8,
+        selected: u16,
+        action: u8,
+        width: u16,
+        height: u16,
+        host_switch: bool,
+        receiver: bool,
+    ) -> u32;
     fn keyboard_report(report: u64);
     fn consumer_report(report: u16);
-    fn request_bootloader(devices: u8) -> u8;
+    fn request_bootloader(devices: u8, receiver: bool) -> u8;
+    fn request_target(target: u8);
 }
 
-struct BrowserGuest;
+enum BrowserGuest {
+    Toucan,
+    Prospector,
+}
 
 impl Guest for BrowserGuest {
     type Error = core::convert::Infallible;
@@ -70,15 +86,37 @@ impl Guest for BrowserGuest {
             )
         })
     }
+
+    fn navigate_action(
+        &mut self,
+        screen: u8,
+        selected: u16,
+        action: Navigation,
+        view: Viewport,
+    ) -> Result<u32, Self::Error> {
+        Ok(unsafe {
+            guest_navigate_action(
+                screen,
+                selected,
+                action as u8,
+                view.width,
+                view.height,
+                view.host_switch,
+                matches!(self, Self::Prospector),
+            )
+        })
+    }
 }
 
 struct Emulator {
     layer_switch: BrailleSwitch,
-    route_switch: RouteSwitch,
     braille: bool,
     keys: u64,
     blocked: u64,
     session: Session,
+    receiver: Session,
+    receiver_linked: bool,
+    touch_menu: bool,
     reports: ReportState<42>,
     consumer: [u8; 2],
     settings: [u8; ENCODED_LEN],
@@ -87,19 +125,26 @@ struct Emulator {
 
 impl Emulator {
     fn new() -> Self {
+        let mut receiver = Session::new(Settings::default());
+        receiver.enable_standalone_receiver_menu();
+        receiver.set_bootloader_devices(BOOTLOADER_PROSPECTOR);
         Self {
             layer_switch: BrailleSwitch::default(),
-            route_switch: RouteSwitch::new(),
             braille: false,
             keys: 0,
             blocked: 0,
             session: toucan_session(Settings::default()),
+            receiver,
+            receiver_linked: false,
+            touch_menu: false,
             reports: ReportState::new(),
             consumer: [0; 2],
             settings: [0; ENCODED_LEN],
             model: Model::home(Links {
                 online: 7,
                 battery: [100; 2],
+                target: Target::Prospector,
+                connection: TargetConnection::Connected,
             }),
         }
     }
@@ -114,7 +159,14 @@ impl Emulator {
     }
 
     fn update_braille(&mut self, keys: u16, now: u32) -> u32 {
-        let change = self.session.update(keys, now, &mut BrowserGuest).unwrap();
+        let change = self
+            .session
+            .update(keys, now, &mut BrowserGuest::Toucan)
+            .unwrap();
+        if self.touch_menu && !self.session.menu_open() {
+            self.blocked |= self.keys & !BRAILLE_THUMBS;
+            self.touch_menu = false;
+        }
         self.apply_braille_change(change)
     }
 
@@ -140,8 +192,12 @@ impl Emulator {
             };
         }
         if change.bootloader != 0 {
-            let accepted = unsafe { request_bootloader(change.bootloader) };
+            let accepted = unsafe { request_bootloader(change.bootloader, false) };
             self.session.bootloader_result(change.bootloader, accepted);
+        }
+        if let Some(target) = change.target {
+            self.clear_reports();
+            unsafe { request_target(target as u8) };
         }
         u32::from(change.save && self.session.settings.encode(&mut self.settings).is_ok())
     }
@@ -158,30 +214,13 @@ thread_local! {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn braille_thumb() -> u8 {
-    BRAILLE_THUMB
+extern "C" fn braille_thumbs() -> u64 {
+    BRAILLE_THUMBS
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn braille_mask(keys: u64) -> u16 {
     braille_keys(keys)
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn route_update(keys: u64, now: u32) -> u8 {
-    EMULATOR.with_borrow_mut(|state| {
-        let was_blocked = state.route_switch.blocked();
-        let changed = state.route_switch.update(now, keys);
-        let blocked = state.route_switch.blocked();
-        if blocked {
-            state.blocked |= keys;
-        }
-        if blocked && !was_blocked {
-            state.session.cancel(0);
-            state.clear_reports();
-        }
-        if changed { 2 } else { u8::from(blocked) }
-    })
 }
 
 #[unsafe(no_mangle)]
@@ -193,15 +232,18 @@ extern "C" fn matrix(keys: u64, now: u32, ready: bool) -> u64 {
         let mut saved = 0;
         if braille != state.braille {
             state.blocked |= braille_transition_blocked(braille, state.keys, keys);
-            if braille {
-                state.session.cancel(0);
-            } else {
+            if braille && !state.touch_menu {
+                if !state.session.menu_open() {
+                    state.session.cancel(0);
+                }
+            } else if !braille && !state.touch_menu {
                 let final_keys = ready.then(|| braille_keys(layer_keys));
                 let change = state
                     .session
-                    .finish_momentary(final_keys, now, &mut BrowserGuest)
+                    .finish_momentary(final_keys, now, &mut BrowserGuest::Toucan)
                     .unwrap();
                 saved = state.apply_braille_change(change);
+                state.touch_menu = false;
             }
             state.clear_reports();
             state.braille = braille;
@@ -217,7 +259,7 @@ extern "C" fn matrix(keys: u64, now: u32, ready: bool) -> u64 {
 
 #[unsafe(no_mangle)]
 extern "C" fn braille_active() -> bool {
-    EMULATOR.with_borrow(|state| state.braille)
+    EMULATOR.with_borrow(|state| state.braille || state.touch_menu)
 }
 
 #[unsafe(no_mangle)]
@@ -231,12 +273,68 @@ extern "C" fn set_bootloader_devices(devices: u8) {
 }
 
 #[unsafe(no_mangle)]
+extern "C" fn receiver_link_changed(linked: bool) {
+    EMULATOR.with_borrow_mut(|state| {
+        if state.receiver_linked != linked {
+            state.receiver_linked = linked;
+            state.receiver.cancel(0);
+            if state.touch_menu {
+                state.session.cancel(0);
+                state.blocked |= state.keys & !BRAILLE_THUMBS;
+                state.clear_reports();
+                state.touch_menu = false;
+            }
+        }
+    });
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn receiver_navigate(action: u8) -> u32 {
+    let Some(action) = Navigation::from_byte(action) else {
+        return 0;
+    };
+    EMULATOR.with_borrow_mut(|state| {
+        if state.receiver_linked {
+            let opened = state.session.menu_open();
+            let was_touch_menu = state.touch_menu;
+            let change = state
+                .session
+                .navigate_action(action, &mut BrowserGuest::Toucan)
+                .unwrap();
+            state.touch_menu = state.session.menu_open() && (!opened || state.touch_menu);
+            let reset = change.reset || (was_touch_menu && !state.touch_menu);
+            if reset {
+                state.blocked |= state.keys & !BRAILLE_THUMBS;
+            }
+            (u32::from(reset) << 1) | state.apply_braille_change(change)
+        } else {
+            let change = state
+                .receiver
+                .navigate_action(action, &mut BrowserGuest::Prospector)
+                .unwrap();
+            if change.bootloader == BOOTLOADER_PROSPECTOR {
+                let accepted = unsafe { request_bootloader(change.bootloader, true) };
+                state
+                    .receiver
+                    .bootloader_result(change.bootloader, accepted);
+            }
+            0
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn restart_receiver() {
+    EMULATOR.with_borrow_mut(|state| state.receiver.cancel(0));
+}
+
+#[unsafe(no_mangle)]
 extern "C" fn restart_keyboard() {
     EMULATOR.with_borrow_mut(|state| {
         state.layer_switch = BrailleSwitch::default();
-        state.route_switch = RouteSwitch::new();
         state.braille = false;
         state.session.cancel(0);
+        state.touch_menu = false;
         state.clear_reports();
     });
 }
@@ -265,13 +363,40 @@ extern "C" fn set_viewport(width: u16, height: u16) {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn update_model(online: u8, left: u8, right: u8, direct: bool, home: bool) {
+extern "C" fn set_host_target(target: u8) {
+    if let Some(target) = Target::from_byte(target) {
+        EMULATOR.with_borrow_mut(|state| state.session.set_host_target(target));
+    }
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn host_connection_changed() {
+    EMULATOR.with_borrow_mut(|state| {
+        state.blocked |= state.keys & !BRAILLE_THUMBS;
+        state.session.cancel_for_link_change(0);
+        state.clear_reports();
+    });
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn update_model(
+    online: u8,
+    left: u8,
+    right: u8,
+    target: u8,
+    connection: u8,
+    standalone: bool,
+) {
     let links = Links {
-        online: online | (u8::from(direct) << 4),
+        online,
         battery: [left, right],
+        target: Target::from_byte(target).unwrap_or(Target::Unknown),
+        connection: TargetConnection::from_byte(connection),
     };
     EMULATOR.with_borrow_mut(|state| {
-        state.model = if state.braille && !home {
+        state.model = if standalone && state.receiver.menu_open() {
+            state.receiver.model(links)
+        } else if !standalone && (state.braille || state.session.menu_open()) {
             state.session.model(links)
         } else {
             Model::home(links)

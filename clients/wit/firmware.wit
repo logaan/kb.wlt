@@ -92,6 +92,17 @@ interface display {
     }
 
     navigate: func(screen: u8, selected: u16, cell: u16, view: viewport) -> u32;
+
+    enum navigation {
+        up,
+        down,
+        left,
+        right,
+        enter,
+        escape,
+    }
+
+    navigate-action: func(screen: u8, selected: u16, action: navigation, view: viewport) -> u32;
 }
 
 world keyboard-display {

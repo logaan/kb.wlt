@@ -50,6 +50,8 @@ impl Runtime {
             "cabi_post_kb:firmware/display@0.1.0#navigate" => (10, 1, 0),
             "cabi_post_kb:firmware/keyboard@0.1.0#process" => (11, 1, 0),
             "cabi_post_kb:firmware/keyboard@0.1.0#transform-output" => (12, 1, 0),
+            "kb:firmware/display@0.1.0#navigate-action" => (13, 6, 1),
+            "cabi_post_kb:firmware/display@0.1.0#navigate-action" => (14, 1, 0),
             _ => return Err(Error::InvalidState),
         };
         if P::COUNT != param_count || R::COUNT != result_count {

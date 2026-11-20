@@ -6,6 +6,7 @@ use core::fmt::Write;
 use kb_core::{
     KeyStroke,
     chord::{CHORD_MASK, RecentChord, SPACE_DOT},
+    host_target::{Target, TargetConnection},
     menu::{BluetoothAction, Effect, Notice, State},
     pipeline::Bounded,
     preferences::{BrailleMode, Engine, Fallback, Output, Settings},
@@ -18,6 +19,9 @@ pub const BOOTLOADER_RIGHT: u8 = 2;
 pub const BOOTLOADER_PROSPECTOR: u8 = 4;
 const BOOTLOADER_DEVICES: u8 = BOOTLOADER_LEFT | BOOTLOADER_RIGHT | BOOTLOADER_PROSPECTOR;
 const BOOTLOADER_SCREEN: u8 = 14;
+const HOST_TARGET_SCREEN: u8 = 15;
+const HOST_FEEDBACK_SCREEN: u8 = 16;
+const STANDALONE_RECEIVER_MENU: u8 = 17;
 
 #[derive(Clone, Copy, Default)]
 #[repr(u8)]
@@ -47,6 +51,38 @@ pub trait Guest {
         cell: u16,
         view: Viewport,
     ) -> Result<u32, Self::Error>;
+    fn navigate_action(
+        &mut self,
+        screen: u8,
+        selected: u16,
+        navigation: Navigation,
+        view: Viewport,
+    ) -> Result<u32, Self::Error>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Navigation {
+    Up,
+    Down,
+    Left,
+    Right,
+    Enter,
+    Escape,
+}
+
+impl Navigation {
+    pub const fn from_byte(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::Up),
+            1 => Some(Self::Down),
+            2 => Some(Self::Left),
+            3 => Some(Self::Right),
+            4 => Some(Self::Enter),
+            5 => Some(Self::Escape),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +96,8 @@ pub struct Viewport {
 pub struct Links {
     pub online: u8,
     pub battery: [u8; 2],
+    pub target: Target,
+    pub connection: TargetConnection,
 }
 
 impl Default for Links {
@@ -67,6 +105,8 @@ impl Default for Links {
         Self {
             online: 0,
             battery: [255; 2],
+            target: Target::Unknown,
+            connection: TargetConnection::Unknown,
         }
     }
 }
@@ -79,9 +119,11 @@ pub struct Model {
 
 impl Model {
     pub fn home(links: Links) -> Self {
-        let mut model = [0; 16];
+        let mut model = [0; 17];
         model[7] = links.online;
         model[8..10].copy_from_slice(&links.battery);
+        model[15] = links.target as u8;
+        model[16] = links.connection as u8;
         Self {
             bytes: Bounded::from_slice(&model, 0).unwrap(),
             detail: Label::new(),
@@ -94,6 +136,7 @@ pub struct Change {
     pub strokes: Output,
     pub save: bool,
     pub bluetooth: Option<BluetoothAction>,
+    pub target: Option<Target>,
     pub bootloader: u8,
     pub reset: bool,
 }
@@ -105,6 +148,8 @@ pub struct Session {
     help_return: (u8, u16),
     viewport: (u16, u16),
     host_switch: bool,
+    host_target: Target,
+    standalone_receiver_menu: bool,
     menu: State,
     bootloader_devices: u8,
     bootloader_selected: u8,
@@ -128,6 +173,8 @@ impl Session {
             help_return: (1, 0),
             viewport: (280, 240),
             host_switch: false,
+            host_target: Target::default(),
+            standalone_receiver_menu: false,
             menu: State::default(),
             bootloader_devices: 0,
             bootloader_selected: 0,
@@ -149,6 +196,39 @@ impl Session {
 
     pub fn enable_host_switch(&mut self) {
         self.host_switch = true;
+    }
+
+    pub fn set_host_target(&mut self, target: Target) {
+        self.host_target = target;
+    }
+
+    pub fn enable_standalone_receiver_menu(&mut self) {
+        self.standalone_receiver_menu = true;
+    }
+
+    pub fn menu_open(&self) -> bool {
+        self.screen >= 2 && self.screen != HOST_FEEDBACK_SCREEN
+    }
+
+    pub fn navigate_action<G: Guest>(
+        &mut self,
+        navigation: Navigation,
+        client: &mut G,
+    ) -> Result<Change, G::Error> {
+        let mut change = Change::default();
+        let keys = self.capture.held();
+        if !self.menu_open() {
+            self.cancel(keys);
+            change.reset = true;
+        }
+        let packed = client.navigate_action(self.screen, self.selected, navigation, self.view())?;
+        self.apply_navigation(packed, None, client, &mut change)?;
+        if self.screen == 1 {
+            self.cancel(keys);
+        } else if self.screen == HOST_FEEDBACK_SCREEN {
+            self.cancel_for_link_change(keys);
+        }
+        Ok(change)
     }
 
     pub fn set_bootloader_devices(&mut self, available: u8) {
@@ -179,27 +259,27 @@ impl Session {
     pub fn cancel(&mut self, keys: u16) {
         let viewport = self.viewport;
         let host_switch = self.host_switch;
+        let host_target = self.host_target;
+        let standalone_receiver_menu = self.standalone_receiver_menu;
         let bootloader_devices = self.bootloader_devices;
         *self = Self::new(self.settings);
         self.viewport = viewport;
         self.host_switch = host_switch;
+        self.host_target = host_target;
+        self.standalone_receiver_menu = standalone_receiver_menu;
         self.bootloader_devices = bootloader_devices;
         self.guard = keys != 0;
     }
 
     pub fn cancel_for_link_change(&mut self, keys: u16) {
-        let bootloader = (self.screen == BOOTLOADER_SCREEN).then_some((
-            self.selected,
-            self.bootloader_selected,
-            self.bootloader_notice,
-        ));
-        self.cancel(keys);
-        if let Some((selected, devices, notice)) = bootloader {
-            self.screen = BOOTLOADER_SCREEN;
-            self.selected = selected;
-            self.bootloader_selected = devices;
-            self.bootloader_notice = notice;
-        }
+        self.engine.reset();
+        self.held = 0;
+        self.chord = 0;
+        self.capture = RecentChord::new();
+        self.space_consumed = false;
+        self.fallback = Fallback::default();
+        self.preview = Label::new();
+        self.guard = keys != 0;
     }
 
     pub fn busy(&mut self) {
@@ -249,6 +329,12 @@ impl Session {
             self.guard = keys != 0;
             return Ok(change);
         }
+        if self.screen == HOST_FEEDBACK_SCREEN {
+            if keys == 0 {
+                return Ok(change);
+            }
+            self.screen = 1;
+        }
         let previous = self.capture.held();
         let candidate = self.capture.update(keys, now);
         let cell = self.menu_chord(previous, keys, candidate);
@@ -266,6 +352,8 @@ impl Session {
                 self.navigate(cell, client, &mut change)?;
                 if self.screen == 1 {
                     self.cancel(keys);
+                } else if self.screen == HOST_FEEDBACK_SCREEN {
+                    self.cancel_for_link_change(keys);
                 }
             }
         } else {
@@ -324,17 +412,45 @@ impl Session {
         client: &mut G,
         change: &mut Change,
     ) -> Result<(), G::Error> {
-        let previous = (self.screen, self.selected);
+        let packed = client.navigate(self.screen, self.selected, cell, self.view())?;
+        self.apply_navigation(packed, Some(cell), client, change)
+    }
+
+    fn view(&self) -> Viewport {
         let (width, height) = self.viewport;
-        let view = Viewport {
+        Viewport {
             width,
             height,
             host_switch: self.host_switch,
-        };
-        let packed = client.navigate(self.screen, self.selected, cell, view)?;
+        }
+    }
+
+    fn apply_navigation<G: Guest>(
+        &mut self,
+        packed: u32,
+        cell: Option<u16>,
+        client: &mut G,
+        change: &mut Change,
+    ) -> Result<(), G::Error> {
+        let previous = (self.screen, self.selected);
         let action = (packed >> 24) as u8;
         self.screen = packed as u8;
         self.selected = (packed >> 8) as u16;
+        if self.standalone_receiver_menu && matches!(self.screen, 2 | 6) {
+            self.screen = STANDALONE_RECEIVER_MENU;
+            self.selected = self.selected.min(1);
+        }
+        if self.screen == HOST_TARGET_SCREEN && previous.0 != HOST_TARGET_SCREEN && previous.0 != 13
+        {
+            self.selected = u16::from(self.host_target as u8).min(u16::from(Target::Usb as u8));
+        }
+        if previous.0 == HOST_TARGET_SCREEN && self.screen == HOST_FEEDBACK_SCREEN {
+            change.target = u8::try_from(previous.1).ok().and_then(Target::from_byte);
+            if let Some(target) = change.target {
+                self.host_target = target;
+            }
+            return Ok(());
+        }
         if action == 4 && previous.0 != 13 {
             self.help_return = previous;
         }
@@ -365,14 +481,16 @@ impl Session {
         let command = match action {
             1 => Action::Activate,
             2 if mode == Mode::BindingText => Action::Back,
-            3 => Action::Lookup(cell),
+            3 => match cell {
+                Some(cell) => Action::Lookup(cell),
+                None => return Ok(()),
+            },
             _ => return Ok(()),
         };
         self.menu.selected = previous.1 as u8;
-        let stroke = if command == Action::Lookup(cell) {
-            KeyStroke::from_packed(client.map_cell(cell)?)
-        } else {
-            None
+        let stroke = match command {
+            Action::Lookup(cell) => KeyStroke::from_packed(client.map_cell(cell)?),
+            _ => None,
         };
         let update = self.menu.step(mode, command, &self.settings, stroke);
         self.menu = update.state;
@@ -431,6 +549,9 @@ impl Session {
 
     pub fn model(&self, links: Links) -> Model {
         let mut model = Model::home(links);
+        if self.screen == HOST_FEEDBACK_SCREEN {
+            return model;
+        }
         let buffer = self.engine.buffered_cells();
         let count = buffer
             .iter()
@@ -470,6 +591,13 @@ impl Session {
                     self.bootloader_selected,
                     self.bootloader_notice as u8,
                 ])
+                .unwrap();
+            return model;
+        }
+        if matches!(self.screen, 9 | HOST_TARGET_SCREEN) {
+            model
+                .bytes
+                .extend_from_slice(&[links.target as u8, links.connection as u8])
                 .unwrap();
             return model;
         }

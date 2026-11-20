@@ -130,6 +130,7 @@ enum {
     Realloc, BrailleMap, BrailleStep, DisplayDraw, DisplayNavigate, KeyboardProcess,
     KeyboardTransform, PostBrailleMap, PostBrailleStep, PostDisplayDraw,
     PostDisplayNavigate, PostKeyboardProcess, PostKeyboardTransform,
+    DisplayNavigateAction, PostDisplayNavigateAction,
 };
 
 uint32_t kb_embedded_call(uint32_t operation, const uint32_t *arguments, uint32_t *output)
@@ -154,6 +155,9 @@ uint32_t kb_embedded_call(uint32_t operation, const uint32_t *arguments, uint32_
         break;
     case DisplayNavigate:
         *output = w2c_kb__guest_kb0x3Afirmware0x2Fdisplay0x4000x2E10x2E00x23navigate(&instance, arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]);
+        break;
+    case DisplayNavigateAction:
+        *output = w2c_kb__guest_kb0x3Afirmware0x2Fdisplay0x4000x2E10x2E00x23navigate0x2Daction(&instance, arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]);
         break;
 #ifdef KB_EMBEDDED_KEYBOARD
     case KeyboardProcess:
@@ -180,6 +184,9 @@ uint32_t kb_embedded_call(uint32_t operation, const uint32_t *arguments, uint32_
         break;
     case PostDisplayNavigate:
         w2c_kb__guest_cabi_post_kb0x3Afirmware0x2Fdisplay0x4000x2E10x2E00x23navigate(&instance, arguments[0]);
+        break;
+    case PostDisplayNavigateAction:
+        w2c_kb__guest_cabi_post_kb0x3Afirmware0x2Fdisplay0x4000x2E10x2E00x23navigate0x2Daction(&instance, arguments[0]);
         break;
     default:
         return WASM_RT_TRAP_UNREACHABLE;

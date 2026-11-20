@@ -351,7 +351,7 @@ pub(crate) fn interfaces(
 ) -> &'static [(&'static str, &'static [&'static str])] {
     const KEYBOARD: (&str, &[&str]) = ("keyboard", Contract::Keyboard.functions());
     const BRAILLE: (&str, &[&str]) = ("braille", Contract::Braille.functions());
-    const DISPLAY: (&str, &[&str]) = ("display", &["render", "navigate"]);
+    const DISPLAY: (&str, &[&str]) = ("display", &["render", "navigate", "navigate-action"]);
     match (contract, display) {
         (Contract::Keyboard, true) => &[KEYBOARD, BRAILLE, DISPLAY],
         (Contract::Braille, true) => &[BRAILLE, DISPLAY],

@@ -20,10 +20,13 @@
     <section class="workbench" aria-label="Toucan keyboard and Prospector">
       <div class="desktop">
         <figure class="receiver">
-          <button class="receiver-case screen-toggle" id="zoom-prospector" type="button" aria-controls="display-viewer" aria-expanded="false" aria-label="Enlarge Prospector display">
+          <div class="receiver-case">
             <canvas id="prospector" width="280" height="240" aria-hidden="true"></canvas>
-          </button>
-          <figcaption>Prospector</figcaption>
+          </div>
+          <figcaption>
+            Prospector
+            <button class="clear screen-toggle" id="zoom-prospector" type="button" aria-controls="display-viewer" aria-expanded="false" aria-label="Enlarge Prospector display">Enlarge</button>
+          </figcaption>
         </figure>
         <div class="boards">
           <div class="board board-left" aria-label="Toucan left half">
@@ -40,11 +43,11 @@
       <footer class="workbench-footer">
         <p class="mode" id="mode" aria-live="polite">QWERTY</p>
         <div class="instructions">
-          <p>Type or press the keycaps. Tap <kbd>]</kbd> to toggle braille, or hold it for momentary braille.</p>
-          <p>Hold the outer left thumb (<kbd>]</kbd>) first, then add Backspace and left Meta. Hold all three for two seconds to switch the output route.</p>
-          <p id="reference-help" hidden>Hold <kbd>Space</kbd> + <kbd>F</kbd> <kbd>D</kbd> <kbd>S</kbd> <kbd>J</kbd> <kbd>K</kbd> for the menu, then <kbd>Space</kbd> + <kbd>F</kbd> <kbd>D</kbd> <kbd>S</kbd> <kbd>K</kbd> for Reference. <kbd>Space</kbd> + <kbd>A</kbd> opens the selected category.</p>
+          <p>Tap either outer thumb to toggle Braille, or hold it for momentary Braille. In Braille, either inner thumb acts as Space.</p>
+          <p id="reference-help" hidden>Chord <kbd>Space</kbd> + <kbd>⠟</kbd> for the menu. Choose <strong>Target</strong> with <kbd>t</kbd> (⠞) or <strong>Reference</strong> with <kbd>r</kbd> (⠗).</p>
+          <p>Touch the Prospector display to open the menu. Swipe to move, tap to select, or hold to go back.</p>
         </div>
-        <output class="route" id="route" aria-label="Output route">Prospector USB</output>
+        <output class="route" id="route" aria-label="Host target">Prospector</output>
       </footer>
     </section>
     <section class="preview" id="display-viewer" aria-labelledby="display-title" hidden>
@@ -53,14 +56,15 @@
         <button type="button" class="clear" id="close-viewer">Close</button>
       </header>
       <canvas id="enlarged-display" aria-hidden="true" tabindex="-1"></canvas>
-      <p id="viewer-reference-help" hidden>For Reference, chord Space + F D S J K, then Space + F D S K. Space + A opens the selected category.</p>
+      <p id="viewer-reference-help" hidden>Chord <kbd>Space</kbd> + <kbd>⠟</kbd> for the menu, then <kbd>r</kbd> (⠗) for Reference. <kbd>Space</kbd> + <kbd>⡀</kbd> opens the selected category.</p>
     </section>
     <details class="links">
       <summary>Simulated connections</summary>
       <div class="links-grid">
         <label><input id="usb-link" type="checkbox" checked> Prospector USB</label>
+        <label><input id="toucan-usb-link" type="checkbox" checked> Toucan USB</label>
         <label><input id="prospector-link" type="checkbox" checked> Prospector relay <span class="bootloader-status" hidden>UF2 bootloader</span></label>
-        <label><input id="bluetooth-link" type="checkbox" checked> Toucan Bluetooth</label>
+        <label><input id="bluetooth-link" type="checkbox" checked> Selected Bluetooth slot</label>
         <label><input id="left-link" type="checkbox" checked> Left half <span class="bootloader-status" hidden>UF2 bootloader</span></label>
         <label>Battery <input id="left-battery" aria-label="Left battery percentage" type="number" min="0" max="100" value="100"> %</label>
         <label><input id="right-link" type="checkbox" checked> Right half <span class="bootloader-status" hidden>UF2 bootloader</span></label>

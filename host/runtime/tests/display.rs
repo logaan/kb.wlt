@@ -1,10 +1,11 @@
 use kb_client_session::{
-    BOOTLOADER_LEFT, BOOTLOADER_PROSPECTOR, BOOTLOADER_RIGHT, Change, Guest, Links, Model, Session,
-    Viewport,
+    BOOTLOADER_LEFT, BOOTLOADER_PROSPECTOR, BOOTLOADER_RIGHT, Change, Guest, Links, Model,
+    Navigation, Session, Viewport,
 };
 use kb_component_runtime::{BrailleComponent, DisplayGuest, KeyboardComponent};
 use kb_core::{
     KeyStroke,
+    host_target::{Target, TargetConnection},
     pipeline::{Action, Input, Key, KeyEvent, KeyState},
     preferences::{BrailleMode, Settings},
     reference::{LEADER, SPACE},
@@ -18,8 +19,8 @@ fn commands(mut scene: &[u8]) -> Vec<&[u8]> {
     let mut result = Vec::new();
     while let Some(opcode) = scene.first() {
         let len = match opcode {
-            1 | 2 => 11,
-            4 => 12,
+            1 | 2 | 5 => 11,
+            4 | 6 => 12,
             3 => 8 + usize::from(scene[7]),
             _ => panic!("unexpected scene command {opcode}"),
         };
@@ -171,19 +172,25 @@ fn debug_ignores_unavailable_devices_and_empty_requests() {
 }
 
 #[test]
-fn both_production_clients_render_battery_gauges_and_wireless_status() {
-    let model = Model::home(Links {
-        online: 0b101,
-        battery: [85, 10],
-    });
+fn both_production_clients_render_host_status_independently_of_batteries() {
     let mut toucan = KeyboardComponent::new(TOUCAN).unwrap();
     let mut paintbrush = BrailleComponent::new(PAINTBRUSH).unwrap();
     for guest in [&mut toucan as &mut dyn DisplayGuest, &mut paintbrush] {
         for (width, height) in [(144, 168), (280, 240)] {
+            let links = Links {
+                online: 0b001,
+                battery: [85, 10],
+                target: Target::Prospector,
+                connection: TargetConnection::Connected,
+            };
+            let model = Model::home(links);
             let scene = guest
                 .render(width, height, model.bytes.as_slice(), "")
                 .unwrap();
-            assert_eq!(labels(scene.as_slice()), ["85%", "Offline"]);
+            assert_eq!(
+                labels(scene.as_slice()),
+                ["Prospector", "Connected", "85%", "Offline"]
+            );
             let scene = commands(scene.as_slice());
             assert!(
                 scene
@@ -195,26 +202,35 @@ fn both_production_clients_render_battery_gauges_and_wireless_status() {
                     .iter()
                     .any(|command| command[0] == 2 && command[9] == 6)
             );
-            for direct in [0, 0x10] {
-                let online = Model::home(Links {
-                    online: 0b111 | direct,
-                    battery: [255, 100],
-                });
-                let online = guest
-                    .render(width, height, online.bytes.as_slice(), "")
-                    .unwrap();
-                assert_eq!(labels(online.as_slice()), ["?", "100%"]);
-                let off = Model::home(Links {
-                    online: direct,
-                    battery: [255; 2],
-                });
-                let off = guest
-                    .render(width, height, off.bytes.as_slice(), "")
-                    .unwrap();
-                assert_eq!(labels(off.as_slice()), ["Offline", "Offline"]);
-                assert_ne!(online.as_slice(), off.as_slice());
+            for (selection, name) in ["Prospector", "BT 1", "BT 2", "BT 3", "BT 4", "BT 5", "USB"]
+                .into_iter()
+                .enumerate()
+            {
+                for (connection, status) in [
+                    (TargetConnection::Offline, "Offline"),
+                    (TargetConnection::Connecting, "Connecting"),
+                    (TargetConnection::Connected, "Connected"),
+                ] {
+                    let model = Model::home(Links {
+                        target: Target::from_byte(selection as u8).unwrap(),
+                        connection,
+                        ..links
+                    });
+                    let scene = guest
+                        .render(width, height, model.bytes.as_slice(), "")
+                        .unwrap();
+                    assert_eq!(labels(scene.as_slice()), [name, status, "85%", "Offline"]);
+                }
             }
         }
+        let unavailable = Model::home(Links::default());
+        let scene = guest
+            .render(280, 240, unavailable.bytes.as_slice(), "")
+            .unwrap();
+        assert_eq!(
+            labels(scene.as_slice()),
+            ["Awaiting Toucan", "Offline", "Offline"]
+        );
     }
 }
 
@@ -424,7 +440,55 @@ fn alphabet_cells_and_help_parentheses_have_separate_visual_slots() {
 }
 
 #[test]
-fn toucan_help_teaches_the_on_keyboard_host_switch() {
+fn toucan_selects_every_target_by_chord_with_the_relay_offline() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    for (width, height) in [(144, 168), (280, 240)] {
+        for (selection, target) in
+            (0..7).filter_map(|index| Target::from_byte(index).map(|target| (index, target)))
+        {
+            let mut session = Session::new(Settings::default());
+            session.enable_host_switch();
+            session.set_viewport(width, height);
+            let links = Links {
+                online: 1,
+                target: Target::Prospector,
+                connection: TargetConnection::Connecting,
+                ..Links::default()
+            };
+            tap(&mut session, &mut guest, LEADER);
+            let model = session.model(links);
+            let scene = guest
+                .render(width, height, model.bytes.as_slice(), "")
+                .unwrap();
+            assert!(labels(scene.as_slice()).contains(&"(T)arget"));
+            tap(&mut session, &mut guest, 30);
+            assert_eq!(screen(&session), (15, 0));
+            for _ in 0..selection {
+                tap(&mut session, &mut guest, SPACE | 8);
+            }
+            session.cancel_for_link_change(0);
+            assert_eq!(screen(&session), (15, u16::from(selection)));
+            key(&mut session, &mut guest, SPACE | 64);
+            let change = key(&mut session, &mut guest, SPACE);
+            assert_eq!(change.target, Some(target));
+            session.cancel_for_link_change(SPACE);
+            assert!(key(&mut session, &mut guest, SPACE).strokes.is_empty());
+            assert!(key(&mut session, &mut guest, 0).strokes.is_empty());
+            assert_eq!(screen(&session), (0, 0));
+            assert_eq!(
+                tap(&mut session, &mut guest, 1).strokes.as_slice(),
+                &[KeyStroke::from_ascii(b'a').unwrap()]
+            );
+        }
+    }
+    let mut paintbrush = Session::new(Settings::default());
+    tap(&mut paintbrush, &mut guest, LEADER);
+    assert!(tap(&mut paintbrush, &mut guest, 30).target.is_none());
+    assert_eq!(screen(&paintbrush), (2, 0));
+}
+
+#[test]
+fn toucan_help_teaches_the_on_keyboard_host_picker() {
     let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
     let mut session = Session::new(Settings::default());
     session.enable_host_switch();
@@ -442,13 +506,108 @@ fn toucan_help_teaches_the_on_keyboard_host_switch() {
     assert_eq!(
         labels[..5],
         [
-            "Switch Host",
-            "Left outer thumb",
-            "first, then both",
-            "Hold all three",
-            "for 2 seconds"
+            "Host Target",
+            "Braille menu",
+            "T for Target",
+            "Up / Down",
+            "Return picks"
         ],
     );
+}
+
+#[test]
+fn semantic_navigation_opens_the_menu_without_consuming_the_first_gesture() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    for action in [
+        Navigation::Up,
+        Navigation::Down,
+        Navigation::Left,
+        Navigation::Right,
+        Navigation::Enter,
+        Navigation::Escape,
+    ] {
+        let mut session = Session::new(Settings::default());
+        let change = session.navigate_action(action, &mut guest).unwrap();
+        assert_eq!(screen(&session), (2, 0));
+        assert!(session.menu_open());
+        assert!(change.reset && change.bootloader == 0 && change.target.is_none());
+        tap(&mut session, &mut guest, 23);
+        assert_eq!(screen(&session), (3, 0));
+        session
+            .navigate_action(Navigation::Enter, &mut guest)
+            .unwrap();
+        assert_eq!(screen(&session), (4, 0));
+    }
+}
+
+#[test]
+fn a_standalone_prospector_can_enter_only_its_own_bootloader_by_touch() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    session.enable_standalone_receiver_menu();
+    session.set_bootloader_devices(BOOTLOADER_PROSPECTOR);
+    session
+        .navigate_action(Navigation::Enter, &mut guest)
+        .unwrap();
+    let scene = guest
+        .render(
+            280,
+            240,
+            session.model(Links::default()).bytes.as_slice(),
+            "",
+        )
+        .unwrap();
+    assert_eq!(
+        labels(scene.as_slice()),
+        ["Prospector", "Reference", "Debug", "Touch Help"]
+    );
+    for action in [
+        Navigation::Down,
+        Navigation::Right,
+        Navigation::Left,
+        Navigation::Enter,
+        Navigation::Enter,
+    ] {
+        assert_eq!(
+            session
+                .navigate_action(action, &mut guest)
+                .unwrap()
+                .bootloader,
+            0
+        );
+    }
+    assert_eq!(screen(&session), (14, 0));
+    for action in [Navigation::Enter, Navigation::Down, Navigation::Enter] {
+        assert_eq!(
+            session
+                .navigate_action(action, &mut guest)
+                .unwrap()
+                .bootloader,
+            0
+        );
+        let model = session.model(Links::default());
+        assert_eq!(model.bytes.as_slice()[16], 0);
+    }
+    session
+        .navigate_action(Navigation::Down, &mut guest)
+        .unwrap();
+    session
+        .navigate_action(Navigation::Enter, &mut guest)
+        .unwrap();
+    session
+        .navigate_action(Navigation::Down, &mut guest)
+        .unwrap();
+    assert_eq!(
+        session
+            .navigate_action(Navigation::Enter, &mut guest)
+            .unwrap()
+            .bootloader,
+        BOOTLOADER_PROSPECTOR
+    );
+    session
+        .navigate_action(Navigation::Escape, &mut guest)
+        .unwrap();
+    assert_eq!(screen(&session), (9, 0));
 }
 
 #[test]

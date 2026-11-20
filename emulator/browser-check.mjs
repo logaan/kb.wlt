@@ -32,7 +32,7 @@ try {
   assert.equal(await page.locator("#runtime").textContent(), "Components ready", errors.join("\n"));
   assert.equal(await page.locator(".key").count(), 42);
   assert.equal(await page.getByRole("radio").count(), 0);
-  assert.equal(await page.locator("#route").textContent(), "Prospector USB");
+  assert.equal(await page.locator("#route").textContent(), "Prospector");
   assert.equal(await page.locator("#mode").textContent(), "QWERTY");
   assert.equal(await page.getByRole("button", { name: "Esc ([)" }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "- (/)" }).count(), 1);
@@ -70,13 +70,27 @@ try {
 
   await page.keyboard.press("BracketRight");
   assert.equal(await page.locator("#mode").textContent(), "Braille");
-  assert.equal(await page.locator(".dot-cell").count(), 8);
-  assert.equal(await page.getByRole("button", { name: "⠁ (F)" }).count(), 1);
+  assert.equal(await page.locator(".dot-cell").count(), 16);
+  const brailleLegends = [
+    ["⡀ (A)", "⠄ (S)", "⠂ (D)", "⠁ (F)"],
+    ["⢀ (Z)", "⠠ (X)", "⠐ (C)", "⠈ (V)"],
+    ["⠈ (J)", "⠐ (K)", "⠠ (L)", "⢀ (;)"],
+    ["⠁ (M)", "⠂ (,)", "⠄ (.)", "⡀ (-)"],
+  ];
+  for (const legend of brailleLegends.flat()) {
+    assert.equal(await page.getByRole("button", { name: legend, exact: true }).count(), 1, legend);
+  }
+  assert.equal(await page.getByRole("button", { name: "Space (Left Meta)", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Space (Space)", exact: true }).count(), 1);
   await page.keyboard.down("KeyF");
   await page.waitForTimeout(50);
   assert.ok((await canvas("#prospector")) !== initialProspector, (await page.locator("#runtime").textContent()) + " " + errors.join(" / "));
   assert.notEqual(await canvas("#toucan-display"), initialToucanDisplay);
   await page.keyboard.up("KeyF");
+  assert.equal(await output(), "qW e-\t\npa");
+  await page.keyboard.press("KeyM");
+  assert.equal(await output(), "qW e-\t\npaa");
+  await page.keyboard.press("Minus");
   assert.equal(await output(), "qW e-\t\npa");
 
   async function chord(...codes) {
@@ -85,10 +99,10 @@ try {
     await page.waitForTimeout(40);
   }
   const brailleHome = await canvas("#prospector");
-  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
+  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyV", "KeyC");
   const namespace = await canvas("#prospector");
   assert.notEqual(namespace, brailleHome);
-  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyK");
+  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyC");
   assert.notEqual(await canvas("#prospector"), namespace);
   const categories = await canvas("#prospector");
   await page.getByRole("button", { name: "Enlarge Prospector display" }).click();
@@ -106,13 +120,13 @@ try {
   await page.getByRole("button", { name: "Close", exact: true }).click();
   assert.equal(await output(), "qW e-\t\npa");
 
-  await chord("KeyF", "KeyD", "KeyK");
-  await chord("KeyF", "KeyS", "KeyJ", "KeyK");
-  await chord("KeyF", "KeyS", "KeyJ", "KeyK");
+  await chord("KeyF", "KeyD", "KeyC");
+  await chord("KeyF", "KeyS", "KeyV", "KeyC");
+  await chord("KeyF", "KeyS", "KeyV", "KeyC");
   const lastNavigationHelp = await canvas("#prospector");
-  await chord("KeyF", "KeyS", "KeyJ", "KeyK");
+  await chord("KeyF", "KeyS", "KeyV", "KeyC");
   assert.notEqual(await canvas("#prospector"), lastNavigationHelp);
-  assert.equal(await page.locator("#route").textContent(), "Prospector USB");
+  assert.equal(await page.locator("#route").textContent(), "Prospector");
 
   await page.keyboard.press("BracketRight");
   assert.equal(await page.locator("#mode").textContent(), "QWERTY");
@@ -145,50 +159,34 @@ try {
   await page.locator("#right-link").check();
   await page.locator("#text-output").focus();
 
-  const routeThumbs = ["BracketRight", "Backspace", "MetaLeft"];
-  const lastReport = () => page.locator("#last-report").textContent();
-  const emptyReport = "00 00 00 00 00 00 00 00";
-  const beforeGuard = await output();
-  await page.keyboard.press("BracketRight");
-  await chord("Space", "KeyA", "KeyJ");
-  await page.keyboard.down("KeyF");
-  for (const code of routeThumbs) await page.keyboard.down(code);
-  assert.equal(await lastReport(), emptyReport);
-  await page.keyboard.up("KeyF");
-  await page.keyboard.down("KeyD");
-  for (const code of routeThumbs.toReversed()) await page.keyboard.up(code);
-  await page.keyboard.up("KeyD");
-  assert.equal(await page.locator("#route").textContent(), "Prospector USB");
-  assert.equal(await page.locator("#mode").textContent(), "Braille");
-  assert.equal(await output(), beforeGuard);
-  await chord("KeyF");
-  assert.equal(await output(), beforeGuard + "a");
-  await page.keyboard.press("BracketRight");
+  async function pickTarget(previous, next, side = "left") {
+    const dots = side === "left"
+      ? ["KeyF", "KeyD", "KeyS", "KeyV", "KeyC", "KeyX", "KeyA", "KeyZ"]
+      : ["KeyM", "Comma", "Period", "KeyJ", "KeyK", "KeyL", "Minus", "Semicolon"];
+    const space = side === "left" ? "MetaLeft" : "Space";
+    await chord(space, ...dots.slice(0, 5));
+    await chord(...dots.slice(1, 5));
+    for (let row = Math.min(previous, next); row < Math.max(previous, next); row += 1) {
+      await chord(space, dots[previous < next ? 5 : 2]);
+    }
+    await chord(space, dots[6]);
+  }
 
   await page.locator("#usb-link").uncheck();
+  await page.locator("#prospector-link").uncheck();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
   await page.locator("#text-output").focus();
   const beforeSwitch = await output();
+  const disconnectedProspector = await canvas("#prospector");
   await page.keyboard.press("KeyP");
   assert.equal(await output(), beforeSwitch);
-  async function holdRouteThumbs(currentRoute, nextRoute) {
-    const before = await output();
-    for (const code of routeThumbs) await page.keyboard.down(code);
-    await page.keyboard.down("KeyP");
-    await page.waitForTimeout(300);
-    assert.equal(await page.locator("#route").textContent(), currentRoute);
-    assert.equal(await lastReport(), emptyReport);
-    await page.waitForFunction(route => document.getElementById("route").value === route, nextRoute, { timeout: 4000 });
-    await page.keyboard.press("KeyQ");
-    for (const code of routeThumbs.toReversed()) await page.keyboard.up(code);
-    await page.keyboard.up("KeyP");
-    assert.equal(await lastReport(), emptyReport);
-    assert.equal(await output(), before);
-  }
-  await holdRouteThumbs("Prospector USB", "Toucan Bluetooth");
+  await page.keyboard.press("BracketRight");
+  await pickTarget(0, 1, "left");
+  assert.equal(await page.locator("#route").textContent(), "BT 1");
   assert.equal(await page.locator("#output-heading").textContent(), "Bluetooth output");
   assert.equal(await output(), beforeSwitch);
+  await page.keyboard.press("BracketRight");
 
-  const disconnectedProspector = await canvas("#prospector");
   await page.keyboard.press("KeyP");
   assert.equal(await output(), beforeSwitch + "p");
   await page.keyboard.press("BracketRight");
@@ -199,21 +197,23 @@ try {
   await page.keyboard.up("KeyF");
   assert.equal(await output(), beforeSwitch + "pa");
   assert.equal(await canvas("#prospector"), disconnectedProspector);
+  await page.locator("#prospector-link").check();
+  await page.waitForFunction(before => document.getElementById("prospector").toDataURL() !== before, disconnectedProspector);
   await page.reload();
   await page.locator('#runtime[data-status="ready"]').waitFor();
-  assert.equal(await page.locator("#route").textContent(), "Toucan Bluetooth");
+  assert.equal(await page.locator("#route").textContent(), "BT 1");
 
   await page.keyboard.press("BracketRight");
-  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
-  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
-  await chord("Space", "KeyJ");
-  await chord("Space", "KeyJ");
+  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyV", "KeyC");
+  await chord("Space", "KeyF", "KeyD", "KeyS", "KeyV", "KeyC");
+  await chord("Space", "KeyV");
+  await chord("Space", "KeyV");
   await chord("Space", "KeyA");
   await chord("Space", "KeyA");
   await chord("Space", "KeyA");
   await chord("KeyF");
   await chord("KeyF", "KeyD");
-  await chord("KeyF", "KeyJ");
+  await chord("KeyF", "KeyV");
   await chord("KeyA");
   await chord("Space", "KeyA");
   assert.ok(await page.evaluate(() => localStorage.getItem("kb.wlt.toucan.settings")));
@@ -229,15 +229,46 @@ try {
   await page.locator("#text-output").focus();
   await page.keyboard.press("KeyP");
   assert.equal(await output(), "b");
-  await holdRouteThumbs("Toucan Bluetooth", "Prospector USB");
+  await page.keyboard.press("Backslash");
+  assert.equal(await page.locator("#mode").textContent(), "Braille");
+  for (let slot = 2; slot <= 5; slot += 1) {
+    await pickTarget(slot - 1, slot, "right");
+    assert.equal(await page.locator("#route").textContent(), "BT " + slot);
+    assert.equal(await output(), "b");
+  }
+  await pickTarget(5, 6, "right");
+  assert.equal(await page.locator("#route").textContent(), "USB");
   assert.equal(await page.locator("#output-heading").textContent(), "USB output");
   assert.equal(await output(), "b");
+  await page.keyboard.press("Backslash");
+  await page.locator("#toucan-usb-link").uncheck();
+  await page.locator("#text-output").focus();
+  await page.keyboard.press("KeyP");
+  assert.equal(await output(), "b");
+  await page.locator("#toucan-usb-link").check();
+  await page.locator("#text-output").focus();
   await page.keyboard.press("KeyP");
   assert.equal(await output(), "bp");
+  await page.keyboard.press("Backslash");
+  await pickTarget(6, 0, "right");
+  assert.equal(await page.locator("#route").textContent(), "Prospector");
   await page.evaluate(() => localStorage.removeItem("kb.wlt.toucan.settings"));
   await page.reload();
   await page.locator('#runtime[data-status="ready"]').waitFor();
-  assert.equal(await page.locator("#route").textContent(), "Prospector USB");
+  assert.equal(await page.locator("#route").textContent(), "Prospector");
+  const mouseHome = await canvas("#prospector");
+  await page.locator("#prospector").click();
+  await page.waitForFunction(home => document.getElementById("prospector").toDataURL() !== home, mouseHome);
+  const mouseMenu = await canvas("#prospector");
+  const panel = await page.locator("#prospector").boundingBox();
+  await page.mouse.move(panel.x + panel.width / 2, panel.y + panel.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(panel.x + panel.width / 2, panel.y + panel.height / 2 + 40);
+  await page.mouse.up();
+  await page.waitForFunction(menu => document.getElementById("prospector").toDataURL() !== menu, mouseMenu);
+  assert.equal(await page.locator("#display-viewer").isVisible(), false);
+  await page.locator("#prospector").click({ delay: 580 });
+  await page.waitForFunction(home => document.getElementById("prospector").toDataURL() === home, mouseHome);
 
   async function checkGeometry(page) {
     const geometry = await page.evaluate(() => {
@@ -325,13 +356,74 @@ try {
   await touch.goto(url);
   await touch.locator('#runtime[data-status="ready"]').waitFor();
   await checkGeometry(touch);
-  const thumbs = await Promise.all([18, 19, 20].map(index => touch.locator("#left-keys .key").nth(index).boundingBox()));
-  const touchPoints = thumbs.map(({ x, y, width, height }, id) => ({ x: x + width / 2, y: y + height / 2, id }));
-  const session = await touch.context().newCDPSession(touch);
-  await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints });
-  await touch.waitForFunction(() => document.getElementById("route").value === "Toucan Bluetooth", undefined, { timeout: 4000 });
-  await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  const leftOuter = touch.getByRole("button", { name: "Braille layer (])", exact: true });
+  const rightOuter = touch.getByRole("button", { name: "Braille layer (\\)", exact: true });
+  await leftOuter.tap();
+  assert.equal(await touch.locator("#mode").textContent(), "Braille");
+  await rightOuter.tap();
+  assert.equal(await touch.locator("#mode").textContent(), "QWERTY");
   assert.equal(await touch.locator("#text-output").inputValue(), "");
+  const touchPanel = touch.locator("#prospector");
+  const touchCanvas = () => touchPanel.evaluate(canvas => canvas.toDataURL());
+  const linkedHome = await touchCanvas();
+  await touchPanel.tap();
+  await touch.waitForFunction(home => document.getElementById("prospector").toDataURL() !== home, linkedHome);
+  assert.equal(await touch.locator("#display-viewer").isVisible(), false);
+  const linkedMenu = await touchCanvas();
+  for (const code of ["KeyM", "KeyJ", "KeyK"]) await touch.keyboard.down(code);
+  for (const code of ["KeyK", "KeyJ", "KeyM"]) await touch.keyboard.up(code);
+  await touch.waitForFunction(menu => document.getElementById("prospector").toDataURL() !== menu, linkedMenu);
+
+  await touch.locator(".links summary").click();
+  await touch.locator("#left-link").uncheck();
+  await touch.locator("#right-link").uncheck();
+  await touch.getByRole("button", { name: "Enlarge Prospector display" }).click();
+  const enlarged = touch.locator("#enlarged-display");
+  const cdp = await touch.context().newCDPSession(touch);
+  async function gesture({ dx = 0, dy = 0, hold = 0 } = {}) {
+    const box = await enlarged.boundingBox();
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    if (dx || dy) {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: x + dx, y: y + dy }],
+      });
+    }
+    if (hold) await touch.waitForTimeout(hold);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await touch.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+  }
+  const awaitingToucan = await touchCanvas();
+  await gesture({ hold: 580 });
+  assert.ok((await touchCanvas()) !== awaitingToucan);
+  await gesture({ dy: 40 });
+  await gesture({ dy: -40 });
+  await gesture({ dy: 40 });
+  await gesture({ dx: 40 });
+  await gesture({ dx: -40 });
+  await gesture();
+  const standaloneDebug = await touchCanvas();
+  await gesture();
+  assert.ok((await touchCanvas()) !== standaloneDebug);
+  await gesture({ hold: 580 });
+  assert.ok((await touchCanvas()) === standaloneDebug);
+  await gesture();
+  await gesture();
+  await gesture({ dy: 40 });
+  await gesture();
+  assert.equal(await touch.getByText("UF2 bootloader", { exact: true }).filter({ visible: true }).count(), 0);
+  await gesture({ dy: 40 });
+  await gesture();
+  await gesture({ dy: 40 });
+  await gesture();
+  assert.equal(await touch.getByText("UF2 bootloader", { exact: true }).filter({ visible: true }).count(), 1);
+  assert.equal(await touch.locator("#prospector-link").isChecked(), false);
+  assert.ok(await touch.locator('#left-link + .bootloader-status').isHidden());
+  assert.ok(await touch.locator('#right-link + .bootloader-status').isHidden());
+  assert.equal(await touch.locator("#text-output").inputValue(), "");
+  await cdp.detach();
   await touch.close();
 
   for (const ratio of [1.25, 1.5, 2]) {
@@ -408,17 +500,17 @@ try {
   assert.equal(await output(), "a");
 
   async function openAlphabet() {
-    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
-    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyK");
+    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyV", "KeyC");
+    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyC");
     await chord("Space", "KeyA");
   }
 
   await openAlphabet();
   const landscapeStart = await canvas("#prospector");
-  await chord("Space", "KeyF", "KeyJ", "KeyK", "KeyL");
+  await chord("Space", "KeyF", "KeyV", "KeyC", "KeyX");
   const landscapePage = await canvas("#prospector");
   assert.notEqual(landscapePage, landscapeStart);
-  await chord("KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
+  await chord("KeyF", "KeyD", "KeyS", "KeyV", "KeyC");
   assert.equal(await canvas("#prospector"), landscapePage);
 
   await page.locator(".links summary").click();
@@ -426,10 +518,10 @@ try {
   await page.locator("#text-output").focus();
   await chord("Space", "KeyF", "KeyS", "KeyD");
   const portraitStart = await canvas("#toucan-display");
-  await chord("Space", "KeyF", "KeyJ", "KeyK", "KeyL");
+  await chord("Space", "KeyF", "KeyV", "KeyC", "KeyX");
   const portraitPage = await canvas("#toucan-display");
   assert.notEqual(portraitPage, portraitStart);
-  await chord("KeyF", "KeyS", "KeyJ");
+  await chord("KeyF", "KeyS", "KeyV");
   assert.equal(await canvas("#toucan-display"), portraitPage);
 
   await page.reload();
@@ -438,8 +530,8 @@ try {
   await page.locator("#usb-link").uncheck();
   await page.locator("#text-output").focus();
   async function openBootloaderMenu() {
-    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyJ", "KeyK");
-    await chord("Space", "KeyF", "KeyJ", "KeyK");
+    await chord("Space", "KeyF", "KeyD", "KeyS", "KeyV", "KeyC");
+    await chord("Space", "KeyF", "KeyV", "KeyC");
     await chord("Space", "KeyA");
   }
   const leftLink = page.locator("#left-link");
@@ -447,12 +539,12 @@ try {
   const relayLink = page.locator("#prospector-link");
   await page.keyboard.press("BracketRight");
   await openBootloaderMenu();
-  await chord("Space", "KeyJ");
+  await chord("Space", "KeyV");
   await chord("Space", "KeyA");
-  await chord("Space", "KeyJ");
+  await chord("Space", "KeyV");
   await chord("Space", "KeyA");
   assert.ok(await rightLink.isChecked() && await relayLink.isChecked());
-  await chord("Space", "KeyJ");
+  await chord("Space", "KeyV");
   await chord("Space", "KeyA");
   assert.ok(await leftLink.isChecked());
   assert.ok(!await rightLink.isChecked() && !await relayLink.isChecked());
@@ -470,7 +562,7 @@ try {
   await page.keyboard.press("BracketRight");
   await openBootloaderMenu();
   await chord("Space", "KeyA");
-  await chord("Space", "KeyJ", "KeyK", "KeyL");
+  await chord("Space", "KeyV", "KeyC", "KeyX");
   await chord("Space", "KeyA");
   assert.ok(!await leftLink.isChecked());
   assert.ok(await rightLink.isChecked() && await relayLink.isChecked());
@@ -478,8 +570,39 @@ try {
   assert.equal(await page.locator("#mode").textContent(), "QWERTY");
   assert.equal(await page.getByText("UF2 bootloader", { exact: true }).filter({ visible: true }).count(), 0);
 
+  await page.reload();
+  await page.locator('#runtime[data-status="ready"]').waitFor();
+  await page.locator(".links summary").click();
+  for (const id of ["right-link", "prospector-link", "usb-link", "toucan-usb-link", "bluetooth-link"]) {
+    await page.locator("#" + id).uncheck();
+  }
+  assert.ok(await leftLink.isChecked());
+  await page.locator("#text-output").focus();
+  await page.keyboard.press("BracketRight");
+  await chord("MetaLeft", "KeyF", "KeyD", "KeyS", "KeyV", "KeyC");
+  await chord("KeyF", "KeyD", "KeyS", "KeyC");
+  const onlyLeftCategories = await canvas("#toucan-display");
+  await chord("MetaLeft", "KeyA");
+  await page.waitForFunction(categories => document.getElementById("toucan-display").toDataURL() !== categories, onlyLeftCategories);
+  const onlyLeftAlphabet = await canvas("#toucan-display");
+  await chord("MetaLeft", "KeyF", "KeyV", "KeyC", "KeyX");
+  await page.waitForFunction(alphabet => document.getElementById("toucan-display").toDataURL() !== alphabet, onlyLeftAlphabet);
+  await chord("MetaLeft", "KeyF", "KeyD");
+  await chord("MetaLeft", "KeyF", "KeyD");
+  await chord("KeyF", "KeyV", "KeyC");
+  await chord("MetaLeft", "KeyA");
+  await chord("MetaLeft", "KeyA");
+  for (let row = 0; row < 3; row += 1) await chord("MetaLeft", "KeyX");
+  assert.equal(await page.locator("#last-report").textContent(), "00 00 00 00 00 00 00 00");
+  await chord("MetaLeft", "KeyA");
+  assert.equal(await output(), "");
+  assert.ok(!await leftLink.isChecked() && !await rightLink.isChecked() && !await relayLink.isChecked());
+  assert.ok(await page.locator('#left-link + .bootloader-status').isVisible());
+  assert.ok(await page.locator('#right-link + .bootloader-status').isHidden());
+  assert.ok(await page.locator('#prospector-link + .bootloader-status').isHidden());
+
   assert.deepEqual(errors, []);
-  console.log("Chrome verified QWERTY, Braille release timing, Reference paging, guarded route switches, simulated UF2 selections, persistence, and native and enlarged display grids.");
+  console.log("Chrome verified QWERTY, Braille release timing, Reference paging, all seven host targets, Prospector touch and standalone UF2, persistence, and native and enlarged display grids.");
 } finally {
   await browser?.close();
   server.kill();

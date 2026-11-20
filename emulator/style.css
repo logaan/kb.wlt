@@ -143,6 +143,14 @@ canvas {
 #prospector,
 #enlarged-display[data-panel="prospector"] {
   border-radius: 10.714285714% / 12.5%;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.receiver figcaption {
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
 
 figcaption {

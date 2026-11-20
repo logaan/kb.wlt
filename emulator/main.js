@@ -12,6 +12,7 @@ const prospector = element("prospector");
 const toucanDisplay = element("toucan-display");
 const boards = document.querySelector(".boards");
 const usbLink = element("usb-link");
+const toucanUsbLink = element("toucan-usb-link");
 const prospectorLink = element("prospector-link");
 const bluetoothLink = element("bluetooth-link");
 const leftLink = element("left-link");
@@ -22,6 +23,11 @@ const bootloaderLinks = [[1, leftLink], [2, rightLink], [4, prospectorLink]];
 const decoder = new TextDecoder();
 const storageKey = "kb.wlt.toucan.settings";
 const transportKey = "kb.wlt.toucan.transport";
+const targets = ["Prospector", "BT 1", "BT 2", "BT 3", "BT 4", "BT 5", "USB"];
+const disconnected = 1;
+const connecting = 2;
+const connected = 3;
+const navigation = ["up", "down", "left", "right", "enter", "escape"];
 const actionTags = { press: 0, release: 1, tap: 2, "release-all": 3 };
 const start = performance.now();
 
@@ -50,7 +56,7 @@ function makeDotCell(dot) {
   return cell;
 }
 
-function updateLegends(braille, thumb, base, dots) {
+function updateLegends(braille, thumbs, base, dots) {
   mode.textContent = braille ? "Braille" : "QWERTY";
   element("reference-help").hidden = !braille;
   element("viewer-reference-help").hidden = !braille;
@@ -58,7 +64,7 @@ function updateLegends(braille, thumb, base, dots) {
     const mask = braille ? dots[position] : 0;
     const dot = mask && mask < 256 ? Math.log2(mask) + 1 : 0;
     const input = inputLabel(positions[position].code);
-    const toggle = position === thumb;
+    const toggle = Boolean(thumbs & keyBit(position));
     const label = toggle ? "BRL" : mask === 256 ? "Space" : base[position] && !braille ? usageLabel(base[position]) : "";
     const description = dot ? String.fromCodePoint(0x2800 | mask) : toggle ? "Braille layer" : label || "Unassigned";
     keycap.toggleAttribute("data-dot", dot !== 0);
@@ -66,6 +72,36 @@ function updateLegends(braille, thumb, base, dots) {
     keycap.setAttribute("aria-label", `${description} (${input})`);
     keycap.replaceChildren(dot ? makeDotCell(dot) : label);
   }
+}
+
+function registerProspectorGestures(canvas, enabled, navigate) {
+  let gesture;
+  canvas.addEventListener("pointerdown", event => {
+    if (!enabled() || gesture || event.button !== 0) return;
+    event.preventDefault();
+    canvas.setPointerCapture(event.pointerId);
+    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, start: event.timeStamp };
+  });
+  canvas.addEventListener("pointerup", event => {
+    if (gesture?.id !== event.pointerId) return;
+    const x = event.clientX - gesture.x;
+    const y = event.clientY - gesture.y;
+    const distance = Math.max(Math.abs(x), Math.abs(y));
+    const held = event.timeStamp - gesture.start >= 550;
+    gesture = undefined;
+    if (!enabled()) return;
+    if (distance < 16) navigate(held ? 5 : 4);
+    else if (Math.abs(x) > Math.abs(y)) navigate(x < 0 ? 2 : 3);
+    else navigate(y < 0 ? 0 : 1);
+  });
+  for (const type of ["pointercancel", "lostpointercapture"]) {
+    canvas.addEventListener(type, event => {
+      if (gesture?.id === event.pointerId) gesture = undefined;
+    });
+  }
+  canvas.addEventListener("contextmenu", event => {
+    if (enabled()) event.preventDefault();
+  });
 }
 
 function replaceOutput(usage, modifiers) {
@@ -223,17 +259,21 @@ async function run() {
       guest_map_cell: braille.mapCell,
       guest_navigate: (screen, selected, cell, width, height, hostSwitch) =>
         display.navigate(screen, selected, cell, { width, height, hostSwitch: !!hostSwitch }),
+      guest_navigate_action: (screen, selected, action, width, height, hostSwitch, ownReceiver) =>
+        (ownReceiver ? receiver.display : display).navigateAction(
+          screen, selected, navigation[action], { width, height, hostSwitch: !!hostSwitch }),
       keyboard_report: report => {
         if (hostReady()) sink.keyboard_report(report);
       },
       consumer_report: report => {
         if (hostReady()) sink.consumer_report(report);
       },
-      request_bootloader: devices => {
-        const accepted = devices & bootloaderDevices();
+      request_bootloader: (devices, receiverOnly) => {
+        const accepted = devices & (receiverOnly ? 4 : bootloaderDevices());
         queueMicrotask(() => safely(() => enterBootloader(accepted)));
         return accepted;
       },
+      request_target: target => queueMicrotask(() => safely(() => setTarget(target))),
     },
   });
 
@@ -241,7 +281,7 @@ async function run() {
   const drawProspector = makeDisplay(element("prospector"), 0, adapter);
   const drawToucanDisplay = makeDisplay(element("toucan-display"), 1, adapter);
   const baseKeys = readBaseKeys(keyboard);
-  const thumb = adapter.braille_thumb();
+  const thumbs = adapter.braille_thumbs();
   const dots = positions.map((_, position) => adapter.braille_mask(keyBit(position)));
   const inputs = new Map();
   let componentState = new Uint8Array();
@@ -249,7 +289,8 @@ async function run() {
   let brailleActive = false;
   let previousToucanDisplay = "";
   let previousProspector = "";
-  let direct;
+  let target;
+  let previousHostReady;
   let displayedCanvas;
   let previewButton;
   let wakeAt;
@@ -290,11 +331,42 @@ async function run() {
   }
 
   function hostReady() {
-    return leftLink.checked && (direct ? bluetoothLink.checked : usbLink.checked && prospectorLink.checked);
+    return hostConnection() === connected;
+  }
+
+  function hostConnection() {
+    if (!leftLink.checked) return disconnected;
+    if (target === 0) {
+      if (!prospectorDocked()) return connecting;
+      return usbLink.checked ? connected : disconnected;
+    }
+    if (target === 6) return toucanUsbLink.checked ? connected : disconnected;
+    return bluetoothLink.checked ? connected : connecting;
+  }
+
+  function clearHostReports() {
+    sink.keyboard_report(0n);
+    sink.consumer_report(0);
+  }
+
+  function clearKeymapState() {
+    componentState = new Uint8Array();
+    previousKeys = 0n;
+    wakeAt = undefined;
+  }
+
+  function updateHostConnection() {
+    const ready = hostReady();
+    if (ready !== previousHostReady) {
+      previousHostReady = ready;
+      adapter.host_connection_changed();
+      clearKeymapState();
+      clearHostReports();
+    }
   }
 
   function prospectorDocked() {
-    return !direct && leftLink.checked && prospectorLink.checked;
+    return leftLink.checked && prospectorLink.checked;
   }
 
   function bootloaderDevices() {
@@ -317,19 +389,17 @@ async function run() {
     }
     showBoardLinks();
     updateViewport();
+    updateHostConnection();
     if (!leftLink.checked) {
       cancel();
     } else {
-      if (!hostReady()) {
-        sink.keyboard_report(0n);
-        sink.consumer_report(0);
-      }
       update();
     }
   }
 
   function updateViewport() {
     const activePanel = element(prospectorDocked() ? "prospector" : "toucan-display");
+    adapter.receiver_link_changed(prospectorDocked());
     adapter.set_viewport(activePanel.width, activePanel.height);
   }
 
@@ -341,15 +411,16 @@ async function run() {
 
   function render() {
     renderQueued = false;
-    const links = Number(leftLink.checked) | Number(rightLink.checked && leftLink.checked) << 1 | Number(hostReady()) << 2;
-    adapter.update_model(links, batteryValue(leftBattery), batteryValue(rightBattery), direct, false);
+    const state = hostConnection();
+    const links = Number(leftLink.checked) | Number(rightLink.checked && leftLink.checked) << 1;
+    adapter.update_model(links, batteryValue(leftBattery), batteryValue(rightBattery), target, state, false);
     const toucanDisplay = readModel();
     if (toucanDisplay.key !== previousToucanDisplay) {
       drawToucanDisplay(display, toucanDisplay.model, toucanDisplay.detail);
       previousToucanDisplay = toucanDisplay.key;
     }
     if (!prospectorDocked()) {
-      adapter.update_model(Number(usbLink.checked && prospectorLink.checked) << 2, 255, 255, false, true);
+      adapter.update_model(0, 255, 255, 255, disconnected, true);
     }
     const prospector = readModel();
     if (prospector.key !== previousProspector) {
@@ -376,19 +447,23 @@ async function run() {
     requestAnimationFrame(() => safely(render));
   }
 
+  function navigateReceiver(action) {
+    if (!prospectorLink.labels[0].querySelector(".bootloader-status").hidden) return;
+    safely(() => {
+      adapter.set_bootloader_devices(bootloaderDevices());
+      const change = adapter.receiver_navigate(action);
+      if (change & 1) saveSettings(adapter);
+      if (change & 2) clearKeymapState();
+      update();
+    });
+  }
+
   function update(ready = leftLink.checked) {
     const nowMs = (performance.now() - start) >>> 0;
     let matrix = 0n;
     for (const position of inputs.values()) {
       if (positions[position].left ? leftLink.checked : rightLink.checked) matrix |= keyBit(position);
     }
-    const route = adapter.route_update(matrix, nowMs);
-    if (route === 2) {
-      setTransport(!direct);
-      sink.keyboard_report(0n);
-      sink.consumer_report(0);
-    }
-    ready &&= route === 0;
     adapter.set_bootloader_devices(bootloaderDevices());
     const matrixResult = adapter.matrix(matrix, nowMs, ready);
     if (matrixResult < 0n) saveSettings(adapter);
@@ -399,13 +474,11 @@ async function run() {
 
     const nextLayer = Boolean(adapter.braille_active());
     if (!ready || nextLayer !== brailleActive) {
-      componentState = new Uint8Array();
-      previousKeys = 0n;
-      wakeAt = undefined;
+      clearKeymapState();
     }
     if (nextLayer !== brailleActive) {
       brailleActive = nextLayer;
-      updateLegends(brailleActive, thumb, baseKeys, dots);
+      updateLegends(brailleActive, thumbs, baseKeys, dots);
     }
 
     if (ready && brailleActive) {
@@ -435,19 +508,22 @@ async function run() {
     inputs.clear();
     safely(() => {
       update(false);
-      sink.keyboard_report(0n);
-      sink.consumer_report(0);
+      clearHostReports();
     });
   }
 
-  function setTransport(bluetooth) {
-    direct = bluetooth;
+  function setTarget(selected) {
+    target = selected;
+    adapter.set_host_target(target);
+    previousHostReady = hostReady();
+    clearHostReports();
     updateViewport();
-    element("route").value = direct ? "Toucan Bluetooth" : "Prospector USB";
-    element("output-heading").textContent = direct ? "Bluetooth output" : "USB output";
-    lastReport.setAttribute("aria-label", direct ? "Last Bluetooth report" : "Last USB report");
+    element("route").value = targets[target];
+    const outputTransport = target === 0 || target === 6 ? "USB" : "Bluetooth";
+    element("output-heading").textContent = outputTransport + " output";
+    lastReport.setAttribute("aria-label", "Last " + outputTransport + " report");
     try {
-      localStorage.setItem(transportKey, direct ? "bluetooth" : "usb");
+      localStorage.setItem(transportKey, String(target));
     } catch (error) {
       console.warn("Toucan transport could not be saved", error);
     }
@@ -455,13 +531,15 @@ async function run() {
   }
 
   try {
-    setTransport(localStorage.getItem(transportKey) === "bluetooth");
+    const stored = localStorage.getItem(transportKey);
+    const selected = stored === "bluetooth" ? 1 : Number(stored);
+    setTarget(Number.isInteger(selected) && selected >= 0 && selected < targets.length ? selected : 0);
   } catch (error) {
     console.warn("Toucan transport could not be loaded", error);
-    setTransport(false);
+    setTarget(0);
   }
 
-  updateLegends(false, thumb, baseKeys, dots);
+  updateLegends(false, thumbs, baseKeys, dots);
   keycaps.forEach((keycap, position) => {
     keycap.disabled = false;
     keycap.addEventListener("pointerdown", event => {
@@ -513,16 +591,18 @@ async function run() {
     if (document.hidden && inputs.size) cancel();
   });
 
-  for (const field of [leftLink, rightLink, usbLink, prospectorLink, bluetoothLink]) {
+  for (const field of [leftLink, rightLink, usbLink, toucanUsbLink, prospectorLink, bluetoothLink]) {
     field.addEventListener("change", () => {
       const bootloader = field.labels[0].querySelector(".bootloader-status");
       if (bootloader && field.checked && !bootloader.hidden) {
         bootloader.hidden = true;
         if (field === leftLink) adapter.restart_keyboard();
+        if (field === prospectorLink) adapter.restart_receiver();
       }
       showBoardLinks();
       updateViewport();
-      if (field === leftLink || field === rightLink || (direct ? field === bluetoothLink : field === usbLink || field === prospectorLink)) {
+      updateHostConnection();
+      if (field === leftLink || field === rightLink) {
         cancel();
       } else {
         safely(update);
@@ -530,6 +610,8 @@ async function run() {
     });
   }
   for (const field of [leftBattery, rightBattery]) field.addEventListener("input", updateDisplay);
+  registerProspectorGestures(prospector, () => true, navigateReceiver);
+  registerProspectorGestures(enlargedDisplay, () => !viewer.hidden && displayedCanvas === prospector, navigateReceiver);
   element("zoom-prospector").addEventListener("click", event => openDisplay(event.currentTarget, "prospector", "Prospector"));
   element("zoom-toucan-display").addEventListener("click", event => openDisplay(event.currentTarget, "toucan-display", "Toucan display"));
   element("close-viewer").addEventListener("click", closeDisplay);

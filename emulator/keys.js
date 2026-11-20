@@ -50,7 +50,7 @@ export const physicalCodes = new Map(positions.map(({ code }, position) => [code
 physicalCodes.set("Escape", physicalCodes.get("BracketLeft"));
 physicalCodes.set("ControlRight", physicalCodes.get("ControlLeft"));
 physicalCodes.set("MetaRight", physicalCodes.get("MetaLeft"));
-physicalCodes.set("ShiftRight", physicalCodes.get("Backslash"));
+physicalCodes.set("ShiftRight", physicalCodes.get("ShiftLeft"));
 physicalCodes.set("NumpadEnter", physicalCodes.get("Enter"));
 
 const printable = new Map([
