@@ -193,7 +193,7 @@ async function run() {
 
   loadSettings(adapter);
   const drawProspector = makeDisplay(element("prospector"), 0, adapter);
-  const drawNiceView = makeDisplay(element("nice-view"), 1, adapter);
+  const drawToucanDisplay = makeDisplay(element("toucan-display"), 1, adapter);
   const baseKeys = readBaseKeys(keyboard);
   const thumb = adapter.braille_thumb();
   const dots = positions.map((_, position) => adapter.braille_mask(keyBit(position)));
@@ -201,7 +201,7 @@ async function run() {
   let componentState = new Uint8Array();
   let previousKeys = 0n;
   let brailleActive = false;
-  let previousNiceView = "";
+  let previousToucanDisplay = "";
   let previousProspector = "";
   let direct;
   let displayedCanvas;
@@ -257,10 +257,10 @@ async function run() {
     renderQueued = false;
     const links = Number(leftLink.checked) | Number(rightLink.checked && leftLink.checked) << 1 | Number(hostReady()) << 2;
     adapter.update_model(links, batteryValue(leftBattery), batteryValue(rightBattery), direct, false);
-    const niceView = readModel();
-    if (niceView.key !== previousNiceView) {
-      drawNiceView(display, niceView.model, niceView.detail);
-      previousNiceView = niceView.key;
+    const toucanDisplay = readModel();
+    if (toucanDisplay.key !== previousToucanDisplay) {
+      drawToucanDisplay(display, toucanDisplay.model, toucanDisplay.detail);
+      previousToucanDisplay = toucanDisplay.key;
     }
     if (direct || !leftLink.checked || !usbLink.checked) {
       adapter.update_model(Number(usbLink.checked) << 2, 255, 255, false, true);
@@ -351,7 +351,7 @@ async function run() {
 
   function setTransport(bluetooth) {
     direct = bluetooth;
-    const activePanel = element(direct ? "nice-view" : "prospector");
+    const activePanel = element(direct ? "toucan-display" : "prospector");
     adapter.set_viewport(activePanel.width, activePanel.height);
     element("route").value = direct ? "Toucan Bluetooth" : "Prospector USB";
     element("output-heading").textContent = direct ? "Bluetooth output" : "USB output";
@@ -436,7 +436,7 @@ async function run() {
   }
   for (const field of [leftBattery, rightBattery]) field.addEventListener("input", updateDisplay);
   element("zoom-prospector").addEventListener("click", event => openDisplay(event.currentTarget, "prospector", "Prospector"));
-  element("zoom-nice-view").addEventListener("click", event => openDisplay(event.currentTarget, "nice-view", "Toucan nice!view"));
+  element("zoom-toucan-display").addEventListener("click", event => openDisplay(event.currentTarget, "toucan-display", "Toucan display"));
   element("close-viewer").addEventListener("click", closeDisplay);
   element("clear").addEventListener("click", () => {
     output.value = "";

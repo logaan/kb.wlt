@@ -61,12 +61,12 @@
 
 - The Prospector QuickBrailleFox menu provides reference and diagnostics screens, Bluetooth controls, a Computer 8 and UEB Grade 1 switch, and persistent chord and contraction editing.
 
-- Toucan 2 Bluetooth firmware with a Wavelet keymap, held-key reports, momentary layers, nice!view output, and a two-half Prospector USB receiver.
+- Toucan 2 Bluetooth firmware with a Wavelet keymap, held-key reports, momentary layers, Toucan display output, and a two-half Prospector USB receiver.
 - Independent USB reset controller for a third XIAO, with two open-drain reset channels, serial commands, and a wiring diagram.
 - ST7789 display rendering and Prospector display wiring support.
 - Bluetooth links for a single Paintbrush through Prospector, two Paintbrush halves, and a two-half Prospector receiver, with persistent peer pairing and stale-chord cancellation.
 - A dedicated firmware image that clears saved Bluetooth pairing records.
-- A portrait nice!view renderer and serial VCOM maintenance for Toucan display integration.
+- A portrait display renderer and serial VCOM maintenance for Toucan display integration.
 - Display status for conventional keyboard key counts and active layers alongside HID output.
 - Automated host tests and nRF52840 firmware builds on pushes and pull requests to `master`.
 - Manual versioned releases with changelog notes, tagged source, UF2 firmware, source/example bundles, and checksums.
@@ -99,7 +99,7 @@
 
 - Prospector dongles declare 500 ppm Bluetooth sleep-clock accuracy to accommodate measured clock drift and avoid split-link handshake timeouts, including the display-free Toucan dongle.
 
-- Corrected the upgraded Toucan 1 display from 160×68 nice!view geometry to its original 144×168 MIP panel, and documented verified Toucan and Prospector display specifications.
+- Corrected the upgraded Toucan 1 display from 160×68 geometry to its original 144×168 MIP panel, and documented verified Toucan and Prospector display specifications.
 
 - Paintbrush supports one-shot Shift, Control, Alt, Command, and Globe chords. Armed modifiers apply to the next key and expire after one second.
 
@@ -109,7 +109,7 @@
 
 - Toucan discards expired key snapshots after USB or Bluetooth report backpressure and requires neutral keys when a split link resumes.
 
-- Toucan 2 retains its left nice!view display when Prospector handles the keymap and USB. The display receives split link, key, layer, HID, and fault status over Bluetooth.
+- Toucan 2 retains its left display when Prospector handles the keymap and USB. The display receives split link, key, layer, HID, and fault status over Bluetooth.
 
 - Split keyboard link loss discards pending contractions and HID reports even when the disconnected keyboard has released its keys.
 

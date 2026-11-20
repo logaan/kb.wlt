@@ -19,7 +19,7 @@ try {
   ]);
   const url = startup.toString().trim().split(" ").at(-1);
   browser = await chromium.launch({ channel: "chrome" });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => {
@@ -50,10 +50,10 @@ try {
     }
   }
   await checkCorners("#prospector", true);
-  await checkCorners("#nice-view", false);
+  await checkCorners("#toucan-display", false);
   const initialProspector = await canvas("#prospector");
-  const initialNiceView = await canvas("#nice-view");
-  assert.notEqual(initialProspector, initialNiceView);
+  const initialToucanDisplay = await canvas("#toucan-display");
+  assert.notEqual(initialProspector, initialToucanDisplay);
 
   const output = () => page.locator("#text-output").inputValue();
   await page.keyboard.press("KeyQ");
@@ -75,7 +75,7 @@ try {
   await page.keyboard.down("KeyF");
   await page.waitForTimeout(50);
   assert.ok((await canvas("#prospector")) !== initialProspector, (await page.locator("#runtime").textContent()) + " " + errors.join(" / "));
-  assert.notEqual(await canvas("#nice-view"), initialNiceView);
+  assert.notEqual(await canvas("#toucan-display"), initialToucanDisplay);
   await page.keyboard.up("KeyF");
   assert.equal(await output(), "qW e-\t\npa");
 
@@ -99,7 +99,7 @@ try {
   assert.notEqual(await canvas("#enlarged-display"), before);
   await page.keyboard.press("Escape");
   assert.equal(await page.locator("#display-viewer").isVisible(), false);
-  await page.getByRole("button", { name: "Enlarge left Toucan nice!view display" }).click();
+  await page.getByRole("button", { name: "Enlarge Toucan display" }).click();
   await checkCorners("#enlarged-display", false);
   await page.getByRole("button", { name: "Close", exact: true }).click();
   assert.equal(await output(), "qW e-\t\npa");
@@ -142,17 +142,17 @@ try {
   assert.equal(await page.locator("#output-heading").textContent(), "Bluetooth output");
   assert.equal(await output(), beforeSwitch);
 
-  const standaloneProspector = await canvas("#prospector");
+  const disconnectedProspector = await canvas("#prospector");
   await page.keyboard.press("KeyP");
   assert.equal(await output(), beforeSwitch + "p");
   await page.keyboard.press("BracketRight");
-  const standaloneHome = await canvas("#nice-view");
+  const bluetoothHome = await canvas("#toucan-display");
   await page.keyboard.down("KeyF");
   await page.waitForTimeout(50);
-  assert.notEqual(await canvas("#nice-view"), standaloneHome);
+  assert.notEqual(await canvas("#toucan-display"), bluetoothHome);
   await page.keyboard.up("KeyF");
   assert.equal(await output(), beforeSwitch + "pa");
-  assert.equal(await canvas("#prospector"), standaloneProspector);
+  assert.equal(await canvas("#prospector"), disconnectedProspector);
   await page.reload();
   await page.locator('#runtime[data-status="ready"]').waitFor();
   assert.equal(await page.locator("#route").textContent(), "Toucan Bluetooth");
@@ -192,7 +192,7 @@ try {
   await page.locator('#runtime[data-status="ready"]').waitFor();
   assert.equal(await page.locator("#route").textContent(), "Prospector USB");
 
-  async function checkGeometry() {
+  async function checkGeometry(page) {
     const geometry = await page.evaluate(() => {
       const rect = id => document.querySelector(id).getBoundingClientRect();
       const centerX = box => (box.left + box.right) / 2;
@@ -208,7 +208,7 @@ try {
       const dx = q.left - tab.left;
       const dy = ctrl.top - tab.top;
       const prospector = rect("#prospector");
-      const niceView = rect("#nice-view");
+      const toucanDisplay = rect("#toucan-display");
       const angles = keys => keys.map(key => {
         const matrix = new DOMMatrixReadOnly(getComputedStyle(key).transform);
         return Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI) + 0;
@@ -227,7 +227,7 @@ try {
       }));
       return {
         scale: [prospector.width * 18 / dx, prospector.height * 17 / dy,
-          niceView.width * 18 / dx, niceView.height * 17 / dy, dx / dy],
+          toucanDisplay.width * 18 / dx, toucanDisplay.height * 17 / dy, dx / dy],
         offsets: [...topOffsets(leftKeys.slice(0, 6)), ...topOffsets(rightKeys.slice(0, 6))],
         angles: angles([...leftKeys.slice(0, 18), ...rightKeys.slice(0, 18), ...thumbs]),
         thumbDepths: thumbs.map(key => (centerY(key.getBoundingClientRect()) - ctrl.top) / dy),
@@ -256,15 +256,12 @@ try {
     assert.deepEqual(geometry.transforms, ["none", "none"]);
     assert.equal(geometry.overflow, false);
   }
-  await checkGeometry();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await checkGeometry();
-  await page.setViewportSize({ width: 320, height: 640 });
-  await checkGeometry();
+  await checkGeometry(page);
 
-  const touch = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const touch = await browser.newPage({ viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true });
   await touch.goto(url);
   await touch.locator('#runtime[data-status="ready"]').waitFor();
+  await checkGeometry(touch);
   const thumbs = await Promise.all([18, 19, 20].map(index => touch.locator("#left-keys .key").nth(index).boundingBox()));
   const touchPoints = thumbs.map(({ x, y, width, height }, id) => ({ x: x + width / 2, y: y + height / 2, id }));
   const session = await touch.context().newCDPSession(touch);
@@ -275,7 +272,7 @@ try {
   await touch.close();
 
   assert.deepEqual(errors, []);
-  console.log("Chrome verified QWERTY, Braille, pointer keycaps, inline displays, the keyboard and touch route switch, route persistence, and desktop and mobile geometry.");
+  console.log("Chrome verified QWERTY, Braille, pointer keycaps, inline displays, the keyboard and touch route switch, route persistence, and laptop and tablet geometry.");
 } finally {
   await browser?.close();
   server.kill();

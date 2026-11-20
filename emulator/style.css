@@ -117,7 +117,7 @@ h1 {
 }
 
 .receiver-case,
-.satellite-display {
+.toucan-display-case {
   border: 1px solid #131717;
   background: #222725;
   box-shadow: inset 0 1px 1px #ffffff35, 0 4px 0 #121817, 0 9px 12px #0007;
@@ -269,7 +269,7 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-.satellite-display {
+.toucan-display-case {
   position: absolute;
   top: calc(9 * var(--mm));
   left: calc(114 * var(--mm));
@@ -277,7 +277,7 @@ textarea:focus-visible {
   border-radius: 7px;
 }
 
-.satellite-display canvas {
+.toucan-display-case canvas {
   width: calc(20.88 * var(--mm));
   height: auto;
 }
