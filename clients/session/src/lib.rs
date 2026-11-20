@@ -246,11 +246,7 @@ impl Session {
                 let _ = batch.push(stroke);
             }
             let result = engine.accept_batch(&self.settings, candidate, batch, now);
-            self.preview = release_label(
-                result.as_slice(),
-                engine.buffered_cells()[0] != 0,
-                candidate == LEADER,
-            );
+            self.preview = release_label(result.as_slice(), candidate == LEADER);
         }
         Ok(output)
     }
@@ -385,7 +381,7 @@ impl Session {
             } else if count != 0 {
                 let output = self.engine.preview_timeout(&self.settings);
                 if !output.is_empty() {
-                    model.detail = release_label(output.as_slice(), false, false);
+                    model.detail = release_label(output.as_slice(), false);
                 }
             }
         } else if let Some(binding) = binding {

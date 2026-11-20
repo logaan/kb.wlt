@@ -28,14 +28,18 @@ Def display-dot-mask Fn {cell: s64}
        row-four: mul(rem(div(cell 64) 4) 64)}
     to-u8(add(add(row-one row-two) add(row-three row-four)))
 
-Def display-dots Fn {frame: display-frame x: s64 y: s64 w: s64 h: s64 cell: u16}
-  Let {bits: to-s64(cell)}
+Def display-dot-grid Fn {frame: display-frame x: s64 y: s64 w: s64 h: s64 cell: u16 extra-gap: bool}
+  Let {bits: to-s64(cell)
+       style: If eq(rem(div(bits 256) 2) 1) 132 3}
     Match frame [({commands: commands labels: labels}
       {commands: push(commands {opcode: 4 x: to-u16(x) y: to-u16(y)
                                 w: to-u16(w) h: to-u16(h)
                                 first: display-dot-mask(bits)
-                                second: If eq(rem(div(bits 256) 2) 1) 132 3 third: 66})
+                                second: to-u8(add(style If extra-gap 64 0)) third: 66})
        labels: labels})]
+
+Def display-dots Fn {frame: display-frame x: s64 y: s64 w: s64 h: s64 cell: u16}
+  display-dot-grid(frame x y w h cell false)
 
 Def display-get Fn {model: list(u8) index: s64 fallback: u8}
   If lt(index len(model)) get(model index) fallback
@@ -274,41 +278,53 @@ Def display-compact-text Fn {text: string w: s64}
   If le(display-text-width(text w 3) sub(w 16)) text
     str-cat(get(display-wrap(text sub(w 34) w) 0) "...")
 
-Def display-line-text Fn {frame: display-frame w: s64 h: s64 text: string}
-  Let {body-height: display-body-h(w)
-       half: div(h 2)
-       max-width: sub(w 16)
-       body-top: add(half div(sub(half body-height) 2))
-       size: If le(display-text-width(text w 2) max-width) The u8 2 The u8 0}
-    If eq(size 2)
-      display-centered(frame 0 w sub(div(mul(h 3) 4) If display-wide(w) 26 17) 1 2 text w)
-    If le(display-text-width(text w 0) max-width)
-      display-centered(frame 0 w body-top 1 0 text w)
+Def display-anchored-top Fn {top: s64 bottom: s64 center: s64 height: s64}
+  max(top min(sub(center div(height 2)) sub(bottom height)))
+
+Def display-line-text Fn {frame: display-frame w: s64 top: s64 bottom: s64 center: s64
+                         text: string body-width: s64}
+  Let {available: sub(bottom top)
+       body-height: If display-wide(w) 30 22
+       large-height: If display-wide(w) 52 35
+       max-width: sub(w 16)}
+    If If ge(available large-height) le(display-text-width(text w 2) max-width) false
+      display-centered(frame 0 w display-anchored-top(top bottom center large-height) 1 2 text w)
+    If le(body-width max-width)
+      display-centered(frame 0 w display-anchored-top(top bottom center body-height) 1 0 text w)
       Let {lines: display-wrap(text sub(w 28) w)
-           step: add(body-height 1)
-           visible: min(len(lines) max(1 div(half step)))
-           top: add(half max(0 div(sub(half mul(visible step)) 2)))}
+           gap: 2
+           step: add(body-height gap)
+           visible: min(len(lines) max(1 div(add(available gap) step)))
+           height: sub(mul(visible step) gap)
+           first: display-anchored-top(top bottom center height)}
         fold(Fn {acc: display-frame row: s64}
           Let {tail: If eq(row sub(visible 1)) gt(len(lines) visible) false
                line: If tail str-cat(get(lines row) "...") get(lines row)}
-            display-centered(acc 0 w add(top mul(row step)) 1 0 line w)
+            display-centered(acc 0 w add(first mul(row step)) 1 0 line w)
           frame range(0 visible))
 
 Def display-typing Fn {w: s64 h: s64 model: list(u8) detail: string}
-  Let {half: div(h 2)
-       dot-h: mul(div(sub(half 12) 4) 4)
+  Let {body-width: If eq(len(detail) 0) 0 display-text-width(detail w 0)
+       wrapped: gt(body-width sub(w 16))
+       dot-h: mul(div(If wrapped sub(div(h 3) 12) sub(div(h 2) 8) 4) 4)
        dot-w: div(dot-h 2)
+       dot-y: sub(div(h 3) div(dot-h 2))
        x: div(sub(w dot-w) 2)
        held: display-get-wide(model 3)
        count: min(7 to-s64(display-get(model 10 0)))
-       frame: display-dots(display-empty x 6 dot-w dot-h held)
+       buffer-h: If display-wide(w) 22 18
+       buffer-y: sub(h add(buffer-h 8))
+       frame: display-dot-grid(display-empty x dot-y dot-w dot-h held true)
        frame: If eq(count 0) frame
          Let {stride: min(21 div(sub(w 12) count)) start: div(sub(w mul(stride count)) 2)}
            fold(Fn {acc: display-frame index: s64}
-             display-dots(acc add(start mul(stride index)) add(half 4)
-               min(15 sub(stride 2)) 22 display-get-wide(model add(15 mul(index 2))))
+             display-dots(acc add(start mul(stride index)) buffer-y
+               min(15 sub(stride 2)) buffer-h display-get-wide(model add(15 mul(index 2))))
              frame range(0 count))}
-    If eq(len(detail) 0) frame display-line-text(frame w h detail)
+    If eq(len(detail) 0) frame
+      display-line-text(frame w add(add(dot-y dot-h) 6)
+        If eq(count 0) sub(h 8) sub(buffer-y 6)
+        add(div(mul(h 2) 3) 4) detail body-width)
 
 Def display-section-count The s64 8
 
@@ -785,7 +801,10 @@ Def display-menu Fn {screen: u8 w: s64 h: s64 model: list(u8) selected: s64 deta
                   frame: display-text(frame 8 top 1 0
                     str-cat(to-string(min(count add(captured 1))) " of " to-string(count)))}
                display-triggers(frame w add(top step) model))
-         (12 If eq(len(detail) 0) frame display-line-text(frame w sub(h add(bar 17)) detail))
+         (12 If eq(len(detail) 0) frame
+               Let {end: sub(h add(bar 17))}
+                 display-line-text(frame w div(end 2) end div(mul(end 3) 4)
+                   detail display-text-width(detail w 0)))
          (_ display-menu-list(frame screen w h selected display-bit(flags 8)))]
        notice: display-notice(display-get(model 11 0))
        frame: If eq(len(notice) 0) frame

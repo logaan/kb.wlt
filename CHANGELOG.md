@@ -10,6 +10,7 @@
 
 ### Changed
 
+- The live Braille cell has more space around and between its dots, and the output preview sits lower. Chords with no output leave the preview blank.
 - The emulator follows Toucan’s column stagger and thumb angles and places the Prospector above both halves. Use the three-thumb hold shown in Help to switch routes.
 - Wavelet defines both kits’ display scenes and menu navigation. LVGL draws them on the Prospector and Toucan MIP.
 - The Braille reference uses cell diagrams and a four-column letter grid. Menus use larger text and keep command reminders in Help.
@@ -108,7 +109,7 @@
 
 - Paintbrush supports one-shot Shift, Control, Alt, Command, and Globe chords. Armed modifiers apply to the next key and expire after one second.
 
-- Prospector displays dot 8 and Space separately in the live braille status view.
+- Prospector displays ⢀ and Space separately in the live braille status view.
 
 - Toucan keeps a shared HID key pressed until all physical keys that map to it have been released.
 

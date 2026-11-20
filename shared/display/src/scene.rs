@@ -72,6 +72,7 @@ pub(crate) enum Command<'a> {
         mask: u8,
         color: u8,
         underline: bool,
+        extra_gap: bool,
     },
 }
 
@@ -122,7 +123,7 @@ impl<'a> Command<'a> {
                 let columns = grid & 0xf;
                 let rows = grid >> 4;
                 let cells = columns * rows;
-                let color = second & 0x7f;
+                let color = second & 0x3f;
                 if cells == 0 || cells > 8 || u16::from(*first) >> cells != 0 || color >= 10 {
                     return None;
                 }
@@ -137,6 +138,7 @@ impl<'a> Command<'a> {
                         mask: *first,
                         color,
                         underline: second & 0x80 != 0,
+                        extra_gap: second & 0x40 != 0,
                     },
                     rest,
                 ));

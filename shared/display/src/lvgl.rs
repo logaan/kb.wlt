@@ -208,6 +208,7 @@ fn draw(profile: Profile, command: Command<'_>) {
             mask,
             color,
             underline,
+            extra_gap,
         } => draw_grid(
             profile,
             (x, y),
@@ -215,7 +216,7 @@ fn draw(profile: Profile, command: Command<'_>) {
             (columns.into(), rows.into()),
             mask,
             color,
-            underline,
+            (underline, extra_gap),
         ),
     }
 }
@@ -235,7 +236,7 @@ fn draw_grid(
     (columns, rows): (u16, u16),
     mask: u8,
     color: u8,
-    underline: bool,
+    (underline, extra_gap): (bool, bool),
 ) {
     let grid_height = height.saturating_sub(if underline { 4 } else { 0 });
     let size = (width / columns).min(grid_height / rows);
@@ -244,7 +245,8 @@ fn draw_grid(
     }
     let foreground = profile.color(color);
     let inactive = if profile.monochrome() { 0 } else { 0x526a7d };
-    let diameter = if size > 3 { size - 1 } else { size };
+    let gap = u16::from(size > 3) + u16::from(extra_gap);
+    let diameter = size.saturating_sub(gap).max(1);
     let radius = (diameter / 2).min(u16::from(u8::MAX)) as u8;
     for index in 0..columns * rows {
         let col = u32::from(index % columns);

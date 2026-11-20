@@ -167,7 +167,7 @@ pub fn label(entry: Entry) -> Label {
     output
 }
 
-pub fn release_label(strokes: &[KeyStroke], waiting: bool, leader: bool) -> Label {
+pub fn release_label(strokes: &[KeyStroke], leader: bool) -> Label {
     let mut result = Label::new();
     if leader {
         let _ = result.write_str("Menu prefix");
@@ -201,13 +201,6 @@ pub fn release_label(strokes: &[KeyStroke], waiting: bool, leader: bool) -> Labe
             break;
         }
         let _ = result.write_str(short);
-    }
-    if result.as_str().is_empty() {
-        let _ = result.write_str(if waiting {
-            "Wait for next chord"
-        } else {
-            "No text"
-        });
     }
     result
 }

@@ -100,3 +100,53 @@ fn body_text_has_the_designed_visible_height_on_each_panel() {
         assert!(ink_rows >= minimum, "only {ink_rows} visible rows");
     }
 }
+
+#[test]
+fn an_expanded_dot_grid_adds_one_native_pixel_of_clearance_in_both_axes() {
+    let mut strip = Strip::<{ TFT_WIDTH * 8 }>::EMPTY;
+    for (profile, previous_pitch) in [(Profile::Tft, 27), (Profile::Mip, 18)] {
+        let mut gaps = Vec::new();
+        for extra_gap in [false, true] {
+            let pitch = previous_pitch + u8::from(extra_gap);
+            let scene = Scene::from_bytes(&[
+                4,
+                0,
+                0,
+                0,
+                0,
+                pitch * 2,
+                0,
+                pitch * 4,
+                0,
+                255,
+                3 | (u8::from(extra_gap) << 6),
+                0x42,
+            ])
+            .unwrap();
+            let background = strip.render(profile, &Scene::EMPTY, 0..1).unwrap()[0];
+            let center = usize::from(pitch / 2);
+            let horizontal = strip.render(profile, &scene, center..center + 1).unwrap();
+            let gap = |pixels: &[u16], pitch: usize| {
+                pixels[..2 * pitch]
+                    .iter()
+                    .filter(|&&pixel| pixel == background)
+                    .count()
+                    - pixels[..pitch]
+                        .iter()
+                        .take_while(|&&pixel| pixel == background)
+                        .count()
+                    - pixels[pitch..2 * pitch]
+                        .iter()
+                        .rev()
+                        .take_while(|&&pixel| pixel == background)
+                        .count()
+            };
+            let h = gap(horizontal, usize::from(pitch));
+            let vertical: Vec<_> = (0..usize::from(pitch) * 2)
+                .map(|y| strip.render(profile, &scene, y..y + 1).unwrap()[center])
+                .collect();
+            gaps.push((h, gap(&vertical, usize::from(pitch))));
+        }
+        assert_eq!(gaps, [(1, 1), (2, 2)]);
+    }
+}

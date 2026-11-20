@@ -510,3 +510,101 @@ fn a_released_space_expires_before_the_rest_of_the_chord() {
         &[KeyStroke::from_ascii(b'a').unwrap()]
     );
 }
+
+#[test]
+fn live_cell_and_preview_are_spaced_on_both_displays() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let field = |command: &[u8], offset| u16::from_le_bytes([command[offset], command[offset + 1]]);
+    for (width, height, large_font, body_font, former_diameter) in
+        [(280, 240, 52, 30, 26), (144, 168, 35, 22, 17)]
+    {
+        let mut model = [0; 21];
+        model[0] = 1;
+        model[8..10].fill(255);
+        let idle = guest.render(width, height, &model, "").unwrap();
+        let idle = commands(idle.as_slice());
+        assert_eq!(idle.len(), 1);
+        assert_eq!(idle[0][9], 0);
+        assert!(field(idle[0], 3) >= 16);
+        assert_eq!(field(idle[0], 3) + field(idle[0], 7) / 2, height / 3);
+        assert_eq!(idle[0][10] & 0x40, 0x40);
+        assert_eq!(
+            (field(idle[0], 5) / 2).min(field(idle[0], 7) / 4) - 2,
+            former_diameter
+        );
+
+        model[3..5].copy_from_slice(&SPACE.wrapping_add(1).to_le_bytes());
+        for buffered in [false, true] {
+            model[10] = if buffered { 3 } else { 0 };
+            model[15..21].copy_from_slice(&[1, 0, 1, 1, 3, 0]);
+            let rendered = guest.render(width, height, &model, "a").unwrap();
+            let atoms = commands(rendered.as_slice());
+            let cell = atoms[0];
+            assert_eq!(cell[10] & 0xc0, 0xc0);
+            let text = atoms.iter().find(|atom| atom[0] == 3).unwrap();
+            assert_eq!(&text[8..], b"a");
+            assert_eq!(text[6], 2);
+            let y = field(text, 3);
+            assert!((height * 2 / 3..=height * 2 / 3 + 9).contains(&(y + large_font / 2)));
+            assert!(y >= field(cell, 3) + field(cell, 7) + 6);
+
+            let rendered = guest
+                .render(
+                    width,
+                    height,
+                    &model,
+                    "bright bold letters fill both displays",
+                )
+                .unwrap();
+            let atoms = commands(rendered.as_slice());
+            let cell = atoms[0];
+            let history = &atoms[1..if buffered { 4 } else { 1 }];
+            assert!(history.iter().all(|marker| marker[10] & 0x40 == 0));
+            let mut end = field(cell, 3) + field(cell, 7) + 6;
+            let text: Vec<_> = atoms.iter().filter(|atom| atom[0] == 3).collect();
+            assert!(text.len() >= 2);
+            for line in text {
+                assert_eq!(line[6], 0);
+                assert!(field(line, 3) >= end);
+                end = field(line, 3) + body_font;
+            }
+            assert!(end + 8 <= height);
+            assert!(history.iter().all(|marker| field(marker, 3) >= end + 6));
+        }
+    }
+}
+
+#[test]
+fn typing_preview_leaves_no_output_blank_and_names_real_actions() {
+    let mut guest = KeyboardComponent::new(TOUCAN).unwrap();
+    let mut session = Session::new(Settings::default());
+    key(&mut session, &mut guest, 255);
+    let unknown = session.model(Links::default());
+    assert!(unknown.detail.as_str().is_empty());
+    for (width, height) in [(280, 240), (144, 168)] {
+        let scene = guest
+            .render(
+                width,
+                height,
+                unknown.bytes.as_slice(),
+                unknown.detail.as_str(),
+            )
+            .unwrap();
+        assert!(labels(scene.as_slice()).is_empty());
+        assert_eq!(masks(scene.as_slice()), [(255, false)]);
+    }
+    assert!(key(&mut session, &mut guest, 0).strokes.is_empty());
+
+    session.settings.set_binding(0, &[1, 3], b"about").unwrap();
+    key(&mut session, &mut guest, 1);
+    assert!(session.model(Links::default()).detail.as_str().is_empty());
+    key(&mut session, &mut guest, 0);
+    assert_eq!(session.model(Links::default()).detail.as_str(), "a");
+
+    session.cancel(0);
+    for (cell, label) in [(SPACE, "Space"), (128, "Return"), (LEADER, "Menu prefix")] {
+        key(&mut session, &mut guest, cell);
+        assert_eq!(session.model(Links::default()).detail.as_str(), label);
+        session.cancel(0);
+    }
+}
