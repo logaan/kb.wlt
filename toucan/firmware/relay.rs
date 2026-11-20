@@ -42,14 +42,21 @@ mod left {
         sync::atomic::{AtomicBool, Ordering},
     };
     use embassy_sync::blocking_mutex::Mutex;
+    use kb_core::host_target::Target;
     use kb_core::pipeline::Bounded;
     use kb_core::preferences::Settings;
 
     static DOCKED: AtomicBool = AtomicBool::new(false);
+    const DOCK_SCHEMA: u32 = 0x5443_444b;
     pub(crate) static BOOTLOADER: bootloader_link::Link = bootloader_link::Link::new();
     pub(crate) fn docked() -> bool {
         DOCKED.load(Ordering::Relaxed)
     }
+
+    pub(crate) fn is_peer(store: &crate::ble_bonds::BondStore<'_>, identity: &Identity) -> bool {
+        store.client(identity, DOCK_SCHEMA).is_some()
+    }
+
     struct DockConnection;
     impl Drop for DockConnection {
         fn drop(&mut self) {
@@ -66,7 +73,6 @@ mod left {
     }
 
     pub(crate) async fn advertise(stack: &Host<'_>, bonds: &Bonds) {
-        let mut peripheral = stack.peripheral();
         let mut payload = [0; 31];
         let len = AdStructure::encode_slice(
             &[
@@ -76,21 +82,21 @@ mod left {
             &mut payload,
         )
         .unwrap();
-        let Ok(ad) = peripheral
-            .advertise(
-                &Default::default(),
-                Advertisement::ConnectableScannableUndirected {
-                    adv_data: &payload[..len],
-                    scan_data: &[],
-                },
-            )
-            .await
-        else {
-            Timer::after_millis(100).await;
+        let Some(conn) = crate::radio::accept_peripheral(stack, &payload[..len]).await else {
             return;
         };
-        let Ok(conn) = ad.accept().await else { return };
-        if crate::radio::authenticate(&conn, stack, bonds).await {
+        if conn.set_bondable(true).is_err() {
+            return;
+        }
+        let peer_is_hid = {
+            let store = bonds.lock().await;
+            crate::toucan::ble_hid::is_hid_peer(&store, &conn.peer_identity())
+        };
+        if peer_is_hid {
+            conn.disconnect();
+            return;
+        }
+        if crate::radio::wait_encrypted(&conn, stack, bonds).await {
             let events = async {
                 loop {
                     match conn.next().await {
@@ -101,18 +107,28 @@ mod left {
                         }
                         ConnectionEvent::PairingComplete {
                             bond: Some(bond), ..
-                        } => bonds.lock().await.remember(&bond).await,
+                        } => {
+                            let mut store = bonds.lock().await;
+                            if docked() {
+                                let table = ClientAttTable::builder().build();
+                                store
+                                    .remember_with_client(&bond, DOCK_SCHEMA, table.raw())
+                                    .await;
+                            } else {
+                                store.remember(&bond).await;
+                            }
+                        }
                         _ => {}
                     }
                 }
             };
-            let _ = select(events, send(stack, &conn)).await;
+            let _ = select(events, send(stack, &conn, bonds)).await;
         }
-        route::set_transport_ready(false, false);
+        route::set_transport_ready(Target::Prospector, false);
         conn.disconnect();
     }
 
-    async fn send(stack: &Host<'_>, conn: &Connection<'_, DefaultPacketPool>) {
+    async fn send(stack: &Host<'_>, conn: &Connection<'_, DefaultPacketPool>, bonds: &Bonds) {
         let Ok(Ok(client)) = with_timeout(
             Duration::from_secs(5),
             GattClient::<_, DefaultPacketPool, 8>::new(stack, conn),
@@ -135,6 +151,14 @@ mod left {
             let boot_session = BOOTLOADER.session();
             DOCKED.store(true, Ordering::Relaxed);
             let _session = DockConnection;
+            if conn.is_bonded_peer() {
+                let table = ClientAttTable::builder().build();
+                bonds
+                    .lock()
+                    .await
+                    .remember_client(&conn.peer_identity(), DOCK_SCHEMA, table.raw())
+                    .await;
+            }
             if crate::settings::current().is_none() {
                 if let Some(source) = request(
                     client.characteristic_by_uuid::<[u8; ENCODED_LEN]>(service, &PREFERENCES),
@@ -164,14 +188,14 @@ mod left {
                     }
                     let generation = u32::from_le_bytes(state[1..5].try_into().unwrap());
                     if remote.is_some_and(|prev| prev != generation) {
-                        route::set_transport_ready(false, false);
+                        route::set_transport_ready(Target::Prospector, false);
                     }
                     remote = Some(generation);
-                    route::set_transport_ready(false, state[0] == 1);
+                    route::set_transport_ready(Target::Prospector, state[0] == 1);
                     last_poll = embassy_time::Instant::now();
                 }
                 let model = VIEW.lock(Cell::get);
-                if model != last_view && route::OUTPUT.is_empty() {
+                if model != last_view && route::PROSPECTOR_REPORTS.is_empty() {
                     if let Some(model) = model {
                         let packet = DisplayFeedback {
                             sequence,
@@ -197,7 +221,7 @@ mod left {
                     last_view = model;
                 }
                 match select(
-                    route::OUTPUT.receive(),
+                    route::PROSPECTOR_REPORTS.receive(),
                     select(
                         boot_session.next(),
                         select(CHANGED.wait(), Timer::after_millis(100)),
@@ -208,7 +232,15 @@ mod left {
                     Either::First((token, out)) if route::connection().accepts(token) => {
                         let mut packet = [0; 13];
                         packet[..4].copy_from_slice(&remote?.to_le_bytes());
+                        let released = match out {
+                            Output::Release(generation) => Some(generation),
+                            Output::Held(_) | Output::Stroke(_) => None,
+                        };
                         match out {
+                            Output::Release(_) => {
+                                packet[4] = 1;
+                                packet[5..9].copy_from_slice(&kb_core::KeyStroke::default().held().packed().to_le_bytes());
+                            }
                             Output::Held(bytes) => packet[5..].copy_from_slice(&bytes),
                             Output::Stroke(stroke) => {
                                 packet[4] = 1;
@@ -216,6 +248,9 @@ mod left {
                             }
                         }
                         request(client.write_characteristic(&hid, &packet)).await?;
+                        if let Some(generation) = released {
+                            route::released(generation);
+                        }
                         poll = false;
                     }
                     Either::Second(Either::First(command)) => {
@@ -238,7 +273,7 @@ mod left {
 }
 
 #[cfg(feature = "toucan-display")]
-pub(super) use left::{BOOTLOADER, advertise, docked, publish};
+pub(super) use left::{BOOTLOADER, advertise, docked, is_peer, publish};
 
 #[cfg(feature = "toucan-dongle")]
 mod dock {
@@ -249,6 +284,7 @@ mod dock {
     use kb_client_session::Links;
     use kb_component_runtime::{DisplayGuest, KeyboardComponent};
     use kb_core::KeyStroke;
+    use kb_core::host_target::{Target, TargetConnection};
 
     static ADS: Channel<CriticalSectionRawMutex, Address, 4> = Channel::new();
     static VIEW: Signal<CriticalSectionRawMutex, Option<DisplayFeedback>> = Signal::new();
@@ -307,6 +343,8 @@ mod dock {
         loop {
             let home = Model::home(Links {
                 online: u8::from(crate::usb_hid::connection().ready()) << 2,
+                target: Target::Unknown,
+                connection: TargetConnection::Offline,
                 ..Default::default()
             });
             let (model, detail) = latest
@@ -363,19 +401,22 @@ mod dock {
                 window: Duration::from_millis(40),
                 ..Default::default()
             };
-            let Ok(_scan) = scanner.scan(&config).await else {
+            let Ok(scan) = scanner.scan(&config).await else {
                 return;
             };
-            let Ok(addr) = with_timeout(Duration::from_secs(2), ADS.receive()).await else {
+            let candidate = with_timeout(Duration::from_secs(2), ADS.receive()).await;
+            scan.stop().await;
+            let Ok(addr) = candidate else {
                 return;
             };
             addr
         };
-        Timer::after_millis(20).await;
         let addresses = [address];
         let config = ConnectConfig {
             scan_config: ScanConfig {
                 filter_accept_list: &addresses,
+                interval: Duration::from_millis(30),
+                window: Duration::from_millis(30),
                 ..Default::default()
             },
             connect_params: RequestedConnParams {
@@ -401,7 +442,11 @@ mod dock {
         let mut relaying = false;
         loop {
             match conn.next().await {
-                GattConnectionEvent::Disconnected { .. } => break,
+                GattConnectionEvent::Disconnected { .. }
+                | GattConnectionEvent::PairingFailed(_) => break,
+                GattConnectionEvent::RequestConnectionParams(request) => {
+                    let _ = request.accept(None, stack).await;
+                }
                 GattConnectionEvent::PairingComplete {
                     bond: Some(bond), ..
                 } => bonds.lock().await.remember(&bond).await,

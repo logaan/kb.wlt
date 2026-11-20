@@ -32,7 +32,7 @@ pub(crate) type Bonds = Mutex<CriticalSectionRawMutex, BondStore<'static>>;
 
 #[cfg(feature = "toucan-display")]
 pub(crate) async fn accept_peripheral<'d>(
-    stack: &Host<'d>,
+    stack: &'d Host<'_>,
     data: &[u8],
 ) -> Option<Connection<'d, DefaultPacketPool>> {
     static ADVERTISING: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
