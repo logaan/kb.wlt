@@ -9,7 +9,7 @@ use kb_core::{
     menu::BluetoothAction,
     pipeline::{Bounded, Input, KeyEvent, KeyState},
     report_state::ReportState,
-    transport::InputGate,
+    transport::{InputGate, can_enter_local_bootloader},
 };
 
 struct Base {
@@ -304,7 +304,7 @@ async fn enter_bootloaders(requested: u8, right: Option<u32>, dock: Option<u32>)
     .await;
     let accepted =
         if right { BOOTLOADER_RIGHT } else { 0 } | if dock { BOOTLOADER_PROSPECTOR } else { 0 };
-    if requested & BOOTLOADER_LEFT != 0 && accepted == requested & !BOOTLOADER_LEFT {
+    if can_enter_local_bootloader(requested, accepted, BOOTLOADER_LEFT) {
         crate::bootloader::enter_uf2().await;
     }
     accepted

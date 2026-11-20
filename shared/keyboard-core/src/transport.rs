@@ -1,3 +1,7 @@
+pub fn can_enter_local_bootloader(requested: u8, accepted_remote: u8, local: u8) -> bool {
+    requested & local != 0 && accepted_remote == requested & !local
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SessionGate {
     ready: bool,

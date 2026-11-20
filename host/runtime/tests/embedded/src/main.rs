@@ -3,9 +3,13 @@
 
 use core::{fmt::Write, panic::PanicInfo};
 use cortex_m_rt::entry;
-use kb_client_session::Viewport;
+use kb_client_session::{BOOTLOADER_PROSPECTOR, Links, Navigation, Session, Viewport};
 use kb_component_runtime::DisplayGuest;
 use kb_core::reference::SPACE;
+
+#[cfg(feature = "keyboard")]
+mod left_alone;
+
 use kb_display::{
     Scene,
     lvgl::{Profile, Strip, TFT_WIDTH},
@@ -156,6 +160,51 @@ fn navigation(guest: &mut impl DisplayGuest) {
             .unwrap();
         assert_eq!((help >> 8) as u16, 12);
     }
+    let mut session = Session::new(Default::default());
+    session.set_bootloader_devices(BOOTLOADER_PROSPECTOR);
+    session.enable_standalone_receiver_menu();
+    assert!(
+        session
+            .navigate_action(Navigation::Enter, guest)
+            .unwrap()
+            .reset
+    );
+    for action in [Navigation::Down, Navigation::Enter, Navigation::Enter] {
+        assert_eq!(
+            session.navigate_action(action, guest).unwrap().bootloader,
+            0
+        );
+    }
+    let model = session.model(Links::default());
+    assert_eq!(model.bytes.as_slice()[0], 14);
+    let scene = guest.render(280, 240, model.bytes.as_slice(), "").unwrap();
+    assert!(Scene::from_bytes(scene.as_slice()).is_some());
+    assert_eq!(
+        session
+            .navigate_action(Navigation::Enter, guest)
+            .unwrap()
+            .bootloader,
+        0
+    );
+    assert_eq!(session.model(Links::default()).bytes.as_slice()[16], 0);
+    for action in [
+        Navigation::Down,
+        Navigation::Down,
+        Navigation::Enter,
+        Navigation::Down,
+    ] {
+        assert_eq!(
+            session.navigate_action(action, guest).unwrap().bootloader,
+            0
+        );
+    }
+    assert_eq!(
+        session
+            .navigate_action(Navigation::Enter, guest)
+            .unwrap()
+            .bootloader,
+        BOOTLOADER_PROSPECTOR
+    );
 }
 
 unsafe extern "C" {
@@ -191,6 +240,14 @@ fn run() -> ! {
     let mut guest = typing();
     display(&mut guest);
     navigation(&mut guest);
+    #[cfg(feature = "keyboard")]
+    {
+        left_alone::run(&mut guest);
+        let _ = writeln!(
+            Output,
+            "Disconnected Toucan left matrix, reference, and UF2 intent passed"
+        );
+    }
     drop(guest);
     traps();
     let _ = writeln!(
