@@ -1,6 +1,6 @@
 # kb.wlt
 
-A keyboard firmware monorepo: Rust hosts run composable [Wavelet](https://github.com/logaan/wavelet) WebAssembly Components on nRF52840 controllers.
+A keyboard firmware monorepo: Rust hosts run [Wavelet](https://github.com/logaan/wavelet) WebAssembly Components on nRF52840 controllers.
 
 | Directory | Responsibility |
 | --- | --- |
@@ -10,15 +10,16 @@ A keyboard firmware monorepo: Rust hosts run composable [Wavelet](https://github
 | [clients/](clients/) | All Wavelet clients, WIT contracts, component build tooling, and generated Wasm |
 | [shared/](shared/) | Keyboard primitives, display controllers, and persistent storage |
 | [firmware/](firmware/) | Shared nRF52840 platform, radio, USB, and firmware build manifest |
+| [emulator/](emulator/) | Browser simulator for the Toucan and Prospector |
 | `xtask/`, `scripts/` | Target catalog, build/flash tools, and release automation |
 
 ## Build and flash
 
-Run commands from the repository root. Install Rust, the current Wavelet CLI on `PATH`, and Clang/libclang for the Nordic bindings. Binaryen (`wasm-opt`) is needed only when regenerating the host's optimized middleware test fixtures.
+Run commands from the repository root. Install Rust, the current Wavelet CLI, Binaryen (`wasm-opt`), [WABT 1.0.42](https://github.com/WebAssembly/wabt/releases/tag/1.0.42) (`wasm2c`), and Clang with libclang and ARM support.
 
 ```sh
 rustup target add thumbv7em-none-eabihf
-cargo test --workspace --locked
+cargo xtask check
 cargo xtask targets
 cargo xtask build toucan-left-satellite-display
 cargo xtask build toucan-right-satellite
@@ -31,12 +32,12 @@ Images are written to `dist/`. Enter the appropriate board's UF2 bootloader and 
 ./scripts/flash-uf2.sh dist/toucan-prospector.uf2 /Volumes/XIAO-SENSE
 ```
 
-Only two configurations are supported: Toucan left/right satellites with a Prospector receiver, and Paintbrush left/right satellites with a Prospector receiver. Releases contain exactly those six UF2s. See the board READMEs for their build commands and bootloader variants. Normal builds compile the canonical client source; release builds use its checked-in artifacts. After editing client sources, run `./scripts/build-components.sh` and commit the generated changes as well.
+A release contains six UF2s across the Toucan and Paintbrush install kits. Use the matching images from the same kit. The Toucan left half handles typing and can send reports directly over Bluetooth or through its USB Prospector. Paintbrush sends reports through its USB Prospector. Normal builds compile the canonical client source. Release builds use its checked-in artifacts. After editing client sources, run `./scripts/build-components.sh` and commit the generated changes.
 
 ## Validation and releases
 
-The upgraded Toucan 1 with a left MIP display, two battery-powered halves, and a USB Prospector receiver was accepted in hardware testing. Its conventional keymap is the default; tap the left outer thumb to toggle braille or hold it for momentary braille. The new Toucan braille mode and the Paintbrush setup still need hardware regression testing.
+The [browser emulator](emulator/) runs the Toucan component, both displays, and both simulated transports. The earlier Toucan USB configuration passed hardware testing. The current firmware and the Paintbrush kit still need hardware validation.
 
 `cargo xtask check` runs workspace tests and shared-crate cross-checks. `./scripts/build-artifacts.sh` cross-builds the six supported images, runs component heap probes, and replaces the UF2s in `dist/release/`. `cargo xtask verify-release dist/release` rejects missing or extra images. Neither command flashes hardware.
 
-Push development commits to `master`. Publish versions through the manual **Release** GitHub Actions workflow, which synchronizes versions using `scripts/release-version.py`, runs tests/builds, creates a release commit and tag, and publishes one install ZIP per keyboard plus checksums. Each ZIP contains its left, right and receiver UF2s, `INSTALL.txt`, the optional flash helper, and generated `KEYMAP.txt` and `BRAILLE.txt` references. Do not create release tags manually.
+Push development commits to `master`. Publish versions through the manual **Release** GitHub Actions workflow, which synchronizes versions using `scripts/release-version.py`, runs tests/builds, creates a release commit and tag, and publishes one install ZIP per keyboard plus checksums. Each ZIP contains its left, right, and receiver UF2s, `INSTALL.txt`, the flash helper, and UTF-8 `KEYMAP.txt` and `BRAILLE.txt` references. Do not create release tags manually.

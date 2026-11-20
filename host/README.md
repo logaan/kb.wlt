@@ -1,8 +1,8 @@
 # Rust component host
 
-`runtime/` is the `kb-component-runtime` crate. It runs validated Wasm core modules with Wasmi, implements the WIT canonical ABI adapters, and exposes braille and keyboard components plus reusable input/output middleware pipelines. It is `no_std` with allocation; firmware provides the heap. Interface definitions and component compilation belong to [clients/](../clients/).
+`runtime/` implements the WIT canonical ABI for keyboard, braille, and display guests. Native tests, resource probes, and middleware fixtures use Wasmi. Cortex-M firmware translates the validated production core Wasm ahead of time with WABT 1.0.42 (`wasm2c`) and links the result into the image. The embedded runtime provides a bounded 64 KiB guest memory and meters guest execution.
 
-Runtime tests cover ABI validation, malformed outputs, traps, chaining, heap budgets, and typing behavior. Board-specific keymap tests live under `toucan/tests/` and are included by this crate's manifest. The LED contract/runtime and standalone Cortex-M example project have been removed.
+Each application board runs one instance. The Toucan left half runs keyboard, braille, and display together. Its Prospector renders the relayed display model with its own instance. The Paintbrush Prospector handles braille and display. Key-scanning satellites forward matrix snapshots.
 
 From the repository root:
 
@@ -13,6 +13,4 @@ cargo xtask probe keyboard clients/components/generated/toucan-keymap/keyboard.c
 cargo xtask probe braille clients/components/generated/braille.core.wasm
 ```
 
-Normal builds probe component heap use before cross-building and enforce at least 16 KiB of native RAM reserve before UF2 generation. The remaining firmware uses a 160 KiB component heap. Native heap measurements and cross-build checks are not substitutes for hardware testing.
-
-The host retains generic middleware APIs and their test fixtures for future development. They do not add firmware variants or release images.
+Tests and probes cover ABI validation, malformed outputs, traps, chaining, resource use, and typing behavior. Normal builds check the selected artifact before cross-building and require at least 16 KiB of native RAM reserve before UF2 generation. Check the board READMEs for hardware validation.

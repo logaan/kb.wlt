@@ -1,14 +1,10 @@
 # Toucan
 
-Firmware and board-specific tests for the upgraded Toucan 1, using two XIAO nRF52840 controllers and the retained 144×168 MIP display. The trackpad is not implemented. Internal `nice_view` names refer to this MIP panel, not a 160×68 nice!view display.
+Firmware for the Toucan 1 with two XIAO nRF52840 controllers and the 144×168 MIP display. The left half runs the Wavelet keymap, braille, and display interfaces in one instance. The right half sends matrix snapshots to the left. The Prospector relays HID reports to USB and draws the forwarded display model with its own instance.
 
-`firmware/` contains the matrix protocol, Bluetooth application, MIP driver, and binary entry points. `display/` contains the Toucan MIP and Prospector dashboard layouts. The shared Cargo manifests explicitly include these modules and tests; they are not separate copies of the platform or host.
+## Build and flash
 
-All Wavelet code lives in [clients/](../clients/). The canonical keymap is [toucan-keymap.wlt](../clients/components/toucan-keymap/toucan-keymap.wlt). The firmware target catalog and release artifacts use that same layout.
-
-## Normal configuration: two halves and Prospector
-
-From the repository root:
+Run from the repository root:
 
 ```sh
 cargo xtask build toucan-left-satellite-display
@@ -16,7 +12,7 @@ cargo xtask build toucan-right-satellite
 cargo xtask build toucan-prospector
 ```
 
-Flash one board at a time, entering its bootloader first and substituting its actual volume path:
+Flash all three matching images for the initial upgrade. Enter each board's bootloader and substitute its mounted volume.
 
 ```sh
 ./scripts/flash-uf2.sh dist/toucan-left-satellite-display.uf2 /Volumes/XIAO-BOOT
@@ -24,24 +20,29 @@ Flash one board at a time, entering its bootloader first and substituting its ac
 ./scripts/flash-uf2.sh dist/toucan-prospector.uf2 /Volumes/XIAO-SENSE
 ```
 
-Keep Prospector connected by USB; power the halves from batteries or USB. The halves connect automatically to Prospector, not to the computer's Bluetooth settings. The host sees **kb.wlt Toucan Receiver**. The receiver executes the keymap and sends status to the left MIP display.
+The stock XIAO S140 v7 bootloader loads at `0x27000`. The `--s140v6` and `--nosd` build options select alternate origins for matching bootloaders and add suffixes to the output files.
 
-For keymap-only changes, rebuild and reflash only `toucan-prospector`. Regenerate checked-in client artifacts with `./scripts/build-components.sh` before committing or releasing. A one-off source can be selected with `cargo xtask build toucan-prospector --source path/to/keymap.wlt`.
+A change confined to the conventional keymap runs on the left half. For a one-off build, run `cargo xtask build toucan-left-satellite-display --source path/to/keymap.wlt`. Build the left half and Prospector together after changing display behavior or shared contracts. Regenerate checked-in artifacts after editing Wavelet code. [Canonical Wavelet source](../clients/components/toucan-keymap/toucan-keymap.wlt)
 
-The default application origin is stock XIAO S140 v7 at `0x27000`. Builds also accept `--s140v6` or `--nosd` for boards with matching bootloaders; flash the corresponding suffixed image. Do not select an origin without checking the board's bootloader.
+## Connect and type
 
-## Current behavior and limits
+Fresh installs use Prospector USB. Connect the Prospector to the computer with a data cable, then power both halves. The right half pairs with the left and the left pairs with Prospector automatically. The computer sees **kb.wlt Toucan Receiver** over USB.
 
-Toucan starts in conventional typing. Tap the left outer thumb to switch between conventional and braille typing. Hold it for momentary braille typing. Only the Prospector needs the updated firmware.
+To type directly over Bluetooth, hold all three left thumb keys for two seconds. Pair **kb.wlt Toucan** with the computer using its Bluetooth settings. The halves work together while the Prospector is off. Hold the three left thumbs again to return to Prospector USB. The left half saves the selected route with its settings.
 
-In braille mode, **A S D F** are dots **7 3 2 1**; **J K L ;** are **4 5 6 8**. Use the normal Space thumb for Braille Space. Try holding **F**: the display previews **a** before you release it. Chord keys together and release to type. The preview follows Computer 8 or UEB Grade 1 and your saved bindings; waiting cells appear oldest first.
+Tap the outer left thumb to switch between QWERTY and Braille. Hold it to use Braille momentarily. The cells below correspond to the named keys. Use the normal Space thumb for Braille Space.
 
-For the menu: **hold Space → ⠟ → ⠟**. Release the dots between cells; enter the second within two seconds, then release everything. The gesture stays on the receiver. In the menu use Space+dot 1/4 for previous/next, Space+7 to select and Space+1+2 to go back. Configuration changes the braille code; Reference explains chords and Bindings lets you edit expansions.
+```text
+A  S  D  F      J  K  L  ;
+⡀  ⠄  ⠂  ⠁      ⠈  ⠐  ⠠  ⢀
+```
 
-The two-half/Prospector configuration was accepted by the user after typing, display, cross-half modifier, reconnection, and power-cycle checks. The new braille integration, menu and display preview still need hardware regression testing. Direct Bluetooth HID, display-free left halves, and composed-firmware variants are not supported.
+Chord keys together and release to type. Hold **F** to preview **a** before releasing it. The display previews the active Computer 8 or UEB Grade 1 result, including saved bindings. Buffered cells appear oldest first.
 
-## Displays
+Hold Space and chord **⠟** twice to open the main menu. Release the other keys between cells. Space+**⠁** goes to the previous item, Space+**⠈** goes to the next item, Space+**⡀** opens the selected item, and Space+**⠃** goes back. **⠓** opens Help. Reference, Configuration, and Bindings are available on the left MIP when using either transport.
 
-The Toucan MIP uses SCK P1.13, MOSI P1.15, and active-high CS P0.03 at 1 MHz, with native 144×168 geometry and VCOM maintenance. Hardware references: [Toucan upgrade kit](https://shop.beekeeb.com/products/toucan-upgrade-kit) and [Beekeeb display overlay](https://github.com/beekeeb/zmk-keyboard-toucan/blob/main/boards/shields/nice_view_gem/nice_view_gem.overlay).
+## Displays and hardware status
 
-The shared [Prospector driver](../firmware/README.md) uses SPI2 at 4 MHz with the hardware-verified initialization sequence and active-high backlight. Display regression tests cover geometry, orientation, status rendering, and the rounded-corner title inset.
+The MIP uses SCK P1.13, MOSI P1.15, and active-high CS P0.03 at 1 MHz with VCOM maintenance. The Prospector uses SPI2 at 4 MHz and renders 280×240 landscape. Both use Wavelet scenes rendered through LVGL. Trackpad input is unavailable. [Toucan upgrade kit](https://shop.beekeeb.com/products/toucan-upgrade-kit) · [Beekeeb display overlay](https://github.com/beekeeb/zmk-keyboard-toucan/blob/main/boards/shields/nice_view_gem/nice_view_gem.overlay) · [Prospector hardware](../firmware/README.md)
+
+The previous USB-receiver firmware passed typing, display, cross-half modifier, reconnection, and power-cycle tests. The new pairing topology, direct Bluetooth, battery readings, and LVGL rendering still need hardware validation. The [browser emulator](../emulator/) exercises both typing routes and displays.

@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- Toucan can type directly over Bluetooth or through Prospector USB. Hold the three left thumbs to switch routes.
+- Added a browser emulator for Toucan typing, Braille menus, both displays, and simulated USB and Bluetooth routes.
+- The Toucan home screens show link state and both halves’ battery levels.
+
 ### Changed
+
+- Wavelet defines both kits’ display scenes and menu navigation. LVGL draws them on the Prospector and Toucan MIP.
+- The Braille reference uses cell diagrams and a four-column letter grid. Menus use larger text and keep command reminders in Help.
+- Install kits include UTF-8 Braille keymaps and board-specific connection instructions.
 
 - Toucan’s left outer thumb now toggles Braille on tap and activates it momentarily on hold. Removed the navigation layer.
 

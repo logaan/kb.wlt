@@ -2,7 +2,7 @@
 
 Two Paintbrush Bluetooth satellites send key snapshots to a USB-connected Prospector receiver. This is the only supported Paintbrush configuration. Standalone USB/Bluetooth HID keyboards, single-keyboard receivers, and OLED variants have been removed.
 
-Board-specific entry points and split application logic live in `firmware/`; shared Nordic radio, USB, storage, and LCD support live in [firmware/](../firmware/). The canonical Wavelet client is [braille.wlt](../clients/components/braille/braille.wlt). The Rust host supplies chord processing, Computer 8 and UEB Grade 1 typing, one-shot modifiers, and receiver menus.
+Board-specific entry points and split application logic live in `firmware/`; shared Nordic radio, USB, storage, and LCD support live in [firmware/](../firmware/). The canonical Wavelet client is [braille.wlt](../clients/components/braille/braille.wlt). One Wavelet component handles braille mapping, menus, and display scenes on the receiver. The shared Rust host handles chord state, UEB Grade 1 buffering, bindings, and HID reports.
 
 This setup remains available for development and future hardware verification; acceptance of the Toucan hardware does not imply Paintbrush hardware validation.
 
@@ -32,8 +32,8 @@ Only the receiver executes the client. For a custom client, use `cargo xtask bui
 
 ## Receiver menus
 
-Main menu: **hold Space → ⠟ → ⠟**. Release the dots between cells; enter the second within two seconds. For direct access, replace the second chord with **r** (reference), **c** (configuration), **b** (bindings), or **d** (diagnostics).
+For the main menu, hold Space and chord **⠟** twice. Release the other keys between cells. The first chord opens the menu shortcuts.
 
-In menus, Space+1/4 moves the selection, Space+3/6 changes pages, Space+7 selects, and Space+12 goes back. Menu chords stay on the receiver. Release all keys before resuming typing. Configuration and bindings save asynchronously; wait for the unsaved indicator to clear before powering off. Bluetooth reconnection and pairing reset remain available in the receiver's configuration menu; separate reset firmware is not required.
+In menus, Space+**⠁** goes to the previous item, Space+**⠈** goes to the next item, Space+**⡀** opens the selected item, and Space+**⠃** goes back. **⠓** opens Help. Menu chords stay on the receiver. Release all keys before resuming typing. Settings and bindings save asynchronously. Bluetooth reconnection and pairing reset are available in Configuration.
 
-Prospector uses the shared ST7789 LCD driver. Brightness adjustment, touch, and light sensing are not implemented.
+The Prospector uses the shared landscape ST7789 driver and LVGL renderer. Touch, trackpad input, and automatic brightness are unavailable.

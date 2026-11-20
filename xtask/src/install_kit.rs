@@ -1,4 +1,5 @@
 use crate::{Result, targets::TARGETS};
+use kb_client_session::labels::label;
 use kb_component_build::Contract;
 use kb_component_runtime::{BrailleComponent, KeyboardComponent};
 use kb_core::{
@@ -7,19 +8,30 @@ use kb_core::{
     reference::{Entry, LEADER},
     split::Layout,
 };
-use kb_display::reference::{dot_label, label};
 use std::{fmt::Write, fs, path::Path};
 
 fn dots(cell: u16) -> String {
-    if cell == 0 {
-        "-".into()
-    } else {
-        dot_label(cell).as_str().into()
+    match cell {
+        0 => "-".into(),
+        256 => "Space".into(),
+        _ => {
+            let glyph = char::from_u32(0x2800 + u32::from(cell & 255)).unwrap();
+            if cell & 256 != 0 {
+                format!("{glyph}\u{0332}")
+            } else {
+                glyph.to_string()
+            }
+        }
     }
 }
 
 fn diagram(out: &mut String, rows: &[Vec<String>], half: usize) {
-    let width = rows.iter().flatten().map(String::len).max().unwrap_or(1);
+    let width = rows
+        .iter()
+        .flatten()
+        .map(|s| s.chars().count())
+        .max()
+        .unwrap_or(1);
     for row in rows {
         let split = half.min(row.len() / 2);
         let hand = |keys: &[String]| {
@@ -91,7 +103,8 @@ fn toucan_map() -> Result<String> {
         );
         out.push('\n');
     }
-    out.push_str("Left outer thumb: tap to toggle Braille, hold for momentary Braille\n");
+    out.push_str("Tap the left outer thumb to toggle Braille. Hold it for momentary Braille.\n");
+    out.push_str("Hold all three left thumbs for two seconds to switch between Prospector USB and direct Bluetooth.\n\n");
     out.push_str(&menu_cells());
     Ok(out)
 }
@@ -112,20 +125,10 @@ fn paintbrush_map() -> String {
 }
 
 fn menu_cells() -> String {
-    let mut text = String::from("Menu: hold Space\n");
-    for row in 0..3 {
-        let dot = |bit: usize| {
-            if LEADER & (1u16 << bit) != 0 {
-                'o'
-            } else {
-                '.'
-            }
-        };
-        let pair = format!("{} {}", dot(row), dot(row + 3));
-        writeln!(text, "  {pair}    {pair}").unwrap();
-    }
-    text.push_str("  1st    2nd   (release dots between cells; within 2 s)\n");
-    text
+    format!(
+        "Main menu    {0} {0}\nKeep Space held and release the other keys between cells.\n",
+        dots(LEADER)
+    )
 }
 
 fn braille_reference() -> Result<String> {
@@ -133,10 +136,26 @@ fn braille_reference() -> Result<String> {
         "../../clients/components/generated/braille.core.wasm"
     ))
     .map_err(|e| format!("braille: {e:?}"))?;
-    let mut out = String::from("DOTS\n1 4\n2 5\n3 6\n7 8\n\n");
+    let mut out = String::from("BRAILLE REFERENCE\nAn underlined cell includes Space.\n\n");
     out.push_str(&menu_cells());
-    out.push_str("Second cell: q Main | r Reference | c Configuration | b Bindings | d Diagnostics\n\nMENU CONTROLS (hold Space)\n1 / 4   Previous / Next      3 / 6   Previous page / Next page\n7       Select               12      Back\n\nCOMPUTER 8\nDots             Output\n",
-    );
+    out.push_str("Menu navigation\n");
+    for (cell, action) in [
+        (0x101, "Previous"),
+        (0x108, "Next"),
+        (0x104, "Up"),
+        (0x120, "Down"),
+        (0x107, "First"),
+        (0x138, "Last"),
+        (0x13c, "Page up"),
+        (0x139, "Page down"),
+        (0x140, "Open"),
+        (0x103, "Back"),
+        (0x013, "Help"),
+        (0x113, "Help while editing a binding"),
+    ] {
+        writeln!(out, "{:<16} {action}", dots(cell))?;
+    }
+    out.push_str("\nCOMPUTER 8\nInput            Output\n");
     for cell in 1..=511 {
         let packed = braille
             .map_cell(cell)
@@ -154,7 +173,7 @@ fn braille_reference() -> Result<String> {
             )?;
         }
     }
-    out.push_str("\nUEB GRADE 1\nDot sequence         Meaning\n");
+    out.push_str("\nUEB GRADE 1\nInput                Meaning\n");
     for rule in kb_core::ueb1::RULES {
         let seq = rule.cells[..rule.count as usize]
             .iter()
@@ -163,7 +182,7 @@ fn braille_reference() -> Result<String> {
             .join(" / ");
         writeln!(out, "{seq:<20} {}", rule.label)?;
     }
-    out.push_str("\nUEB COMMANDS\nDots             Output\n");
+    out.push_str("\nUEB COMMANDS\nInput            Output\n");
     for cell in 1..=511 {
         if cell == LEADER {
             writeln!(out, "{:<16} Menu prefix", dots(cell))?;
@@ -190,7 +209,7 @@ pub fn generate(board: &str, images: &Path, output: &Path) -> Result {
     };
     fs::create_dir_all(output)?;
     let mut install = format!(
-        "{} + PROSPECTOR   v{}\n\nBOARD              BOOTLOADER                 IMAGE\n",
+        "{} INSTALL KIT   v{}\n\nBOARD              BOOTLOADER                 IMAGE\n",
         board.to_uppercase(),
         env!("CARGO_PKG_VERSION")
     );
@@ -215,7 +234,35 @@ pub fn generate(board: &str, images: &Path, output: &Path) -> Result {
         )?;
         fs::copy(images.join(&image), output.join(image))?;
     }
-    install.push_str("\nINSTALL   one board at a time\n1. Connect board by USB; double-tap Reset to enter the UF2 bootloader.\n2. Open the mounted drive. Check INFO_UF2.TXT and bootloader against table.\n   Wrong board or bootloader: stop.\n3. Copy the matching .uf2 onto the drive. Wait for automatic reboot.\n   macOS/Linux: bash flash-uf2.sh IMAGE.uf2 MOUNTED_DRIVE\n4. Repeat for the other boards.\n\nRUN\nProspector -> USB computer\nLeft + right -> battery or USB power -> automatic pairing to Prospector\n\nREFERENCE\nKEYMAP.txt    Physical layouts (left | right, top to bottom)\nBRAILLE.txt   Menu, Computer 8, UEB Grade 1\n");
+    install.push_str(
+        "\nINSTALL\nUse the matching images from this kit for all three boards on the first upgrade.\n\n\
+         1. Connect one board by USB and double-tap Reset to enter its UF2 bootloader.\n\
+         2. Check INFO_UF2.TXT on the mounted drive against the board and bootloader above.\n\
+         3. Copy the matching UF2 to the drive and wait for the board to reboot.\n\
+            On macOS/Linux you can run bash flash-uf2.sh IMAGE.uf2 MOUNTED_DRIVE.\n\
+         4. Repeat for the other boards.\n\nFIRST CONNECTION\n",
+    );
+    install.push_str(match contract {
+        Contract::Keyboard => {
+            "Connect Prospector to the computer over USB and power both halves.\n\
+             The right half pairs with the left. The left pairs with the Prospector.\n\
+             The computer sees kb.wlt Toucan Receiver as its USB keyboard.\n\n\
+             DIRECT BLUETOOTH\n\
+             Hold all three left thumb keys for two seconds to switch routes.\n\
+             Pair kb.wlt Toucan from the computer's Bluetooth settings.\n\
+             The halves work together with the Prospector off. Hold the same three\n\
+             thumbs again to return to Prospector USB. The selected route persists.\n"
+        }
+        Contract::Braille => {
+            "Connect Prospector to the computer over USB and power both halves.\n\
+             The halves pair automatically with the Prospector.\n\
+             The computer sees kb.wlt Split Receiver as its USB keyboard.\n"
+        }
+    });
+    install.push_str(
+        "\nREFERENCE\nKEYMAP.txt    Physical layouts (left | right, top to bottom)\n\
+         BRAILLE.txt   Menu navigation, Computer 8, UEB Grade 1\n",
+    );
     fs::write(output.join("INSTALL.txt"), install)?;
     fs::write(output.join("KEYMAP.txt"), keymap)?;
     fs::write(output.join("BRAILLE.txt"), braille_reference()?)?;
@@ -234,7 +281,11 @@ mod tests {
         let toucan = toucan_map().unwrap();
         let paintbrush = paintbrush_map();
         let reference = braille_reference().unwrap();
-        assert!(toucan.is_ascii() && paintbrush.is_ascii() && reference.is_ascii());
+        assert!(
+            [&toucan, &paintbrush, &reference]
+                .iter()
+                .all(|text| text.contains('⠁'))
+        );
         for name in ["Left Ctrl", "Backspace", "Braille", "Space"] {
             assert!(toucan.contains(name), "{name}");
         }
@@ -245,13 +296,13 @@ mod tests {
                 .unwrap()
                 .split_whitespace()
                 .collect::<String>()
-                .contains("[7][3][2][1][4][5][6][8]")
+                .contains("[⡀][⠄][⠂][⠁][⠈][⠐][⠠][⢀]")
         );
         for expected in [
-            "12345+Space      Menu prefix",
-            "1                'a'",
+            "⠟̲               Menu prefix",
+            "⠁                'a'",
             "UEB GRADE 1",
-            "6 / 1                A",
+            "⠠ / ⠁                A",
         ] {
             assert!(reference.contains(expected), "{expected}");
         }

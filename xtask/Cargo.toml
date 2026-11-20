@@ -6,8 +6,9 @@ edition.workspace = true
 [dependencies]
 kb-component-build = { path = "../clients/build" }
 kb-component-runtime = { path = "../host/runtime" }
-kb-core = { path = "../shared/keyboard-core" }
 kb-display = { path = "../shared/display" }
+kb-core = { path = "../shared/keyboard-core" }
+kb-client-session = { path = "../clients/session" }
 
 [dev-dependencies]
 wit-parser = "0.251.0"
