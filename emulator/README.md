@@ -13,7 +13,7 @@ CC_wasm32_unknown_unknown=/path/to/wasi-sdk/bin/clang npm --prefix emulator run 
 npm --prefix emulator start
 ```
 
-Open [localhost:4173](http://127.0.0.1:4173). After changing Wavelet code, run `./scripts/build-components.sh` from the repo root before rebuilding the emulator. The build writes the static site to `emulator/dist`. Run `npm --prefix emulator test` for unit checks and `npm --prefix emulator run test:browser` after a build for the full smoke test with Google Chrome installed.
+Open [localhost:4173](http://127.0.0.1:4173). After changing Wavelet code, run `./scripts/build --wasm-only` from the repo root before rebuilding the emulator. The build writes the static site to `emulator/dist`. Run `npm --prefix emulator test` for unit checks and `npm --prefix emulator run test:browser` after a build for the full smoke test with Google Chrome installed.
 
 ## Keyboard and displays
 

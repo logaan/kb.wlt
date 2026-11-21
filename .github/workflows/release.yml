@@ -5,8 +5,8 @@ on:
     branches: [master]
     paths:
       - .github/workflows/release.yml
-      - scripts/release-version.py
-      - scripts/tests/test_release_version.py
+      - scripts/ci/release-version.py
+      - scripts/ci/tests/test_release_version.py
   workflow_dispatch:
     inputs:
       bump:
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      - run: python3 -m unittest discover -s scripts/ci/tests -p 'test_*.py'
   release:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
@@ -49,7 +49,7 @@ jobs:
         with:
           targets: thumbv7em-none-eabihf
           components: rustfmt
-      - run: bash scripts/ci-clang.sh
+      - run: bash scripts/ci/ci-clang.sh
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           workspaces: |
@@ -67,12 +67,12 @@ jobs:
           if [[ -z "$(git tag --list 'v[0-9]*')" ]]; then
             version_args+=(--allow-current)
           fi
-          version=$(python3 scripts/release-version.py "${version_args[@]}" --check)
+          version=$(python3 scripts/ci/release-version.py "${version_args[@]}" --check)
           if git rev-parse --verify --quiet "refs/tags/v$version"; then
             echo "Tag v$version already exists" >&2
             exit 1
           fi
-          python3 scripts/release-version.py "${version_args[@]}" --notes "$RUNNER_TEMP/release-notes.md"
+          python3 scripts/ci/release-version.py "${version_args[@]}" --notes "$RUNNER_TEMP/release-notes.md"
           cargo update --workspace
           (cd firmware/nrf52840 && cargo update --workspace)
           cargo update --workspace --manifest-path host/runtime/tests/embedded/Cargo.toml
@@ -80,14 +80,13 @@ jobs:
       - name: Test release
         run: |
           cargo fmt --all -- --check
-          cargo test --workspace --locked --features kb-display/lvgl
-          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+          ./scripts/test
       - name: Build firmware
-        run: bash scripts/build-artifacts.sh
+        run: ./scripts/ci/build-uf2
       - name: Build and verify board install kits
         env:
           VERSION: ${{ steps.version.outputs.value }}
-        run: python3 scripts/package-release.py "$VERSION"
+        run: python3 scripts/ci/package-release.py "$VERSION"
       - name: Commit and tag release
         env:
           VERSION: ${{ steps.version.outputs.value }}

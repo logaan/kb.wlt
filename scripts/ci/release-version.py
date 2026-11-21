@@ -139,7 +139,7 @@ def main():
     parser.add_argument("--allow-current", action="store_true")
     parser.add_argument("--date")
     parser.add_argument("--notes", type=Path)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     args = parser.parse_args()
     try:
         print(update(args.root, args.bump, args.version, args.check, args.allow_current, args.date, args.notes))

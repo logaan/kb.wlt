@@ -15,9 +15,9 @@ cargo xtask build toucan-prospector
 Flash all three matching images for the initial upgrade. Enter each board's bootloader and substitute its mounted volume.
 
 ```sh
-./scripts/flash-uf2.sh dist/toucan-left-satellite-display.uf2 /Volumes/XIAO-BOOT
-./scripts/flash-uf2.sh dist/toucan-right-satellite.uf2 /Volumes/XIAO-BOOT
-./scripts/flash-uf2.sh dist/toucan-prospector.uf2 /Volumes/XIAO-SENSE
+./scripts/flash dist/toucan-left-satellite-display.uf2 /Volumes/XIAO-BOOT
+./scripts/flash dist/toucan-right-satellite.uf2 /Volumes/XIAO-BOOT
+./scripts/flash dist/toucan-prospector.uf2 /Volumes/XIAO-SENSE
 ```
 
 The stock XIAO S140 v7 bootloader loads at `0x27000`. The `--s140v6` and `--nosd` build options select alternate origins for matching bootloaders and add suffixes to the output files.

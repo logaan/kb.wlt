@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 probe="$repo_dir/host/runtime/tests/embedded"
 target_dir="$repo_dir/target/embedded-probe"
 for role in braille keyboard; do

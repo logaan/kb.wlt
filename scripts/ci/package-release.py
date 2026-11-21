@@ -7,7 +7,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def digest(data):
@@ -28,7 +28,7 @@ def package(version, images, output):
             subprocess.run(["cargo", "xtask", "install-kit", board, images, kit], cwd=ROOT, check=True)
             files = sorted(kit.iterdir())
             firmware = sorted(kit.glob("*.uf2"))
-            if len(firmware) != 3 or {p.name for p in files if p not in firmware} != {"INSTALL.txt", "BRAILLE.txt", "KEYMAP.txt", "LICENSES.txt", "flash-uf2.sh"}:
+            if len(firmware) != 3 or {p.name for p in files if p not in firmware} != {"INSTALL.txt", "BRAILLE.txt", "KEYMAP.txt", "LICENSES.txt", "flash"}:
                 raise ValueError(f"incomplete install kit: {board}")
             included.extend(p.name for p in firmware)
             sums = "".join(f"{digest(p.read_bytes())}  {p.name}\n" for p in files)

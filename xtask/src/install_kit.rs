@@ -249,7 +249,7 @@ pub fn generate(board: &str, images: &Path, output: &Path) -> Result {
          1. Connect one board by USB and double-tap Reset to enter its UF2 bootloader.\n\
          2. Check INFO_UF2.TXT on the mounted drive against the board and bootloader above.\n\
          3. Copy the matching UF2 to the drive and wait for the board to reboot.\n\
-            On macOS/Linux you can run bash flash-uf2.sh IMAGE.uf2 MOUNTED_DRIVE.\n\
+            On macOS/Linux you can run bash flash IMAGE.uf2 MOUNTED_DRIVE.\n\
          4. Repeat for the other boards.\n\nFIRST CONNECTION\n",
     );
     install.push_str(match contract {
@@ -309,10 +309,7 @@ pub fn generate(board: &str, images: &Path, output: &Path) -> Result {
             include_str!("../../host/runtime/embedded/LICENSE-wabt")
         ),
     )?;
-    fs::write(
-        output.join("flash-uf2.sh"),
-        include_bytes!("../../scripts/flash-uf2.sh"),
-    )?;
+    fs::write(output.join("flash"), include_bytes!("../../scripts/flash"))?;
     Ok(())
 }
 

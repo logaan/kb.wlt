@@ -9,7 +9,7 @@
 - The Toucan home screens show link state and both halves’ battery levels.
 - The Braille Debug menu can request USB UF2 bootloader entry for selected, reachable XIAO boards.
 - A touch-wired Prospector supports menu gestures and can enter its local UF2 bootloader without a connected keyboard.
-- Added `scripts/clean.sh` to remove local build outputs and stale firmware artifacts.
+- Added `scripts/clean` to remove local build outputs and stale firmware artifacts.
 
 ### Changed
 
@@ -23,6 +23,7 @@
 - The UF2 flash helper prompts for a firmware image or bootloader volume when its path is omitted.
 - The clean script removes obsolete Prospector and Braille reference screenshots from `dist/`.
 - Renamed the Paintbrush receiver image from `prospector-pair.uf2` to `paintbrush-prospector.uf2` to match the Toucan naming.
+- Exposed `build`, `test`, `flash`, `release`, and `clean` under `scripts/`. The build command regenerates Wasm before producing UF2s.
 
 ### Fixed
 

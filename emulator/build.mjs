@@ -25,7 +25,7 @@ const { files, exports } = await transpile(guest, {
   emitTypescriptDeclarations: false,
 });
 if (!["keyboard", "braille", "display"].every(name => exports.some(([key]) => key === name))) {
-  throw new Error("Toucan component is missing an interface. Run ./scripts/build-components.sh.");
+  throw new Error("Toucan component is missing an interface. Run ./scripts/build --wasm-only.");
 }
 
 const env = { ...process.env, CARGO_TARGET_DIR: target };

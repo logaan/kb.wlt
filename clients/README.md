@@ -27,11 +27,11 @@ These commands compile their canonical source into `target/components/`, run the
 Regenerate all checked-in components after changing client sources:
 
 ```sh
-./scripts/build-components.sh
-cargo xtask check
+./scripts/build --wasm-only
+./scripts/test
 ```
 
-Binaryen optimizes production firmware cores and middleware test fixtures. These fixtures exercise the reusable host pipeline; there are no composed-firmware build targets. Commit both the source and generated artifacts. To check reproducibility without modifying them, pass an empty output directory to `build-components.sh` and compare it with `clients/components/generated/`.
+Binaryen optimizes production firmware cores and middleware test fixtures. These fixtures exercise the reusable host pipeline; there are no composed-firmware build targets. Commit both the source and generated artifacts. To check reproducibility without modifying them, pass an empty output directory to `./scripts/build --wasm-only` and compare it with `clients/components/generated/`.
 
 For a single client or an experiment:
 

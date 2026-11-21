@@ -15,4 +15,4 @@ cargo xtask probe braille clients/components/generated/braille.core.wasm
 
 Tests and probes cover ABI validation, malformed outputs, traps, chaining, resource use, and typing behavior. Normal builds check the selected artifact before cross-building and require at least 16 KiB of native RAM reserve before UF2 generation. Check the board READMEs for hardware validation.
 
-Run `bash scripts/test-embedded.sh` with QEMU (`qemu-system-arm`) to exercise the Cortex-M guest, both display sizes, and fuel and memory traps.
+Run `./scripts/test --embedded` with QEMU (`qemu-system-arm`) to exercise the Cortex-M guest, both display sizes, and fuel and memory traps.

@@ -11,7 +11,7 @@ A keyboard firmware monorepo: Rust hosts run [Wavelet](https://github.com/logaan
 | [shared/](shared/) | Keyboard primitives, display controllers, and persistent storage |
 | [firmware/](firmware/) | Shared nRF52840 platform, radio, USB, and firmware build manifest |
 | [emulator/](emulator/) | Browser simulator for the Toucan and Prospector |
-| `xtask/`, `scripts/` | Target catalog, build/flash tools, and release automation |
+| `xtask/`, [scripts/](scripts/) | Target catalog, build/flash tools, and release automation |
 
 ## Build and flash
 
@@ -19,25 +19,23 @@ Run commands from the repository root. Install Rust, the current Wavelet CLI, Bi
 
 ```sh
 rustup target add thumbv7em-none-eabihf
-cargo xtask check
-cargo xtask targets
-cargo xtask build toucan-left-satellite-display
-cargo xtask build toucan-right-satellite
-cargo xtask build toucan-prospector
+./scripts/test
+./scripts/build
 ```
 
-Images are written to `dist/`. Enter the appropriate board's UF2 bootloader and flash one board at a time, using its actual mounted volume:
+The build regenerates Wasm and writes all six UF2 images to `dist/release/`. For a single board, run `cargo xtask targets` and `cargo xtask build TARGET` to write its image to `dist/`. Enter the board's UF2 bootloader and use the flash menu or pass both paths:
 
 ```sh
-./scripts/flash-uf2.sh dist/toucan-prospector.uf2 /Volumes/XIAO-SENSE
+./scripts/flash
+./scripts/flash dist/release/toucan-prospector.uf2 /Volumes/XIAO-SENSE
 ```
 
-A release contains six UF2s across the Toucan and Paintbrush install kits. Use the matching images from the same kit. The Toucan left half handles typing and can send reports through Prospector, to one of five Bluetooth hosts, or over its own USB port. Paintbrush sends reports through its USB Prospector. Normal builds compile the canonical client source. Release builds use its checked-in artifacts. After editing client sources, run `./scripts/build-components.sh` and commit the generated changes.
+A release contains six UF2s across the Toucan and Paintbrush install kits. Use the matching images from the same kit. The Toucan left half handles typing and can send reports through Prospector, to one of five Bluetooth hosts, or over its own USB port. Paintbrush sends reports through its USB Prospector. After editing Wavelet sources, run `./scripts/build` or `./scripts/build --wasm-only` and commit the generated changes. Release builds use the checked-in Wasm.
 
 ## Validation and releases
 
 The [browser emulator](emulator/) runs the Toucan component, both displays, and simulated host targets and touch input. The earlier Toucan USB configuration passed hardware testing. The current firmware and the Paintbrush kit still need hardware validation.
 
-`cargo xtask check` runs workspace tests and shared-crate cross-checks. `./scripts/build-artifacts.sh` checks both clients with Wasmi, cross-builds the six supported images with bounded guest memory and target flash and stack limits, and replaces the UF2s and checksums in `dist/release/`. `cargo xtask verify-release dist/release` rejects missing or extra images. Neither command flashes hardware.
+`./scripts/test` runs workspace tests, shared-crate cross-checks, and release-script tests. `./scripts/test --embedded` runs the Cortex-M probes in QEMU. `./scripts/clean` removes local build outputs.
 
-Push development commits to `master`. Publish versions through the manual **Release** GitHub Actions workflow, which synchronizes versions using `scripts/release-version.py`, runs tests/builds, creates a release commit and tag, and publishes one install ZIP per keyboard plus checksums. Each ZIP contains its left, right, and receiver UF2s, `INSTALL.txt`, the flash helper, and UTF-8 `KEYMAP.txt` and `BRAILLE.txt` references. Do not create release tags manually.
+Push development commits to `master`. With GitHub CLI authenticated, run `./scripts/release patch` to dispatch the **Release** workflow, or start it from GitHub Actions. The workflow synchronizes versions, runs tests and builds, creates a release commit and tag, and publishes one install ZIP per keyboard plus checksums. Each ZIP contains its left, right, and receiver UF2s, `INSTALL.txt`, the flash helper, and UTF-8 `KEYMAP.txt` and `BRAILLE.txt` references.

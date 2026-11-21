@@ -19,9 +19,9 @@ cargo xtask build paintbrush-prospector
 Enter each board's UF2 bootloader and flash one board at a time, substituting the actual mounted volume:
 
 ```sh
-./scripts/flash-uf2.sh dist/paintbrush-left-satellite.uf2 /Volumes/NICENANO
-./scripts/flash-uf2.sh dist/paintbrush-right-satellite.uf2 /Volumes/NICENANO
-./scripts/flash-uf2.sh dist/paintbrush-prospector.uf2 /Volumes/XIAO-SENSE
+./scripts/flash dist/paintbrush-left-satellite.uf2 /Volumes/NICENANO
+./scripts/flash dist/paintbrush-right-satellite.uf2 /Volumes/NICENANO
+./scripts/flash dist/paintbrush-prospector.uf2 /Volumes/XIAO-SENSE
 ```
 
 Paintbrush defaults to nice!nano S140 v6 at `0x26000`; Prospector defaults to XIAO S140 v7 at `0x27000`. `--s140v6`, `--s140v7`, and `--nosd` select alternative origins and suffixed outputs for compatible bootloaders.
@@ -30,7 +30,7 @@ For subsequent Prospector updates, keep it connected by USB and open **Main Menu
 
 Keep Prospector on USB and power the satellites from USB or batteries. Both halves pair automatically with the receiver; do not pair them through the computer's Bluetooth settings. The host sees **kb.wlt Split Receiver**. A satellite's USB connection only supplies power and bootloader access.
 
-Only the receiver executes the client. For a custom client, use `cargo xtask build paintbrush-prospector --source path/to/braille.wlt`; reflash only the receiver. Regenerate checked-in components with `./scripts/build-components.sh` before committing changes to the canonical client.
+Only the receiver executes the client. For a custom client, use `cargo xtask build paintbrush-prospector --source path/to/braille.wlt`; reflash only the receiver. Regenerate checked-in components with `./scripts/build --wasm-only` before committing changes to the canonical client.
 
 ## Receiver menus
 

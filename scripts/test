@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+case "$#:${1:-}" in
+  0:)
+    cd "$repo_dir"
+    cargo run --locked --package xtask -- check
+    python3 -m unittest discover -s scripts/ci/tests -p 'test_*.py'
+    ;;
+  1:--embedded)
+    exec bash "$repo_dir/scripts/ci/test-embedded.sh"
+    ;;
+  *)
+    printf 'Usage: %s [--embedded]\n' "$0" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case "$#:${1:-}" in
+  1:patch|1:minor|1:major)
+    inputs=(-f "bump=$1")
+    ;;
+  2:set)
+    inputs=(-f bump=set -f "version=$2")
+    ;;
+  *)
+    printf 'Usage: %s {patch|minor|major|set VERSION}\n' "$0" >&2
+    exit 2
+    ;;
+esac
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+exec gh workflow run release.yml --ref master "${inputs[@]}"

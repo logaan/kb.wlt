@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ ${1:-} == --wasm-only ]]; then
+  shift
+  exec "$script_dir/ci/build-wasm" "$@"
+fi
+if [[ $# -gt 1 || ${1:-} == -* ]]; then
+  printf 'Usage: %s [UF2_OUTPUT_DIR] or %s --wasm-only [WASM_OUTPUT_DIR]\n' "$0" "$0" >&2
+  exit 2
+fi
+"$script_dir/ci/build-wasm"
+exec "$script_dir/ci/build-uf2" "$@"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 output_dir=${1:-"$repo_dir/dist/release"}
 firmware_target_dir=${KB_FIRMWARE_TARGET_DIR:-"$repo_dir/firmware/nrf52840/target"}
 mkdir -p "$output_dir"

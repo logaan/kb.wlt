@@ -29,9 +29,7 @@ jobs:
           workspaces: |
             . -> target
       - run: cargo fmt --all -- --check
-      - run: cargo test --workspace --locked --features kb-display/lvgl
-      - run: cargo check --locked -p kb-core -p kb-component-runtime -p kb-display --features kb-display/lvgl --target thumbv7em-none-eabihf
-      - run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      - run: ./scripts/test
   firmware:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -40,12 +38,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           targets: thumbv7em-none-eabihf
-      - run: bash scripts/ci-clang.sh
+      - run: bash scripts/ci/ci-clang.sh
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           workspaces: |
             . -> target
             firmware/nrf52840 -> target
-      - run: bash scripts/build-artifacts.sh
+      - run: ./scripts/ci/build-uf2
       - run: sudo apt-get install -y qemu-system-arm
-      - run: bash scripts/test-embedded.sh
+      - run: ./scripts/test --embedded
