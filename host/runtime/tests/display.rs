@@ -375,10 +375,14 @@ fn page_moves_track_the_viewport_and_help_explains_navigation() {
         tap(&mut session, &mut guest, 29);
     }
     let help = session.model(Links::default());
-    let help = guest.render(280, 240, help.bytes.as_slice(), "").unwrap();
-    let labels = labels(help.as_slice());
-    assert!(labels.contains(&"Return opens"));
-    assert!(labels.contains(&"Underline = Space"));
+    for (width, height, enter) in [(280, 240, "Return opens"), (144, 168, "Ret opens")] {
+        let display = guest
+            .render(width, height, help.bytes.as_slice(), "")
+            .unwrap();
+        let labels = labels(display.as_slice());
+        assert!(labels.contains(&enter));
+        assert!(!labels.iter().any(|label| label.ends_with("= Space")));
+    }
 }
 
 #[test]

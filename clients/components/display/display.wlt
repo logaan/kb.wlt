@@ -941,7 +941,7 @@ Def display-help Fn {w: s64 h: s64 selected: s64}
                   acc: display-text(acc 7 y 1 0 label)}
                display-dots(acc sub(w add(dot-w 9)) y dot-w sub(row-h 2) get(cells 0)))]
          frame range(0 count))}
-    display-bar(display-text(frame 7 sub(h mul(2 display-footer-h(w))) 4 3 If display-wide(w) "Underline = Space" "Line = Space") w h 13)
+    display-bar(frame w h 13)
 
 Export {iface: "kb:firmware/display@0.1.0"
         name: render

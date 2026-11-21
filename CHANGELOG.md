@@ -24,6 +24,7 @@
 - The clean script removes obsolete Prospector and Braille reference screenshots from `dist/`.
 - Renamed the Paintbrush receiver image from `prospector-pair.uf2` to `paintbrush-prospector.uf2` to match the Toucan naming.
 - Exposed `build`, `test`, `flash`, `release`, and `clean` under `scripts/`. The build command regenerates Wasm before producing UF2s.
+- Removed the Space underline legend from Braille Help.
 
 ### Fixed
 
