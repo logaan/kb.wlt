@@ -22,6 +22,7 @@
 - Toucan Prospector redraws changed dashboard regions rather than streaming a full screen for each chord, and shows the menu gesture as two braille cells.
 - The UF2 flash helper prompts for a firmware image or bootloader volume when its path is omitted.
 - The clean script removes obsolete Prospector and Braille reference screenshots from `dist/`.
+- Renamed the Paintbrush receiver image from `prospector-pair.uf2` to `paintbrush-prospector.uf2` to match the Toucan naming.
 
 ### Fixed
 

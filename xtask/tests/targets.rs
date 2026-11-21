@@ -6,7 +6,7 @@ const EXPECTED: [&str; 6] = [
     "toucan-prospector",
     "paintbrush-left-satellite",
     "paintbrush-right-satellite",
-    "prospector-pair",
+    "paintbrush-prospector",
 ];
 
 #[test]
@@ -14,6 +14,10 @@ fn supported_targets_are_exactly_two_three_board_setups() {
     assert_eq!(
         TARGETS.iter().map(|target| target.name).collect::<Vec<_>>(),
         EXPECTED
+    );
+    assert_eq!(
+        find("prospector-pair").unwrap().name,
+        "paintbrush-prospector"
     );
     for name in [
         "xiao-led",
@@ -50,9 +54,11 @@ fn releases_reject_missing_and_stale_firmware() {
         missing.remove(index);
         assert!(verify_release_names(&missing).is_err());
     }
-    let mut stale = names.clone();
-    stale.push("prospector-display-test.uf2".into());
-    assert!(verify_release_names(&stale).is_err());
+    for image in ["prospector-display-test.uf2", "prospector-pair.uf2"] {
+        let mut stale = names.clone();
+        stale.push(image.into());
+        assert!(verify_release_names(&stale).is_err());
+    }
     let mut packaged = names;
     packaged.extend(["SHA256SUMS".into(), "kb.wlt-0.1.1.tar.gz".into()]);
     assert!(verify_release_names(&packaged).is_ok());

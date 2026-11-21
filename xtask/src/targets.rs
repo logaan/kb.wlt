@@ -56,7 +56,7 @@ pub const TARGETS: &[Target] = &[
         flash_origin: STOCK_APPLICATION_START,
     },
     Target {
-        name: "prospector-pair",
+        name: "paintbrush-prospector",
         binary: "prospector-dongle",
         features: "usb,split,prospector-display",
         contract: Contract::Braille,
@@ -84,5 +84,9 @@ pub fn verify_release_names(names: &[String]) -> Result<(), String> {
 }
 
 pub fn find(name: &str) -> Option<Target> {
+    let name = match name {
+        "prospector-pair" => "paintbrush-prospector",
+        name => name,
+    };
     TARGETS.iter().copied().find(|target| target.name == name)
 }

@@ -19,7 +19,7 @@ Install the current Wavelet CLI, Binaryen, and WABT 1.0.42. The build recognizes
 
 ```sh
 cargo xtask build toucan-left-satellite-display
-cargo xtask build prospector-pair
+cargo xtask build paintbrush-prospector
 ```
 
 These commands compile their canonical source into `target/components/`, run the native resource probe, and build firmware. The Toucan guest combines keyboard, braille, and display exports. The Paintbrush receiver guest combines braille and display exports. `--source path/to/client.wlt` overrides the source for a one-off build without changing release defaults.
