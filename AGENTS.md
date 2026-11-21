@@ -1,6 +1,6 @@
 # Working conventions
 
-Work in the shared checkout and coordinate file ownership between agents. Commit completed changes locally as you work. Use `master` as the main branch. Do not force-push or rewrite others’ commits unless explicitly instructed.
+Work in the shared checkout and coordinate file ownership between agents. Commit completed changes locally as you work, and push your commits when the task is done. Use `master` as the main branch. Do not force-push or rewrite others’ commits unless explicitly instructed.
 
 Do not add comments to code, tests, configuration, or scripts. Preserve executable shebangs and tool-required directives. Documentation is limited to material the user explicitly requested: the brief root README, monorepo area READMEs with build instructions and hardware status, this file, and the changelog.
 
