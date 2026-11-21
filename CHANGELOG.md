@@ -21,6 +21,7 @@
 - Each Toucan half has all eight Braille dots and an inner Space thumb. Tap or hold either outer thumb to activate Braille. Removed the navigation layer.
 - Toucan Prospector redraws changed dashboard regions rather than streaming a full screen for each chord, and shows the menu gesture as two braille cells.
 - The UF2 flash helper prompts for a firmware image or bootloader volume when its path is omitted.
+- The clean script removes obsolete Prospector and Braille reference screenshots from `dist/`.
 
 ### Fixed
 
