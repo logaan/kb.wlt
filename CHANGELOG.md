@@ -9,6 +9,7 @@
 - The Toucan home screens show link state and both halves’ battery levels.
 - The Braille Debug menu can request USB UF2 bootloader entry for selected, reachable XIAO boards.
 - A touch-wired Prospector supports menu gestures and can enter its local UF2 bootloader without a connected keyboard.
+- Added `scripts/clean.sh` to remove local build outputs and stale firmware artifacts.
 
 ### Changed
 
@@ -19,6 +20,7 @@
 - Install kits include UTF-8 Braille keymaps and board-specific connection instructions.
 - Each Toucan half has all eight Braille dots and an inner Space thumb. Tap or hold either outer thumb to activate Braille. Removed the navigation layer.
 - Toucan Prospector redraws changed dashboard regions rather than streaming a full screen for each chord, and shows the menu gesture as two braille cells.
+- The UF2 flash helper prompts for a firmware image or bootloader volume when its path is omitted.
 
 ### Fixed
 
